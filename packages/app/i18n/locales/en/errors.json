@@ -1,0 +1,22 @@
+{
+  "UNAUTHORIZED": "You need to sign in to continue.",
+  "FORBIDDEN": "You don't have permission to do that.",
+  "NOT_FOUND": "Not found.",
+  "CONFLICT": "That conflicts with something that already exists.",
+  "VALIDATION_ERROR": "Please check the form and try again.",
+  "UNKNOWN_ERROR": "Something went wrong. Please try again.",
+  "INVALID_CREDENTIALS": "Invalid email or password.",
+  "INVALID_REFRESH_TOKEN": "Your session expired. Please sign in again.",
+  "EMAIL_ALREADY_EXISTS": "That email is already registered.",
+  "EMAIL_NOT_VERIFIED": "Please verify your email first.",
+  "OTP_INVALID": "That code is invalid.",
+  "OTP_EXPIRED": "That code has expired.",
+  "OTP_RATE_LIMITED": "Too many attempts. Please wait and try again.",
+  "TENANT_NOT_FOUND": "We couldn't find your workspace.",
+  "USER_NOT_FOUND": "User not found.",
+  "EXAMPLE_NOT_FOUND": "That item no longer exists.",
+  "FILE_NOT_FOUND": "File not found.",
+  "FILE_TOO_LARGE": "That file is too large.",
+  "FILE_TYPE_NOT_ALLOWED": "That file type isn't allowed.",
+  "GENERIC": "Something went wrong. Please try again."
+}

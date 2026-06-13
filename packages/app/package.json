@@ -1,0 +1,40 @@
+{
+  "version": "0.0.0",
+  "name": "@perduraflow/app",
+  "main": "index.ts",
+  "private": true,
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@perduraflow/contracts": "0.0.1",
+    "@perduraflow/ui": "0.0.1",
+    "@react-navigation/native": "^6.1.17",
+    "@tamagui/animations-react-native": "2.0.0-rc.16",
+    "@tamagui/colors": "2.0.0-rc.16",
+    "@tamagui/font-inter": "2.0.0-rc.16",
+    "@tamagui/lucide-icons": "2.0.0-rc.16",
+    "@tamagui/next-theme": "2.0.0-rc.16",
+    "@tamagui/shorthands": "2.0.0-rc.16",
+    "@tamagui/themes": "2.0.0-rc.16",
+    "@tanstack/react-query": "^5.62.0",
+    "axios": "^1.7.9",
+    "burnt": "^0.12.2",
+    "expo-constants": "~17.1.6",
+    "expo-linking": "~7.1.4",
+    "expo-secure-store": "~15.0.8",
+    "i18next": "^24.2.0",
+    "intl-pluralrules": "^2.0.1",
+    "react-i18next": "^15.4.0",
+    "react-native-safe-area-context": "~5.6.0",
+    "solito": "5.0.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "@types/react-native": "^0.73.0"
+  }
+}

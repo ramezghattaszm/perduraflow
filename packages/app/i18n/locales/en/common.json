@@ -1,0 +1,19 @@
+{
+  "back": "Back",
+  "next": "Next",
+  "done": "Done",
+  "cancel": "Cancel",
+  "submit": "Submit",
+  "save": "Save",
+  "close": "Close",
+  "delete": "Delete",
+  "edit": "Edit",
+  "confirm": "Confirm",
+  "ok": "OK",
+  "retry": "Retry",
+  "loading": "Loading…",
+  "error": "Something went wrong",
+  "required": "This field is required",
+  "passwordMismatch": "Passwords do not match",
+  "signOut": "Sign out"
+}

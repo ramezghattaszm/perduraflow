@@ -1,0 +1,77 @@
+{
+  "name": "perduraflow",
+  "private": true,
+  "workspaces": [
+    "./apps/*",
+    "./packages/*"
+  ],
+  "scripts": {
+    "web": "bun --filter @perduraflow/next dev",
+    "native": "bun --filter @perduraflow/expo start",
+    "ios": "bun --filter @perduraflow/expo ios",
+    "android": "bun --filter @perduraflow/expo android",
+    "native:prebuild": "bun --filter @perduraflow/expo prebuild",
+    "api": "bun --filter @perduraflow/api dev",
+    "build": "bun --filter @perduraflow/contracts build && bun --filter @perduraflow/config build && bun --filter @perduraflow/ui build",
+    "postinstall": "bun run build",
+    "typecheck": "turbo run type-check",
+    "lint": "biome check .",
+    "lint:docs": "eslint apps/api/src packages/ui/src packages/app/hooks packages/app/stores",
+    "check": "turbo run type-check && bun run lint:docs",
+    "check-tamagui": "tamagui check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:setup": "bun --filter @perduraflow/api db:setup",
+    "db:generate": "bun --filter @perduraflow/api db:generate",
+    "db:migrate": "bun --filter @perduraflow/api db:migrate",
+    "db:seed": "bun --filter @perduraflow/api db:seed",
+    "prepare": "husky"
+  },
+  "patchedDependencies": {
+    "solito@5.0.0": "patches/solito@5.0.0.patch"
+  },
+  "resolutions": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-refresh": "^0.14.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-svg": "15.12.1",
+    "react-native-web": "0.21.2",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-worklets": "0.5.1",
+    "expo-secure-store": "~15.0.8",
+    "@tamagui/core": "2.0.0-rc.16",
+    "@tamagui/web": "2.0.0-rc.16",
+    "tamagui": "2.0.0-rc.16",
+    "@react-navigation/native": "7.1.28"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.24.6",
+    "@tamagui/cli": "2.0.0-rc.16",
+    "@tamagui/react-native-svg": "2.0.0-rc.16",
+    "@tamagui/react-native-web-lite": "2.0.0-rc.16",
+    "check-dependency-version-consistency": "^4.1.0",
+    "expo": "^54",
+    "husky": "^9.1.6",
+    "turbo": "^1.13.4",
+    "typescript": "~5.8.3",
+    "vitest": "^2.1.1"
+  },
+  "trustedDependencies": [
+    "@biomejs/biome",
+    "@nestjs/core",
+    "@swc/core",
+    "esbuild"
+  ],
+  "packageManager": "bun@1.3.14",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.3",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "eslint-plugin-jsdoc": "^50.6.9"
+  }
+}

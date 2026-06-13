@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@perduraflow/app/*": ["./packages/app/*"],
+      "@perduraflow/ui/*": ["./packages/ui/*"],
+      "@perduraflow/config": ["./packages/config/src"],
+      "@perduraflow/config/*": ["./packages/config/*"],
+      "@perduraflow/contracts": ["./packages/contracts/src"],
+      "@perduraflow/contracts/*": ["./packages/contracts/*"]
+    }
+  },
+  "extends": "./tsconfig.base",
+  "exclude": [
+    "**/node_modules",
+    "**/dist",
+    "**/types",
+    "apps/next/out",
+    "apps/next/.next",
+    "apps/next/.tamagui"
+  ]
+}

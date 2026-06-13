@@ -1,0 +1,8 @@
+# The Tamagui + Expo + Next starter relies on a flat (hoisted) node_modules so
+# packages can resolve phantom transitive Tamagui deps (e.g. @tamagui/core,
+# @tamagui/config, @tamagui/next-theme, @tamagui/polyfill-dev,
+# @tamagui/animations-motion). Bun's default isolated linker only symlinks
+# declared deps at the top level, which breaks those imports under Next/Turbopack
+# and Metro. Hoisted linking matches the dependency layout the starter expects.
+[install]
+linker = "hoisted"
