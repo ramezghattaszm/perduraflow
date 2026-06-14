@@ -23,5 +23,17 @@
   "CALENDAR_NOT_FOUND": "That calendar no longer exists.",
   "INVALID_PLANT_REFERENCE": "One or more selected plants no longer exist.",
   "DUPLICATE_NAME": "That name is already in use.",
+  "PART_NOT_FOUND": "That part no longer exists.",
+  "RESOURCE_NOT_FOUND": "That resource no longer exists.",
+  "RESOURCE_GROUP_NOT_FOUND": "That resource group no longer exists.",
+  "ROUTING_NOT_FOUND": "That routing no longer exists.",
+  "ROUTING_OPERATION_NOT_FOUND": "That operation no longer exists.",
+  "CERTIFICATION_NOT_FOUND": "That certification no longer exists.",
+  "OPERATOR_NOT_FOUND": "That operator no longer exists.",
+  "INVALID_CALENDAR_REFERENCE": "The selected calendar no longer exists.",
+  "INVALID_RESOURCE_REFERENCE": "One or more selected resources no longer exist.",
+  "INVALID_RESOURCE_GROUP_REFERENCE": "One or more selected resource groups no longer exist.",
+  "DUPLICATE_PART_NO": "That part number is already in use.",
+  "DUPLICATE_CERTIFICATION_CODE": "That certification code is already in use.",
   "GENERIC": "Something went wrong. Please try again."
 }

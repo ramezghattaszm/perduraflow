@@ -30,6 +30,7 @@ export const toCustomerDto = (c: Customer): CustomerDto => ({
   id: c.id,
   name: c.name,
   firmFenceDays: c.firmFenceDays,
+  priority: c.priority,
   isActive: c.isActive,
 })
 
@@ -38,6 +39,7 @@ export const toProgramDto = (p: Program): ProgramDto => ({
   customerId: p.customerId,
   name: p.name,
   firmFenceDays: p.firmFenceDays,
+  priority: p.priority ?? null,
   isActive: p.isActive,
 })
 

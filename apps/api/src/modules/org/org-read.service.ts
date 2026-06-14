@@ -86,4 +86,14 @@ export class OrgReadService implements OrgReadContract {
     const validSet = new Set(valid)
     return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
   }
+
+  /**
+   * Validates cross-module calendar references (O4, `org.read 1.1`): `master-data`
+   * calls this before persisting a `resource.calendar_id`.
+   */
+  async validateCalendarIds(tenantId: string, ids: string[]): Promise<PlantRefValidation> {
+    const valid = await this.repo.calendarIdsIn(tenantId, ids)
+    const validSet = new Set(valid)
+    return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
+  }
 }

@@ -4,12 +4,12 @@
 |---|---|
 | **Document** | Business & functional specification — Network material allocation module |
 | **Product** | Manufacturing operations platform; a domain module that allocates a shared raw-material supply across plants in a cluster (D50) |
-| **Status** | Draft v0.2 |
-| **Date** | 2026-06-10 |
-| **Companion docs** | Platform architecture specification (Draft v0.8); Master Data module specification (Draft v0.3); Production scheduling module business & functional specification (Draft v0.10); Net-requirements module specification (Draft v0.3) |
+| **Status** | Draft v0.3 |
+| **Date** | 2026-06-14 |
+| **Companion docs** | Platform architecture specification (Draft v0.10); Master Data module specification (Draft v0.4); Production scheduling module business & functional specification (Draft v0.11); Net-requirements module specification (Draft v0.3) |
 | **Intended use** | Source-of-truth for the Network material allocation module build; defines how a common material supply is split across plants and the contracts it consumes and produces |
 
-> **Status note:** NMA1–NMA10 are **Agreed**, including the NMA6 convergence rules (Section 4.1) with ML-tuned thresholds (A14). Open client-facing items are in the question log (Section 8, NMAQ1–NMAQ5).
+> **Status note:** NMA1–NMA11 are **Agreed**, including the NMA6 convergence rules (Section 4.1) with ML-tuned thresholds (A14) and the two-scope allocation charter (NMA11). Open client-facing items are in the question log (Section 8, NMAQ1–NMAQ5).
 
 ---
 
@@ -66,6 +66,7 @@ Decisions are logged as an **NMA-series** (Section 3); open questions as an **NM
 | **NMA8** | **Materials are flagged cluster-shared or plant-local.** Only materials designated **cluster-shared** (drawn by multiple plants of a sharing group from a common supply) are allocated here; plant-local materials need no network allocation and flow straight to the plant's receipts. The flag and the material↔cluster scope are configuration referencing the Master Data material and the plant group (D49). | Most materials are plant-local; allocating everything network-wide would be wasteful and wrong. The flag scopes the module to genuinely shared supply. | Agreed |
 | **NMA9** | **Allocation in the material's base UoM** (D40); consumes the Master Data `part` contract. Supply and requirements are normalized to the material's canonical base UoM at ingestion (MD4); a shared material is one global `part_no` consumed at multiple plants (D12, resolved via MD9). | Steel coil ordered in one unit and consumed in another otherwise corrupts allocation math; normalize once (D40). | Agreed |
 | **NMA10** | **Platform module** (A7/A8): tenant-scoped (D24); registers its supply-position input contract and the network allocation verdict output; consumes the scheduler's 4.10 and produces the scheduler's 4.8 as a `platform_module` binding; consumes the Master Data `part` contract; contributes a network-materials dashboard/exceptions into the kernel (A9/D6). | Follows the platform pattern (A7); network shortfall and reallocation events surface through the standard kernel frameworks. | Agreed |
+| **NMA11** | **Allocation is one capability at two scopes.** The module arbitrates scarce supply against competing demand **by commercial priority** at: (a) **network scope** — splitting a shared raw-material supply across plants in a sharing group (NMA1–NMA10, existing); and (b) **intra-plant order scope** — when on-hand material cannot satisfy everything scheduled at a plant, allocating the scarce component **across orders/customers** by **priority, contribution margin, and penalty exposure** (the commercial-arbitration "who wins" decision, not a sequencing decision). Same arbitration logic, finer scope. Output is **prioritized/resolved demand** the scheduler consumes as ordinary demand (the scheduler does not allocate); **shorted orders are flagged for human sign-off** (Tier-3 of A18 / D26). The commercial inputs (margin/penalty/priority) are **Master-Data-owned order economics (MD15)**, externally sourced — not authored here. | Scarcity arbitration is the same problem whether the contested axis is plants or orders; making it one module (two scopes) avoids a second allocation home and keeps the scheduler free of commercial policy. Routing the result through the existing demand contract keeps the scheduler's inputs unchanged, exactly as network allocation already does via 4.8. | Agreed |
 
 ---
 

@@ -190,6 +190,16 @@ export class OrgRepository {
     })
   }
 
+  /** Returns the ids (of the given set) that exist as calendars in the tenant (O4). */
+  async calendarIdsIn(tenantId: string, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return []
+    const rows = await this.db
+      .select({ id: calendar.id })
+      .from(calendar)
+      .where(and(eq(calendar.tenantId, tenantId), inArray(calendar.id, ids)))
+    return rows.map((r) => r.id)
+  }
+
   async createCalendar(data: NewCalendar): Promise<Calendar> {
     const [row] = await this.db.insert(calendar).values(data).returning()
     return row!

@@ -1,0 +1,339 @@
+import { HttpStatus, Inject, Injectable } from '@nestjs/common'
+import {
+  type CertificationDto,
+  type CreateCertificationRequest,
+  type CreateOperatorRequest,
+  type CreatePartRequest,
+  type CreateResourceGroupRequest,
+  type CreateResourceRequest,
+  type CreateRoutingRequest,
+  type OperatorDto,
+  type OrgReadContract,
+  type PartDto,
+  type ResourceDto,
+  type ResourceGroupDto,
+  type RoutingDto,
+  type SetOperatorQualificationRequest,
+  type UpdateCertificationRequest,
+  type UpdateOperatorRequest,
+  type UpdatePartRequest,
+  type UpdateResourceGroupRequest,
+  type UpdateResourceRequest,
+  type UpdateRoutingRequest,
+} from '@perduraflow/contracts'
+import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
+import { EVENTS } from '../../events'
+import { EventBus } from '../eventbus/event-bus'
+import { ORG_READ } from '../org/org-read.service'
+import {
+  toCertificationDto,
+  toOperatorDto,
+  toPartDto,
+  toResourceDto,
+  toResourceGroupDto,
+  toRoutingDto,
+} from './master-data.mapper'
+import { MasterDataRepository } from './master-data.repository'
+
+/**
+ * Master Data domain service — admin CRUD for parts, resources, resource groups,
+ * routings (+ operations), certifications, and operators (+ qualifications).
+ * Every operation is tenant-scoped from the JWT. **Cross-module references to the
+ * kernel org model (`plant_id`, `calendar_id`, `home_plant_id`) are validated
+ * through the injected `org.read` contract (O4)** — never by reaching into org's
+ * tables. Intra-module references (part, resource group) are validated locally.
+ * Creates publish through the EventBus (O5).
+ */
+@Injectable()
+export class MasterDataService {
+  constructor(
+    private readonly repo: MasterDataRepository,
+    @Inject(ORG_READ) private readonly org: OrgReadContract,
+    private readonly events: EventBus,
+  ) {}
+
+  // --- part ------------------------------------------------------------------
+  /** Lists the tenant's parts. */
+  async listParts(tenantId: string): Promise<PartDto[]> {
+    return (await this.repo.listParts(tenantId)).map(toPartDto)
+  }
+
+  /**
+   * Creates a part. Emits `master_data.part.created`.
+   * @throws AppException DUPLICATE_PART_NO - `part_no` already used in the tenant
+   */
+  async createPart(tenantId: string, dto: CreatePartRequest): Promise<PartDto> {
+    if (await this.repo.findPartByNo(tenantId, dto.partNo)) {
+      throw new AppException(HttpStatus.CONFLICT, 'Part number already exists', ERROR_CODES.DUPLICATE_PART_NO)
+    }
+    const row = await this.repo.createPart({ ...dto, tenantId })
+    await this.events.publish(EVENTS.PART_CREATED, { id: row.id, tenantId, name: row.partNo }, tenantId)
+    return toPartDto(row)
+  }
+
+  /**
+   * Updates a part in the tenant.
+   * @throws AppException PART_NOT_FOUND - no such part in the tenant
+   * @throws AppException DUPLICATE_PART_NO - the new `part_no` collides
+   */
+  async updatePart(tenantId: string, id: string, dto: UpdatePartRequest): Promise<PartDto> {
+    if (dto.partNo) {
+      const existing = await this.repo.findPartByNo(tenantId, dto.partNo)
+      if (existing && existing.id !== id) {
+        throw new AppException(HttpStatus.CONFLICT, 'Part number already exists', ERROR_CODES.DUPLICATE_PART_NO)
+      }
+    }
+    const row = await this.repo.updatePart(tenantId, id, dto)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
+    return toPartDto(row)
+  }
+
+  // --- resource --------------------------------------------------------------
+  /** Lists the tenant's resources. */
+  async listResources(tenantId: string): Promise<ResourceDto[]> {
+    return (await this.repo.listResources(tenantId)).map(toResourceDto)
+  }
+
+  /**
+   * Creates a resource, validating its plant + calendar through `org.read` (O4).
+   * @throws AppException INVALID_PLANT_REFERENCE - plant did not resolve
+   * @throws AppException INVALID_CALENDAR_REFERENCE - calendar did not resolve
+   */
+  async createResource(tenantId: string, dto: CreateResourceRequest): Promise<ResourceDto> {
+    await this.assertPlant(tenantId, dto.plantId)
+    await this.assertCalendar(tenantId, dto.calendarId)
+    const row = await this.repo.createResource({ ...dto, tenantId })
+    await this.events.publish(EVENTS.RESOURCE_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
+    return toResourceDto(row)
+  }
+
+  /**
+   * Updates a resource (re-validating plant/calendar when supplied).
+   * @throws AppException RESOURCE_NOT_FOUND - no such resource in the tenant
+   * @throws AppException INVALID_PLANT_REFERENCE / INVALID_CALENDAR_REFERENCE
+   */
+  async updateResource(tenantId: string, id: string, dto: UpdateResourceRequest): Promise<ResourceDto> {
+    if (dto.plantId) await this.assertPlant(tenantId, dto.plantId)
+    if (dto.calendarId) await this.assertCalendar(tenantId, dto.calendarId)
+    const row = await this.repo.updateResource(tenantId, id, dto)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Resource not found', ERROR_CODES.RESOURCE_NOT_FOUND)
+    return toResourceDto(row)
+  }
+
+  // --- resource group --------------------------------------------------------
+  /** Lists the tenant's resource groups, each with its member resource ids. */
+  async listResourceGroups(tenantId: string): Promise<ResourceGroupDto[]> {
+    const groups = await this.repo.listResourceGroups(tenantId)
+    return Promise.all(groups.map(async (g) => toResourceGroupDto(g, await this.repo.memberResourceIds(g.id))))
+  }
+
+  /**
+   * Creates a resource group, validating its plant (org.read) and that every
+   * member resource exists in the tenant (intra-module).
+   * @throws AppException INVALID_PLANT_REFERENCE - plant did not resolve
+   * @throws AppException INVALID_RESOURCE_REFERENCE - a member resource did not resolve
+   */
+  async createResourceGroup(tenantId: string, dto: CreateResourceGroupRequest): Promise<ResourceGroupDto> {
+    await this.assertPlant(tenantId, dto.plantId)
+    await this.assertResourcesExist(tenantId, dto.memberResourceIds)
+    const { memberResourceIds, ...fields } = dto
+    const row = await this.repo.createResourceGroup({ ...fields, tenantId }, memberResourceIds)
+    await this.events.publish(EVENTS.RESOURCE_GROUP_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
+    return toResourceGroupDto(row, memberResourceIds)
+  }
+
+  /**
+   * Updates a resource group (and its members when supplied).
+   * @throws AppException RESOURCE_GROUP_NOT_FOUND - no such group in the tenant
+   * @throws AppException INVALID_PLANT_REFERENCE / INVALID_RESOURCE_REFERENCE
+   */
+  async updateResourceGroup(
+    tenantId: string,
+    id: string,
+    dto: UpdateResourceGroupRequest,
+  ): Promise<ResourceGroupDto> {
+    if (dto.plantId) await this.assertPlant(tenantId, dto.plantId)
+    if (dto.memberResourceIds) await this.assertResourcesExist(tenantId, dto.memberResourceIds)
+    const { memberResourceIds, ...fields } = dto
+    const row = await this.repo.updateResourceGroup(tenantId, id, fields, memberResourceIds)
+    if (!row) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Resource group not found', ERROR_CODES.RESOURCE_GROUP_NOT_FOUND)
+    }
+    return toResourceGroupDto(row, await this.repo.memberResourceIds(id))
+  }
+
+  // --- routing + operations --------------------------------------------------
+  /** Lists the tenant's routings, each with its ordered operations. */
+  async listRoutings(tenantId: string): Promise<RoutingDto[]> {
+    const routings = await this.repo.listRoutings(tenantId)
+    return Promise.all(routings.map(async (r) => toRoutingDto(r, await this.repo.operationsFor(r.id))))
+  }
+
+  /**
+   * Resolves one routing (with operations) in the tenant.
+   * @throws AppException ROUTING_NOT_FOUND - no such routing in the tenant
+   */
+  async getRouting(tenantId: string, id: string): Promise<RoutingDto> {
+    const row = await this.repo.findRouting(tenantId, id)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Routing not found', ERROR_CODES.ROUTING_NOT_FOUND)
+    return toRoutingDto(row, await this.repo.operationsFor(id))
+  }
+
+  /**
+   * Creates a routing for a part, validating the part and every operation's
+   * resource group (intra-module). Emits `master_data.routing.created`.
+   * @throws AppException PART_NOT_FOUND - the routing's part did not resolve
+   * @throws AppException INVALID_RESOURCE_GROUP_REFERENCE - an op's group did not resolve
+   */
+  async createRouting(tenantId: string, dto: CreateRoutingRequest): Promise<RoutingDto> {
+    await this.assertPartExists(tenantId, dto.partId)
+    await this.assertResourceGroupsExist(tenantId, dto.operations.map((o) => o.resourceGroupId))
+    const { operations, ...fields } = dto
+    const row = await this.repo.createRouting({ ...fields, tenantId }, operations)
+    await this.events.publish(EVENTS.ROUTING_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
+    return toRoutingDto(row, await this.repo.operationsFor(row.id))
+  }
+
+  /**
+   * Updates a routing header and (when supplied) replaces its operation set.
+   * @throws AppException ROUTING_NOT_FOUND - no such routing in the tenant
+   * @throws AppException PART_NOT_FOUND / INVALID_RESOURCE_GROUP_REFERENCE
+   */
+  async updateRouting(tenantId: string, id: string, dto: UpdateRoutingRequest): Promise<RoutingDto> {
+    if (dto.partId) await this.assertPartExists(tenantId, dto.partId)
+    if (dto.operations) {
+      await this.assertResourceGroupsExist(tenantId, dto.operations.map((o) => o.resourceGroupId))
+    }
+    const { operations, ...fields } = dto
+    const row = await this.repo.updateRouting(tenantId, id, fields, operations)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Routing not found', ERROR_CODES.ROUTING_NOT_FOUND)
+    return toRoutingDto(row, await this.repo.operationsFor(id))
+  }
+
+  // --- certification ---------------------------------------------------------
+  /** Lists the tenant's certifications. */
+  async listCertifications(tenantId: string): Promise<CertificationDto[]> {
+    return (await this.repo.listCertifications(tenantId)).map(toCertificationDto)
+  }
+
+  /**
+   * Creates a certification.
+   * @throws AppException DUPLICATE_CERTIFICATION_CODE - `code` already used in the tenant
+   */
+  async createCertification(tenantId: string, dto: CreateCertificationRequest): Promise<CertificationDto> {
+    if (await this.repo.findCertificationByCode(tenantId, dto.code)) {
+      throw new AppException(HttpStatus.CONFLICT, 'Certification code already exists', ERROR_CODES.DUPLICATE_CERTIFICATION_CODE)
+    }
+    const row = await this.repo.createCertification({ ...dto, tenantId })
+    await this.events.publish(EVENTS.CERTIFICATION_CREATED, { id: row.id, tenantId, name: row.code }, tenantId)
+    return toCertificationDto(row)
+  }
+
+  /**
+   * Updates a certification in the tenant.
+   * @throws AppException CERTIFICATION_NOT_FOUND - no such certification in the tenant
+   * @throws AppException DUPLICATE_CERTIFICATION_CODE - the new `code` collides
+   */
+  async updateCertification(tenantId: string, id: string, dto: UpdateCertificationRequest): Promise<CertificationDto> {
+    if (dto.code) {
+      const existing = await this.repo.findCertificationByCode(tenantId, dto.code)
+      if (existing && existing.id !== id) {
+        throw new AppException(HttpStatus.CONFLICT, 'Certification code already exists', ERROR_CODES.DUPLICATE_CERTIFICATION_CODE)
+      }
+    }
+    const row = await this.repo.updateCertification(tenantId, id, dto)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Certification not found', ERROR_CODES.CERTIFICATION_NOT_FOUND)
+    return toCertificationDto(row)
+  }
+
+  // --- operator + qualifications ---------------------------------------------
+  /** Lists the tenant's operators, each with the certification ids they hold. */
+  async listOperators(tenantId: string): Promise<OperatorDto[]> {
+    const operators = await this.repo.listOperators(tenantId)
+    return Promise.all(
+      operators.map(async (o) => toOperatorDto(o, await this.repo.certificationIdsForOperator(o.id))),
+    )
+  }
+
+  /**
+   * Creates an operator (externally-sourced stub), validating its home plant.
+   * @throws AppException INVALID_PLANT_REFERENCE - home plant did not resolve
+   */
+  async createOperator(tenantId: string, dto: CreateOperatorRequest): Promise<OperatorDto> {
+    await this.assertPlant(tenantId, dto.homePlantId)
+    const row = await this.repo.createOperator({ ...dto, tenantId })
+    await this.events.publish(EVENTS.OPERATOR_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
+    return toOperatorDto(row, [])
+  }
+
+  /**
+   * Updates an operator in the tenant.
+   * @throws AppException OPERATOR_NOT_FOUND - no such operator in the tenant
+   * @throws AppException INVALID_PLANT_REFERENCE - the new home plant did not resolve
+   */
+  async updateOperator(tenantId: string, id: string, dto: UpdateOperatorRequest): Promise<OperatorDto> {
+    if (dto.homePlantId) await this.assertPlant(tenantId, dto.homePlantId)
+    const row = await this.repo.updateOperator(tenantId, id, dto)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Operator not found', ERROR_CODES.OPERATOR_NOT_FOUND)
+    return toOperatorDto(row, await this.repo.certificationIdsForOperator(id))
+  }
+
+  /**
+   * Toggles one operator×certification qualification (the matrix screen, FS6).
+   * @throws AppException OPERATOR_NOT_FOUND - no such operator in the tenant
+   * @throws AppException CERTIFICATION_NOT_FOUND - no such certification in the tenant
+   */
+  async setOperatorQualification(
+    tenantId: string,
+    operatorId: string,
+    dto: SetOperatorQualificationRequest,
+  ): Promise<OperatorDto> {
+    const op = await this.repo.findOperator(tenantId, operatorId)
+    if (!op) throw new AppException(HttpStatus.NOT_FOUND, 'Operator not found', ERROR_CODES.OPERATOR_NOT_FOUND)
+    if (!(await this.repo.findCertification(tenantId, dto.certificationId))) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Certification not found', ERROR_CODES.CERTIFICATION_NOT_FOUND)
+    }
+    await this.repo.setQualification(tenantId, operatorId, dto.certificationId, dto.qualified)
+    return toOperatorDto(op, await this.repo.certificationIdsForOperator(operatorId))
+  }
+
+  // --- internal validation ---------------------------------------------------
+  /** Validates a kernel plant reference through org.read (O4). */
+  private async assertPlant(tenantId: string, plantId: string): Promise<void> {
+    const { invalid } = await this.org.validatePlantIds(tenantId, [plantId])
+    if (invalid.length > 0) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Plant not found', ERROR_CODES.INVALID_PLANT_REFERENCE)
+    }
+  }
+
+  /** Validates a kernel calendar reference through org.read 1.1 (O4). */
+  private async assertCalendar(tenantId: string, calendarId: string): Promise<void> {
+    const { invalid } = await this.org.validateCalendarIds(tenantId, [calendarId])
+    if (invalid.length > 0) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Calendar not found', ERROR_CODES.INVALID_CALENDAR_REFERENCE)
+    }
+  }
+
+  private async assertPartExists(tenantId: string, partId: string): Promise<void> {
+    const found = await this.repo.partIdsIn(tenantId, [partId])
+    if (found.length === 0) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
+    }
+  }
+
+  private async assertResourcesExist(tenantId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    const found = await this.repo.resourceIdsIn(tenantId, ids)
+    if (found.length !== new Set(ids).size) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'One or more resources not found', ERROR_CODES.INVALID_RESOURCE_REFERENCE)
+    }
+  }
+
+  private async assertResourceGroupsExist(tenantId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    const found = await this.repo.resourceGroupIdsIn(tenantId, ids)
+    if (found.length !== new Set(ids).size) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'One or more resource groups not found', ERROR_CODES.INVALID_RESOURCE_GROUP_REFERENCE)
+    }
+  }
+}

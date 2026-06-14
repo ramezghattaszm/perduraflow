@@ -1,7 +1,15 @@
 # PerduraFlow — Project Summary
 
-> Last Updated: 2026-06-13
+> Last Updated: 2026-06-14
 > Purpose: Live project state for handoff between sessions.
+
+> **State:** **Phase 0 + the decided app shell: BUILT, signed off & pushed.** **Phase 1 (minimal
+> Master Data): BUILT & verified** — the first domain module (`master-data`: parts, resources +
+> groups, routings + operations, certifications, operators + qualifications), `org` customer/program
+> `priority`, `org.read 1.1` (additive), and the published `masterdata.read 1.0` (no resolver).
+> Migration `0003` applied + seeded; `bun run check` + `next build` + expo tsc green; all four boundary
+> proofs pass; CRUD/soft-delete/routing-editor/qualifications-matrix browser-verified. Spec deltas in
+> api-spec §10 + frontend-spec §9–§12 (design choices AS5–AS8 / FS5–FS8 confirmed). Not yet committed.
 
 ---
 
@@ -133,6 +141,12 @@ Phase 0 builds the **foundational, built-now** halves of these; the heavier mach
    kernel uses the `tenant`/`auth`/`org` namespaces). A clean DB run is `db:setup` on an empty DB.
 4. Deactivate is the soft-delete action (status→inactive for plants; `isActive=false` elsewhere);
    lists keep showing deactivated rows with an "Inactive" pill (never hard-deleted, per the schema rules).
+5. **Inherited (phase-0), fixed in phase 1:** `packages/ui/src/OtpInput.tsx` had a ref-typing
+   mismatch (a `(el: TextInput|null) => void` ref callback on a Tamagui `Input`) that was invisible
+   to the `bun run typecheck` gate (which doesn't include `apps/expo`) and only surfaced when phase-1
+   ran `tsc -p apps/expo` (stricter RN types) for the DoD. Pre-existing, **not introduced by phase 1**;
+   fixed with a localized cast so expo type-checks clean. Consider adding `apps/expo`/`apps/next` to
+   the turbo `type-check` set so such inherited issues are caught by the standard gate.
 
 ---
 

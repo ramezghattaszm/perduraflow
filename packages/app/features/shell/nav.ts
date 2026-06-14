@@ -1,14 +1,21 @@
 import type { ComponentType } from 'react'
 import type { ColorTokens } from '@perduraflow/ui'
 import {
+  Award,
   CalendarDays,
+  Cpu,
   Factory,
   FolderKanban,
+  Grid3x3,
+  HardHat,
   Handshake,
+  Layers,
   LayoutDashboard,
   Network,
+  Package,
   ShieldCheck,
   Users,
+  Workflow,
 } from '@tamagui/lucide-icons'
 
 /**
@@ -41,6 +48,19 @@ export const ADMIN_NAV: NavConfigSection[] = [
       { id: 'customers', labelKey: 'nav.customers', path: '/admin/customers', icon: Handshake },
       { id: 'programs', labelKey: 'nav.programs', path: '/admin/programs', icon: FolderKanban },
       { id: 'calendars', labelKey: 'nav.calendars', path: '/admin/calendars', icon: CalendarDays },
+    ],
+  },
+  {
+    id: 'master-data',
+    sectionLabelKey: 'nav.sections.masterData',
+    items: [
+      { id: 'parts', labelKey: 'nav.parts', path: '/master-data/parts', icon: Package },
+      { id: 'resources', labelKey: 'nav.resources', path: '/master-data/resources', icon: Cpu },
+      { id: 'resource-groups', labelKey: 'nav.resourceGroups', path: '/master-data/resource-groups', icon: Layers },
+      { id: 'routings', labelKey: 'nav.routings', path: '/master-data/routings', icon: Workflow },
+      { id: 'certifications', labelKey: 'nav.certifications', path: '/master-data/certifications', icon: Award },
+      { id: 'operators', labelKey: 'nav.operators', path: '/master-data/operators', icon: HardHat },
+      { id: 'qualifications', labelKey: 'nav.qualifications', path: '/master-data/qualifications', icon: Grid3x3 },
     ],
   },
   {

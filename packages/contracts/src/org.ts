@@ -11,7 +11,10 @@ import { z } from 'zod'
  * Carries an `id + version` from day one (SKIP-21). The full A12 registry,
  * MAJOR.MINOR wire negotiation, and open/closed enum annotations are deferred.
  */
-export const ORG_READ_CONTRACT = { id: 'org.read', version: '1.0' } as const
+// `1.1` (phase 1, additive MINOR — api-spec §10.3): adds `validateCalendarIds`
+// and a `priority` field on Customer/Program. Every `1.0` consumer keeps
+// compiling (the phase-0 `auth` consumer is unaffected — A12 must-ignore).
+export const ORG_READ_CONTRACT = { id: 'org.read', version: '1.1' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -21,6 +24,10 @@ export type PlantStatus = z.infer<typeof plantStatusSchema>
 /** D49: `cluster` = resource-sharing candidate; `division`/`region` = reporting/scope. */
 export const plantGroupTypeSchema = z.enum(['cluster', 'division', 'region', 'custom'])
 export type PlantGroupType = z.infer<typeof plantGroupTypeSchema>
+
+/** Customer/program allocation tier (phase 1, MD15). Simple ordinal tier, not a commercial engine. */
+export const orgPrioritySchema = z.enum(['standard', 'high', 'critical'])
+export type OrgPriority = z.infer<typeof orgPrioritySchema>
 
 // --- DTOs (the shapes org.read returns) --------------------------------------
 
@@ -48,6 +55,8 @@ export interface CustomerDto {
   name: string
   /** Default firm-fence horizon in days (D23); program overrides it. */
   firmFenceDays: number | null
+  /** Default allocation tier for this customer's orders (phase 1, MD15). */
+  priority: OrgPriority
   /** Soft-delete flag. */
   isActive: boolean
 }
@@ -58,6 +67,8 @@ export interface ProgramDto {
   name: string
   /** Overrides the customer default firm fence when set (D23). */
   firmFenceDays: number | null
+  /** Overrides the customer default priority when set; null = inherit (phase 1, MD15). */
+  priority: OrgPriority | null
   /** Soft-delete flag. */
   isActive: boolean
 }
@@ -98,6 +109,11 @@ export interface OrgReadContract {
   validatePlantIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
   /** Validates that every id resolves to a plant group in the tenant (O4). */
   validatePlantGroupIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
+  /**
+   * Validates that every id resolves to a calendar in the tenant (O4). Added in
+   * `org.read 1.1` so `master-data` can validate `resource.calendar_id` at write.
+   */
+  validateCalendarIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
 }
 
 // --- admin CRUD request schemas (org admin screens) --------------------------
@@ -134,6 +150,7 @@ export const createCustomerSchema = z
   .object({
     name: z.string().min(1).max(160),
     firmFenceDays: z.number().int().min(0).max(3650).nullable().default(null),
+    priority: orgPrioritySchema.default('standard'),
   })
   .strict()
 export type CreateCustomerRequest = z.infer<typeof createCustomerSchema>
@@ -148,6 +165,7 @@ export const createProgramSchema = z
     customerId: z.string().min(1),
     name: z.string().min(1).max(160),
     firmFenceDays: z.number().int().min(0).max(3650).nullable().default(null),
+    priority: orgPrioritySchema.nullable().default(null),
   })
   .strict()
 export type CreateProgramRequest = z.infer<typeof createProgramSchema>

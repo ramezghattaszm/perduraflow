@@ -22,6 +22,13 @@
       "when": 1781444366531,
       "tag": "0002_classy_purple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781455621850,
+      "tag": "0003_omniscient_gargoyle",
+      "breakpoints": true
     }
   ]
 }

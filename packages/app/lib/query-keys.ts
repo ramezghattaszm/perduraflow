@@ -13,4 +13,13 @@ export const QUERY_KEYS = {
     roles: () => ['admin', 'roles'] as const,
     approvalTiers: () => ['admin', 'approval-tiers'] as const,
   },
+  masterData: {
+    parts: () => ['master-data', 'parts'] as const,
+    resources: () => ['master-data', 'resources'] as const,
+    resourceGroups: () => ['master-data', 'resource-groups'] as const,
+    routings: () => ['master-data', 'routings'] as const,
+    routing: (id: string) => ['master-data', 'routings', id] as const,
+    certifications: () => ['master-data', 'certifications'] as const,
+    operators: () => ['master-data', 'operators'] as const,
+  },
 }

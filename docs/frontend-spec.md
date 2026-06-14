@@ -176,3 +176,74 @@ None in phase 0.
 | FS2 | CRUD edit via `Popup` modal over the list (was `FormSheet`; consolidated onto `Popup`). | **Confirmed** |
 | FS3 | Calendar fields get basic JSON-backed editors in phase 0; richer structured shift/holiday/maintenance builders later → **SKIP-52** in the completion log. maintenance_windows plant-level (no resource_id). | **Confirmed** |
 | FS4 | Web nav: persistent left `SidebarNav`. | **Confirmed** |
+
+---
+
+# Phase 1 — Master Data screens (BUILT)
+
+> **STATUS: BUILT & browser-verified** (CRUD incl. soft-delete on Certifications; routing
+> master-detail editor; qualifications matrix toggle; org-ref validation errors). Source:
+> `docs/CLAUDE-CODE-BRIEF-PHASE-1.md`, `docs/master-data-module-spec.md`. The shell is **already
+> built and decided** (`frontend-spec-shell.md`, §1–§3 above) — Master Data screens land **into** it;
+> the shell is not re-proposed. API side: api-spec §10.
+
+## 9. Phase-1 nav & route tree
+
+Master Data is a **domain area**, so it gets its **own sidebar section** (`AppShell` already supports
+multiple `NavSection`s — admin used `Administration`/`Access`). Nav config (`features/shell/nav.ts`)
+gains a `Master data` section; the `org` priority edits ride the **existing** Customers/Programs admin
+screens (no new routes).
+
+```
+(app)/
+  master-data/
+    parts             · parts/[id]
+    resources         · resources/[id]
+    resource-groups   · resource-groups/[id]
+    routings          · routings/[id]      ← master-detail editor route (FS5)
+    certifications    · certifications/[id]
+    operators         · operators/[id]
+    qualifications                          ← operators × certs matrix (FS6)
+  admin/
+    customers …       ← + priority field (existing screen, edited)
+    programs  …       ← + priority field (existing screen, edited)
+```
+
+## 10. Phase-1 screens
+
+Five reuse the Phase-0 **`AdminResourceScreen`** pattern (list `DataTable` + create/edit `Popup`,
+full CRUD incl. soft-delete from the first pass — no repeat of the Phase-0 CRU-without-D gap).
+**Routings** needs a master-detail editor the flat pattern doesn't cover (FS5).
+
+| Screen | Feature folder | Pattern | Fields / notes |
+|---|---|---|---|
+| Parts | `features/master-data/parts/` | AdminResourceScreen | `part_no`, description, `part_type` (select), base UoM, **material / gauge / colour** (physical attrs, MD11), status. Sortable name/type/status. |
+| Resources | `features/master-data/resources/` | AdminResourceScreen | name, `resource_type` (select), **plant** (select via `org.read`), **calendar** (select via `org.read`), **rate / rate_uom** (optional nominal), status. Bad/inactive plant **or** calendar ref → typed inline error (`INVALID_PLANT_REFERENCE` / `INVALID_CALENDAR_REFERENCE`, the Phase-0 pattern). |
+| Resource groups | `features/master-data/resource-groups/` | AdminResourceScreen | name, plant (select), **member resources** (multi-select `SelectField`, like Phase-0 plant-group members). |
+| Routings | `features/master-data/routings/` | **list + Popup (header) → `routings/[id]` editor** | List + create-header via `Popup` (part select, name, is_primary, status); row click → dedicated route with header + `OperationsEditor` (op_seq, resource-group, std setup/cycle, changeover_attribute_key; add/reorder/remove) (FS5/FS8). |
+| Certifications | `features/master-data/certifications/` | AdminResourceScreen | code, name, description, status. |
+| Operators | `features/master-data/operators/` | AdminResourceScreen | name, **home plant** (select), `labor_rate` (optional), status. **Qualifications edited on the matrix screen below, not here** (FS6). |
+| Qualifications | `features/master-data/qualifications/` | **matrix screen** | Operators × certifications **grid of checkboxes** (`QualificationMatrix`); toggling a cell creates/removes an `operator_qualification` row (FS6). Own nav item under Master data. |
+| Customers *(edit)* | `features/admin/customers/` | existing | **+ `priority`** (select `standard\|high\|critical`). |
+| Programs *(edit)* | `features/admin/programs/` | existing | **+ `priority`** (select; override — blank = inherit customer). |
+
+- **Surfaces (D34):** web + tablet are authoring peers; phone restricted (no edit) — same as Phase 0.
+- **i18n:** add a **`masterData`** namespace (entity + field labels); extend `errors.json` with the
+  api-spec §10.4 codes. No hardcoded strings.
+
+## 11. New `packages/ui` components (variant-driven, library-safe, both-theme stories — UI §0.2/§16)
+
+| Component | Purpose | Notes |
+|---|---|---|
+| `OperationsEditor` | The routing master-detail body: an **ordered, editable operations table** — add row, **reorder** (up/down), remove, inline-edit each op's `op_seq`, resource-group (select), `std_setup_time`, `std_cycle_time`, `changeover_attribute_key`. | Controlled (`value: OperationRow[]`, `onChange`); the screen owns persistence. Generic enough to reuse for any ordered child-rows editor. |
+| `QualificationMatrix` | Operators × certifications **checkbox grid** (FS6): rows = operators, columns = certifications, cell toggle = create/remove an `operator_qualification`. | Controlled (`rows`, `cols`, `value: Set<operatorId×certId>`, `onToggle`); horizontal-scroll wrapper at `small` like `DataTable`. Reusable for any 2-axis many-to-many. |
+| *(reuse)* `SelectField multiple` | Resource-group members. | Already exists (Phase-0 plant-group members) — no new component. |
+
+## 12. Open phase-1 UI decisions (brief §5 — see also api-spec AS5–AS8)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| FS5 | **Routing editor UI pattern** (header + ordered operations is master-detail, not a flat modal). | **Hybrid:** routings **list** + **create-header** stay in the `Popup` pattern; **editing** a routing opens a **dedicated `routings/[id]` route** showing the header card + an inline **`OperationsEditor`** (add/reorder/remove operations, saved with the header). | **Confirmed** (hybrid: route for edit) |
+| FS6 | **Operator-qualifications UI** (operator×certification many-to-many). | A dedicated **`QualificationMatrix` screen** (operators × certifications checkbox grid; toggle = create/remove `operator_qualification`). Operator identity CRUD stays on the Operators screen; qualifications are not edited on the operator Popup. | **Confirmed** (matrix screen) |
+| FS7 | **Master Data placement in nav** — own section vs under Administration. | Its **own `Master data` sidebar section** (it's a domain area, not kernel admin). | **Confirmed** |
+| FS8 | **Routing list → edit navigation.** | Row click on the routings list navigates to `routings/[id]` (Solito), not a Popup (consistent with FS5). | **Confirmed** |

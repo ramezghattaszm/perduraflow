@@ -62,8 +62,8 @@ export function OtpInput({ value, onChange, length = 6, variant = 'default' }: O
       {chars.map((c, i) => (
         <Box
           key={i}
-          ref={(el: TextInput | null) => {
-            refs.current[i] = el
+          ref={(el) => {
+            refs.current[i] = el as unknown as TextInput | null
           }}
           variant={variant}
           filled={Boolean(c)}

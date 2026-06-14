@@ -34,6 +34,8 @@ export * from './DataTable'
 export * from './ConfirmDialog'
 export * from './Popup'
 export * from './SidebarNav'
+export * from './OperationsEditor'
+export * from './QualificationMatrix'
 
 // type augmentation for tamagui custom config
 import type { Conf } from '@perduraflow/config'

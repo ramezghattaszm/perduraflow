@@ -13,6 +13,7 @@ export default {
     './src/modules/tenant/schema/index.ts',
     './src/modules/auth/schema/index.ts',
     './src/modules/org/schema/index.ts',
+    './src/modules/master-data/schema/index.ts',
   ],
   out: './drizzle/migrations',
   dialect: 'postgresql',

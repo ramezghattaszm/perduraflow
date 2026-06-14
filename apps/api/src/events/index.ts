@@ -14,6 +14,13 @@ export const EVENTS = {
   CUSTOMER_CREATED: 'org.customer.created',
   PROGRAM_CREATED: 'org.program.created',
   CALENDAR_CREATED: 'org.calendar.created',
+  // master-data module (phase 1)
+  PART_CREATED: 'master_data.part.created',
+  RESOURCE_CREATED: 'master_data.resource.created',
+  RESOURCE_GROUP_CREATED: 'master_data.resource_group.created',
+  ROUTING_CREATED: 'master_data.routing.created',
+  CERTIFICATION_CREATED: 'master_data.certification.created',
+  OPERATOR_CREATED: 'master_data.operator.created',
 } as const
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS]

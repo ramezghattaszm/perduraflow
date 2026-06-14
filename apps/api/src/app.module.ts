@@ -6,6 +6,7 @@ import { PoolModule } from './db/pool'
 import { AuthModule } from './modules/auth/auth.module'
 import { EmailModule } from './modules/email/email.module'
 import { EventBusModule } from './modules/eventbus/eventbus.module'
+import { MasterDataModule } from './modules/master-data/master-data.module'
 import { NotifierModule } from './modules/notifier/notifier.module'
 import { OrgModule } from './modules/org/org.module'
 import { TenantModule } from './modules/tenant/tenant.module'
@@ -31,6 +32,7 @@ import { TenantModule } from './modules/tenant/tenant.module'
     TenantModule,
     OrgModule,
     AuthModule,
+    MasterDataModule,
   ],
 })
 export class AppModule {}

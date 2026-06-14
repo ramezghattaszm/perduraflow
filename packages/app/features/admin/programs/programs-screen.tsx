@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { ProgramDto } from '@perduraflow/contracts'
+import type { OrgPriority, ProgramDto } from '@perduraflow/contracts'
 import {
   AppButton,
   AppInput,
@@ -31,8 +31,10 @@ export function ProgramsScreen() {
   const [name, setName] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [fence, setFence] = useState('')
+  const [priority, setPriority] = useState<OrgPriority | null>(null)
 
   const { show } = usePopup()
+  const priorityOptions = (['standard', 'high', 'critical'] as const).map((v) => ({ value: v, label: t(`priority.${v}`) }))
 
   const confirmDeactivate = () => {
     if (!editingId) return
@@ -62,6 +64,7 @@ export function ProgramsScreen() {
     setName('')
     setCustomerId(null)
     setFence('')
+    setPriority(null)
     setOpen(true)
   }
   const openEdit = (p: ProgramDto) => {
@@ -69,14 +72,15 @@ export function ProgramsScreen() {
     setName(p.name)
     setCustomerId(p.customerId)
     setFence(p.firmFenceDays?.toString() ?? '')
+    setPriority(p.priority)
     setOpen(true)
   }
   const submit = () => {
     if (!customerId) return
     const fenceVal = fence.trim() === '' ? null : Number(fence)
     const onSuccess = () => setOpen(false)
-    if (editingId) update.mutate({ id: editingId, body: { name, customerId, firmFenceDays: fenceVal } }, { onSuccess })
-    else create.mutate({ name, customerId, firmFenceDays: fenceVal }, { onSuccess })
+    if (editingId) update.mutate({ id: editingId, body: { name, customerId, firmFenceDays: fenceVal, priority } }, { onSuccess })
+    else create.mutate({ name, customerId, firmFenceDays: fenceVal, priority }, { onSuccess })
   }
 
   return (
@@ -100,6 +104,7 @@ export function ProgramsScreen() {
             render: (p) => <P size={4}>{customerName.get(p.customerId) ?? '—'}</P>,
           },
           { key: 'firmFenceDays', label: t('programs.fields.firmFenceDays') },
+          { key: 'priority', label: t('programs.fields.priority'), render: (p) => (p.priority ? t(`priority.${p.priority}`) : t('priority.inherit')) },
           {
             key: 'isActive',
             label: t('common.status'),
@@ -139,6 +144,9 @@ export function ProgramsScreen() {
           onChangeText={setFence}
           keyboardType="number-pad"
         />
+        <FormField label={t('programs.fields.priority')}>
+          <SelectField options={priorityOptions} value={priority} onChange={(v) => setPriority(v as OrgPriority | null)} />
+        </FormField>
         {editingId ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}

@@ -3,13 +3,16 @@
 > App-specific API decisions. The reusable patterns live in `API-ARCHITECTURE.md` — this file
 > only records what is unique to PerduraFlow.
 >
-> **This app is the manufacturing operations platform** (production scheduling = module #1). This
-> spec is scoped to **phase 0**: the kernel spine (tenant, auth) + the shared organizational model
-> (org), with admin/config screens. Source documents: `docs/CLAUDE-CODE-BRIEF.md`,
+> **This app is the manufacturing operations platform** (production scheduling = module #1). Source
+> documents: `docs/CLAUDE-CODE-BRIEF.md` (phase 0), `docs/CLAUDE-CODE-BRIEF-PHASE-1.md` (phase 1),
 > `docs/platform-architecture-spec.md` (A-series), `docs/production-scheduling-business-functional-spec.md`
-> (D-series), `docs/PLATFORM-COMPLETION-LOG.md` (SKIP-NN).
+> (D-series), `docs/master-data-module-spec.md` (MD-series), `docs/PLATFORM-COMPLETION-LOG.md` (SKIP-NN).
 >
-> **STATUS: PROPOSAL — awaiting sign-off. No tables or modules implemented yet.**
+> **STATUS:**
+> - **Phase 0 (§1–§9): BUILT & signed off** — kernel spine (tenant, auth) + org model, admin screens.
+> - **Phase 1 (§10): BUILT & verified** — the first domain module (`master-data`) + an `org` priority
+>   edit + the `org.read 1.1` bump + `masterdata.read 1.0`. Migration `0003` applied + seeded; all
+>   boundary proofs pass (scoped schema, no cross-schema FK, additive contract, no resolver).
 
 ---
 
@@ -292,3 +295,159 @@ Not used in phase 0.
 | AS2 | `approval_tier` placed in the `auth` schema (RBAC/identity area). | **Confirmed** |
 | AS3 | Replacing the template's single-barrel `DrizzleModule`/`DRIZZLE` token with per-module scoped instances over one shared Pool (O2). | **Confirmed** |
 | AS4 | Moving schema files from central `db/schema/` into `modules/<m>/schema/` to make O3 enforceable; migration generator exempt. | **Confirmed** |
+
+---
+
+# Phase 1 — Master Data (BUILT)
+
+> **STATUS: BUILT & verified.** Source:
+> `docs/CLAUDE-CODE-BRIEF-PHASE-1.md`, `docs/master-data-module-spec.md` (MD1–MD15),
+> scheduling spec §5.2–5.4 (routing/operation, resource, changeover), D7/D54/D57. All §0 override
+> rules (O1–O8) and §2 schema rules carry forward unchanged.
+
+## 10. Phase-1 modules & table ownership
+
+| Module | Postgres schema | Kind | Owns / changes |
+|---|---|---|---|
+| `master-data` *(new — first domain module)* | `master_data` | **domain** | `part`, `resource`, `resource_group`, `resource_group_member`, `routing`, `routing_operation`, `certification`, `operator`, `operator_qualification` |
+| `org` *(edit existing kernel module)* | `org` | kernel | **add `priority`** to `customer` and `program` |
+
+**Two architectural firsts (brief §0), both load-bearing:**
+1. **First domain module.** `master-data` gets its own `pgSchema('master_data')` + a Drizzle
+   instance scoped to only its tables (`MASTERDATA_DB` token), following the proven O2 pattern. It is
+   a **domain** module (unlike the kernel modules), so its contract sits behind a per-tenant binding
+   *in principle* (O7) — but the **binding resolver is NOT built** (first consumer is scheduling,
+   phase 2). `master-data` only *publishes* its contract now.
+2. **First contract *consumption* across a domain→kernel boundary.** `resource.plant_id` /
+   `resource.calendar_id` reference `org` **through `org.read`** (text IDs, validated at write, no
+   cross-schema FK — O4), exercising the consumer side of the contract model for the first time.
+
+### 10.1 `master_data` table sketches (O2/§2.4 rules apply: ULID PK, `tenant_id` + index, `created_at`, soft-delete)
+
+> Phase-1 **minimal** slice of the full Master Data module (SKIP-02). Deferred & logged:
+> revision/effectivity — **current-version only** (SKIP-44); BOM (SKIP-45); UoM conversion / multi-UoM
+> — **single base UoM per part, no factors** (SKIP-02); tooling/asset domain (tools/dies/molds),
+> physical-attribute domain, asset↔part mapping (SKIP-02); changeover matrix + sequencing rules
+> (SKIP-48, scheduling-owned); operator rostering / station assignment (SKIP-14); margin/penalty order
+> economics (SKIP-13 — only customer/program **priority** is in). New scope-downs surfaced during
+> build get their own SKIP row.
+
+**master_data.part** (MD1/5.1; brief §3) — `tenant_id`, `part_no` (text, **unique within tenant** —
+the global-within-tenant business identity, D12), `description` (text, nullable), `part_type`
+(enum `finished|component|raw`), `uom` (text — the part's canonical **base** UoM; single UoM, no
+conversion SKIP-02), **`material`** (text, nullable), **`gauge`** (text, nullable), **`colour`**
+(text, nullable) — physical/descriptive attributes (MD11/5.6), the **canonical changeover drivers**
+the operation's `changeover_attribute_key` names (AS6), `status` (enum `active|inactive`).
+*(`part_type`/`description`/`status` are MDQ4-deferred fields, and material/gauge/colour are the MD11
+attributes — pulled in now because the Parts screen + changeover modeling are their consuming need,
+each an additive use; revision/effectivity stay deferred, SKIP-44. `tool_family` attribute stays out
+until the tooling/asset domain lands, SKIP-02.)*
+
+**master_data.resource** (MD14/5.5; brief §3) — `tenant_id`, `name`, `resource_type`
+(enum `line|machine|cell|work_center`), `plant_id` (**text → `org` via `org.read`**, validated at
+write, no FK — O4), `calendar_id` (**text → `org` via `org.read 1.1`**, validated, no FK), **`rate`** (decimal, nullable
+— nominal throughput rate, MD5.5), **`rate_uom`** (text, nullable), `status`
+(enum `active|inactive`). The per-operation `std_cycle_time`/`std_setup_time` remain the scheduling
+baseline (D7); the resource `rate` is a nominal descriptor (AS5). *(MD5.5's single `resource_group_id`
+is superseded by the many-to-many membership below — a resource may belong to multiple groups, §5.3.)*
+
+**master_data.resource_group** (MD14/5.3) — `tenant_id`, `name`, `plant_id` (text → `org` via
+`org.read`, validated), `is_active`.
+
+**master_data.resource_group_member** (MD14) — `tenant_id`, `resource_group_id` (→
+`master_data.resource_group.id`, **intra-schema FK**), `resource_id` (→ `master_data.resource.id`,
+intra FK). Junction (a resource joins many groups).
+
+**master_data.routing** (5.2; brief §3) — `tenant_id`, `part_id` (→ `master_data.part.id`, intra
+FK), `name` (text), `is_primary` (bool, default `true`), `status` (enum `active|inactive`).
+Current-version only (SKIP-44); alternates/`preference_rank`/`plant_id` deferred.
+
+**master_data.routing_operation** (5.2; brief §3; D7 baseline) — `tenant_id`, `routing_id` (→
+`master_data.routing.id`, intra FK), `op_seq` (int), `resource_group_id` (→
+`master_data.resource_group.id`, intra FK — the eligible group, 5.2), `std_setup_time` (decimal —
+the standalone setup **`standard` baseline**, D7), `std_cycle_time` (decimal — per-piece **`standard`
+baseline**, D7), `changeover_attribute_key` (enum `colour|material|gauge`, nullable — names which
+**part** physical attribute (5.6) drives this op's changeover; **modeled, not sequenced**; AS6).
+*(Phase-2 schedule records will carry `setup_source`/`cycle_source` defaulting to `standard` = these
+values, SKIP-04.)*
+
+**master_data.certification** (MD15) — `tenant_id`, `code` (text, **unique within tenant**), `name`
+(text), `description` (text, nullable), `is_active`. The cert taxonomy behind the scheduler's
+certification-grain constraint (D54) — **externally sourced, canonical view only**; mappings live in
+the integration layer, not here.
+
+**master_data.operator** (MD15 minimal stub) — `tenant_id`, `name`, `home_plant_id` (text → `org`
+via `org.read`, validated), `labor_rate` (decimal, nullable — the optional MD15 labor-rate behind the
+D57 labor-cost KPI), `is_active`. **Externally-sourced stub; Master Data does not roster operators**
+(SKIP-14).
+
+**master_data.operator_qualification** (MD15 join) — `tenant_id`, `operator_id` (→
+`master_data.operator.id`, intra FK), `certification_id` (→ `master_data.certification.id`, intra
+FK). Operator×certification many-to-many.
+
+### 10.2 `org` edit — customer/program priority
+
+Add `priority` to **`org.customer`** and **`org.program`**, mirroring the existing firm-fence
+default/override pattern (D23 shape; brief §3):
+
+- **`org.customer.priority`** — enum `standard|high|critical`, **default `standard`** (the tenant's
+  default allocation tier for the customer's orders).
+- **`org.program.priority`** — enum `standard|high|critical`, **nullable** — **overrides** the
+  customer default when set (parallels `program.firm_fence_days`).
+
+> A simple **ordinal tier**, not a commercial engine: it's the canonical reference behind
+> allocation-by-priority (NMA, SKIP-13); margin/penalty economics stay deferred (SKIP-13/MD15).
+> Externally sourced in principle (MD15); seeded for the demo.
+
+### 10.3 Contracts — `org.read 1.1` (additive) + publish `masterdata.read 1.0`
+
+**`org.read` `1.0` → `1.1` — additive MINOR only** (A12: every `1.0` consumer keeps compiling; the
+phase-0 `auth` consumer of `validatePlantIds`/`validatePlantGroupIds` is **unchanged** — proof in DoD):
+- **Add** `validateCalendarIds(tenantId, ids): PlantRefValidation` — so `master-data` can validate
+  `resource.calendar_id` at write (O4), the calendar analogue of `validatePlantIds`.
+- **Add** `priority` to `CustomerDto` and `ProgramDto` (additive field; must-ignore for `1.0`
+  consumers).
+- Bump `ORG_READ_CONTRACT.version` → `'1.1'`.
+
+**Publish `masterdata.read` `1.0`** in `packages/contracts` with `{ id: 'masterdata.read', version:
+'1.0' }` (O1, SKIP-21) — the read interface phase-2 scheduling will bind to. **No binding resolver
+built** (O7 — first consumer is phase 2). Carries:
+- DTOs: `PartDto` (incl. `material`/`gauge`/`colour`), `ResourceDto` (incl. `rate`/`rateUom`),
+  `ResourceGroupDto`, `RoutingDto` (header + nested `operations: RoutingOperationDto[]` with
+  `changeoverAttributeKey`), `CertificationDto`, `OperatorDto` (+ `certificationIds: string[]`).
+- Read ops: `getPart`/`listParts`, `getResource`, `getResourceGroup`, `getRouting` (with operations),
+  `listCertifications`, `getOperator`.
+- Reference-validation (the O4 seam phase-2 consumers will use): `validateResourceIds`,
+  `validateResourceGroupIds`, `validatePartIds`.
+- Typed interfaces + DTOs only, **no transport** (O6); in-process impl in `master-data`'s
+  `master-data.read.ts`, resolved via Nest DI (no resolver yet).
+
+`master-data` **consumes** `org.read 1.1` for plant/calendar validation; it **does not** import any
+`org` table (O1/O3).
+
+### 10.4 Error codes (add to §6 `ERROR_CODES` + mirror in `errors.json`)
+
+```
+PART_NOT_FOUND, RESOURCE_NOT_FOUND, RESOURCE_GROUP_NOT_FOUND, ROUTING_NOT_FOUND,
+ROUTING_OPERATION_NOT_FOUND, CERTIFICATION_NOT_FOUND, OPERATOR_NOT_FOUND,
+INVALID_CALENDAR_REFERENCE,        // resource.calendar_id did not resolve via org.read 1.1 (O4)
+INVALID_RESOURCE_REFERENCE,        // a resource_group_member / op target id did not resolve (O4)
+INVALID_RESOURCE_GROUP_REFERENCE,  // an operation's resource_group_id did not resolve (O4)
+DUPLICATE_PART_NO, DUPLICATE_CERTIFICATION_CODE   // unique business-key conflict within tenant
+```
+*(`INVALID_PLANT_REFERENCE` is reused for `resource.plant_id` / `operator.home_plant_id`.)*
+
+### 10.5 EventBus (O5) — minimal phase-1 events
+
+`master-data` emits `master_data.part.created`, `master_data.resource.created`, etc. through the same
+`EventBus` coordinator (no new provider). Consumers sparse this phase; the seam stays real. No
+cross-module **write** transaction expected (O8); flag SKIP-06 if one appears.
+
+### 10.6 Open phase-1 API decisions (the brief §5 "items to propose" — see also frontend-spec FS5–FS8)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| AS5 | **Resource capacity granularity.** Where does ideal cycle/setup live; does `resource` carry a nominal rate? | Cycle/setup at **`routing_operation`** grain (`std_cycle_time`/`std_setup_time`, D7); **`resource` ALSO carries a nominal `rate` + `rate_uom`** (MD5.5, nullable). | **Confirmed** (resource has a nominal rate) |
+| AS6 | **Changeover attributes on the operation.** What does `routing_operation` carry now (modeled, not sequenced) vs deferred? | **Add part physical attributes** `material`/`gauge`/`colour` to `part` now (MD11/5.6); `routing_operation.changeover_attribute_key` (enum `colour|material|gauge`, nullable) names which part attribute drives changeover — **modeled, not sequenced**. The **changeover matrix + sequencing rules stay scheduling-owned & deferred** (SKIP-48). | **Confirmed** (part attrs added) |
+| AS7 | **Operation target grain.** Does an operation target a resource **group** or a specific resource? | Target a **`resource_group_id`** (the eligible group, 5.2) — matches scheduling's eligibility grain. No direct single-resource targeting in phase 1. | **Confirmed** |
+| AS8 | **Priority representation.** Ordinal int vs named tier? | Named **tier enum `standard|high|critical`** (customer default, program override) — demo-friendly, mirrors firm-fence. | **Confirmed** |

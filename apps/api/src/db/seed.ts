@@ -6,6 +6,17 @@ import { env } from '../config/env'
 import { tenant } from '../modules/tenant/schema'
 import { approvalTier, role, user } from '../modules/auth/schema'
 import { calendar, customer, plant, plantGroup, plantGroupMember, program } from '../modules/org/schema'
+import {
+  certification,
+  operator,
+  operatorQualification,
+  part,
+  resource,
+  resourceGroup,
+  resourceGroupMember,
+  routing,
+  routingOperation,
+} from '../modules/master-data/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48). Idempotent. Aggregates every
@@ -135,6 +146,74 @@ async function main(): Promise<void> {
       maintenanceWindows: [],
     })
     console.log('  ✓ sample org: 2 plants, 1 cluster, 1 customer, 1 program, 1 calendar')
+  }
+
+  // --- customer/program priority (phase 1, MD15 — set on the seeded rows) -----
+  await db.update(customer).set({ priority: 'critical' }).where(eq(customer.name, 'General Motors'))
+  await db.update(program).set({ priority: 'high' }).where(eq(program.name, 'GMT900'))
+
+  // --- sample master data (phase 1) — references existing plants + calendar ---
+  const existingParts = await db.select().from(part).where(eq(part.tenantId, tenantId))
+  if (existingParts.length === 0) {
+    const plants = await db.select().from(plant).where(eq(plant.tenantId, tenantId))
+    const cals = await db.select().from(calendar).where(eq(calendar.tenantId, tenantId))
+    const p1 = plants[0]
+    const cal = cals[0]
+    if (p1 && cal) {
+      // parts (current-version only; physical attrs are the changeover drivers)
+      const [fg] = await db
+        .insert(part)
+        .values({ tenantId, partNo: 'FG-1001', description: 'Floor pan assembly', partType: 'finished', uom: 'EA', material: 'Steel', gauge: '1.2mm', colour: 'Black' })
+        .returning()
+      await db
+        .insert(part)
+        .values({ tenantId, partNo: 'CMP-2001', description: 'Reinforcement bracket', partType: 'component', uom: 'EA', material: 'Steel', gauge: '2.0mm' })
+
+      // resources (referencing the seeded plant + calendar via text id, no FK)
+      const [press] = await db
+        .insert(resource)
+        .values({ tenantId, name: 'Press Line A', resourceType: 'line', plantId: p1.id, calendarId: cal.id, rate: 12, rateUom: 'strokes/min' })
+        .returning()
+      const [weld] = await db
+        .insert(resource)
+        .values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: p1.id, calendarId: cal.id })
+        .returning()
+
+      // resource group + members
+      const [grp] = await db
+        .insert(resourceGroup)
+        .values({ tenantId, name: 'Stamping presses', plantId: p1.id })
+        .returning()
+      await db.insert(resourceGroupMember).values([
+        { tenantId, resourceGroupId: grp!.id, resourceId: press!.id },
+        { tenantId, resourceGroupId: grp!.id, resourceId: weld!.id },
+      ])
+
+      // routing + ordered operations (std times = the `standard` baseline, D7)
+      const [rt] = await db
+        .insert(routing)
+        .values({ tenantId, partId: fg!.id, name: 'FG-1001 primary', isPrimary: true })
+        .returning()
+      await db.insert(routingOperation).values([
+        { tenantId, routingId: rt!.id, opSeq: 10, resourceGroupId: grp!.id, stdSetupTime: 30, stdCycleTime: 1.2, changeoverAttributeKey: 'colour' },
+        { tenantId, routingId: rt!.id, opSeq: 20, resourceGroupId: grp!.id, stdSetupTime: 15, stdCycleTime: 0.8, changeoverAttributeKey: null },
+      ])
+
+      // certification taxonomy (MD15)
+      const [leak] = await db.insert(certification).values({ tenantId, code: 'LEAK', name: 'Leak test', description: 'Leak-test station qualification' }).returning()
+      const [torque] = await db.insert(certification).values({ tenantId, code: 'TORQUE', name: 'Torque-critical', description: 'Torque-critical fastening' }).returning()
+      const [cmm] = await db.insert(certification).values({ tenantId, code: 'CMM', name: 'CMM inspection' }).returning()
+
+      // operators (externally-sourced stubs) + qualifications
+      const [ana] = await db.insert(operator).values({ tenantId, name: 'Ana Reyes', homePlantId: p1.id, laborRate: 26 }).returning()
+      const [bruno] = await db.insert(operator).values({ tenantId, name: 'Bruno Cruz', homePlantId: p1.id, laborRate: 24.5 }).returning()
+      await db.insert(operatorQualification).values([
+        { tenantId, operatorId: ana!.id, certificationId: leak!.id },
+        { tenantId, operatorId: ana!.id, certificationId: torque!.id },
+        { tenantId, operatorId: bruno!.id, certificationId: cmm!.id },
+      ])
+      console.log('  ✓ sample master data: 2 parts, 2 resources, 1 group, 1 routing (2 ops), 3 certs, 2 operators')
+    }
   }
 
   console.log(`\nSeed complete. Log in as ${ADMIN_EMAIL} / "${DEFAULT_PASSWORD}".`)

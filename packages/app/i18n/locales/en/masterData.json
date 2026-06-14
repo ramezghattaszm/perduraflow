@@ -1,0 +1,72 @@
+{
+  "parts": {
+    "title": "Parts",
+    "subtitle": "Part master — identity, type and the physical attributes that drive changeover.",
+    "fields": {
+      "partNo": "Part number",
+      "description": "Description",
+      "partType": "Part type",
+      "uom": "Base UoM",
+      "material": "Material",
+      "gauge": "Gauge",
+      "colour": "Colour",
+      "status": "Status"
+    },
+    "types": { "finished": "Finished", "component": "Component", "raw": "Raw" }
+  },
+  "resources": {
+    "title": "Resources",
+    "subtitle": "Machines, lines, cells and work-centres.",
+    "fields": {
+      "name": "Name",
+      "resourceType": "Type",
+      "plantId": "Plant",
+      "calendarId": "Calendar",
+      "rate": "Rate",
+      "rateUom": "Rate UoM",
+      "status": "Status"
+    },
+    "types": { "line": "Line", "machine": "Machine", "cell": "Cell", "work_center": "Work centre" }
+  },
+  "resourceGroups": {
+    "title": "Resource groups",
+    "subtitle": "Interchangeable resource groupings (the capacity and eligibility grain).",
+    "fields": { "name": "Name", "plantId": "Plant", "memberResourceIds": "Member resources" }
+  },
+  "routings": {
+    "title": "Routings",
+    "subtitle": "A part's process: a header and its ordered operations.",
+    "fields": { "name": "Name", "partId": "Part", "isPrimary": "Primary", "status": "Status" },
+    "operations": {
+      "title": "Operations",
+      "add": "Add operation",
+      "empty": "No operations yet — add the first one.",
+      "fields": {
+        "opSeq": "Seq",
+        "resourceGroupId": "Resource group",
+        "stdSetupTime": "Setup",
+        "stdCycleTime": "Cycle",
+        "changeoverAttributeKey": "Changeover"
+      }
+    },
+    "back": "Back to routings",
+    "openEditor": "Open editor"
+  },
+  "changeoverKeys": { "none": "None", "colour": "Colour", "material": "Material", "gauge": "Gauge" },
+  "certifications": {
+    "title": "Certifications",
+    "subtitle": "Skill/certification taxonomy (externally sourced reference).",
+    "fields": { "code": "Code", "name": "Name", "description": "Description", "status": "Status" }
+  },
+  "operators": {
+    "title": "Operators",
+    "subtitle": "Operators (externally sourced). Edit qualifications on the Qualifications screen.",
+    "fields": { "name": "Name", "homePlantId": "Home plant", "laborRate": "Labor rate", "status": "Status" }
+  },
+  "qualifications": {
+    "title": "Qualifications",
+    "subtitle": "Which operators hold which certifications.",
+    "operator": "Operator",
+    "empty": "Add operators and certifications to manage qualifications."
+  }
+}

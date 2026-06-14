@@ -8,9 +8,17 @@
     "calendars": "Calendars",
     "roles": "Roles",
     "users": "Users",
+    "parts": "Parts",
+    "resources": "Resources",
+    "resourceGroups": "Resource groups",
+    "routings": "Routings",
+    "certifications": "Certifications",
+    "operators": "Operators",
+    "qualifications": "Qualifications",
     "section": "Administration",
     "sections": {
       "administration": "Administration",
+      "masterData": "Master data",
       "access": "Access"
     }
   },
@@ -39,6 +47,7 @@
     "confirm": "Confirm"
   },
   "common": { "name": "Name", "status": "Status", "active": "Active", "inactive": "Inactive", "none": "None", "deactivateConfirm": "This will be hidden from new scheduling but kept for history. You can reactivate it later." },
+  "priority": { "label": "Priority", "inherit": "Inherit from customer", "standard": "Standard", "high": "High", "critical": "Critical" },
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "Your operations overview will appear here as modules are activated.",
@@ -57,12 +66,12 @@
   "customers": {
     "title": "Customers",
     "subtitle": "OEM customers and their default firm fence.",
-    "fields": { "name": "Name", "firmFenceDays": "Firm fence (days)" }
+    "fields": { "name": "Name", "firmFenceDays": "Firm fence (days)", "priority": "Priority" }
   },
   "programs": {
     "title": "Programs",
     "subtitle": "Customer/vehicle programs (firm fence overrides the customer).",
-    "fields": { "name": "Name", "customerId": "Customer", "firmFenceDays": "Firm fence (days)" }
+    "fields": { "name": "Name", "customerId": "Customer", "firmFenceDays": "Firm fence (days)", "priority": "Priority" }
   },
   "calendars": {
     "title": "Calendars",

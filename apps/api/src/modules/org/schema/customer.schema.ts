@@ -1,4 +1,5 @@
 import { boolean, index, integer, text, timestamp } from 'drizzle-orm/pg-core'
+import type { OrgPriority } from '@perduraflow/contracts'
 import { generateId } from '../../../db/ulid'
 import { orgSchema } from './_schema'
 
@@ -14,6 +15,7 @@ export const customer = orgSchema.table(
     tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
     firmFenceDays: integer('firm_fence_days'),
+    priority: text('priority').$type<OrgPriority>().notNull().default('standard'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -32,6 +34,7 @@ export const program = orgSchema.table(
       .references(() => customer.id),
     name: text('name').notNull(),
     firmFenceDays: integer('firm_fence_days'),
+    priority: text('priority').$type<OrgPriority>(),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

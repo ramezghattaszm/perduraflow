@@ -1,103 +1,112 @@
-# Claude Code brief — Phase 1: minimal Master Data
+# Claude Code brief — Phase 1: minimal Master Data + shell
 
 | | |
 |---|---|
-| **Builds on** | Phase 0 (closed). All Phase 0 invariants and boundary rules carry forward unchanged. |
-| **This session** | The first **domain** module: minimal Master Data — parts, resources, resource groups, routings — behind contract-shaped boundaries (SKIP-02) |
-| **Working mode** | Propose-then-confirm. Draft the spec deltas, present, **wait for sign-off**, then implement. Same gate as Phase 0. |
+| **Builds on** | Phase 0 (closed — kernel spine, org model, app shell). All Phase 0 invariants and boundary rules carry forward unchanged. |
+| **This session** | The first **domain** module — minimal Master Data — landed into the decided app shell. |
+| **Working mode** | Propose-then-confirm. Draft the spec deltas, present, **wait for sign-off**, then implement. Same gate as Phase 0 (it caught the missing-Delete bug — keep it). |
 
 ---
 
 ## 0. Mission
 
-Stand up `master-data` as the first **domain** module, scoped to what scheduling will need in phase 2: **parts** (what's made), **resources** (lines / machines / work-centres — where), **resource groups**, and **routings** (how a part is made on resources, with standard setup + cycle times). This is the minimal in-module slice of the full Master Data module (SKIP-02); BOM, physical attributes, tooling, effectivity, and UoM conversion stay deferred.
+Stand up `master-data` as the first **domain** module, scoped to what scheduling will need, and build it into the decided shell. This session:
+
+- **Master Data (new module):** parts, resources (lines/machines/work-centres) + resource groups, routings/operations, and the **skill/certification taxonomy + operator qualifications** (MD15) as externally-sourced canonical reference.
+- **Org model (edit existing Phase 0 `org` module):** add a **priority** attribute to `customer` and `program`.
+- **Shell:** build the decided `AppShell` (per `frontend-spec-shell.md`) and land the Master Data screens into it already styled.
+
+This is the minimal in-module slice of the full Master Data module (SKIP-02); BOM, physical attributes, tooling, effectivity, UoM conversion, **order economics margin/penalty** (future phase), and the **binding resolver** (Phase 2) stay deferred.
 
 Two architectural firsts this session, both load-bearing:
+1. **First domain module** — `master-data` gets its own Postgres schema + scoped Drizzle instance, following the Phase 0 boundary pattern you proved holds.
+2. **First contract *consumption*** — resources reference `org`'s plants and calendars through the `org.read` contract (never `org`'s tables), exercising the consumer side of the contract model across a domain→kernel boundary for the first time.
 
-1. **First domain module** — `master-data` gets its own Postgres schema + scoped Drizzle instance, following the Phase 0 boundary pattern exactly (which you proved holds).
-2. **First contract *consumption*** — resources reference `org`'s plants and calendars. Master Data consumes them through the `org.read` contract (never `org`'s tables), exactly as Phase 0's `auth`→`org` validation does. This is the consumer side of the contract model, exercised for the first time across a domain→kernel boundary.
-
-**Not this session:** the per-tenant **binding resolver**. Its first consumer is scheduling (phase 2); building it now is abstraction ahead of its consumer. Phase 1 *publishes* the Master Data contract that phase 2's binding will resolve — nothing more on the binding front.
+**Not this session:** the per-tenant **binding resolver** (first consumer is scheduling, Phase 2). Phase 1 *publishes* the Master Data contract that Phase 2's binding will resolve.
 
 ---
 
 ## 1. Read first
 
-1. `docs/CLAUDE-CODE-BRIEF.md` — Phase 0 brief. **Sections 2 (invariants) and the contract-bound-module rules still bind in full.** Re-read them; they are not repeated here.
-2. `docs/master-data-module-spec.md` — what Master Data owns (MD-series, the ownership principle).
-3. `docs/production-scheduling-business-functional-spec.md` §5.3 (resource model), §5.4 (changeover), and the routing/operation model — Master Data owns these; scheduling consumes them (MDQ6).
-4. `docs/PLATFORM-COMPLETION-LOG.md` — SKIP-02 (this build), SKIP-44 (effectivity), SKIP-45 (BOM/multi-level), SKIP-21 (contract id/version — the foundational half applies here).
+1. `docs/CLAUDE-CODE-BRIEF.md` — Phase 0 brief. **Section 2 (invariants) and the contract-bound-module rules still bind in full.** Re-read; not repeated here.
+2. `docs/frontend-spec-shell.md` — **the decided app shell (Deep Navy tokens, TopBar, collapsible SidebarNav, responsive drawer, scroll-wrapped DataTable, round OrgAvatar/UserAvatar). This is the frontend baseline — build it, do not re-propose it.**
+3. `docs/master-data-module-spec.md` (Draft v0.4) — what Master Data owns (MD-series incl. **MD15**, the ownership principle).
+4. `docs/production-scheduling-business-functional-spec.md` (Draft v0.11) — §5.3 resource model, §5.4 changeover, routing/operation model; **D54** (the eventual consumer of cert/qualification data — Phase 2+, context only).
+5. `docs/platform-architecture-spec.md` (Draft v0.10) and `docs/PLATFORM-COMPLETION-LOG.md` (v0.3) — SKIP-02 (this build), SKIP-44 (effectivity), SKIP-45 (BOM), SKIP-21 (contract id/version, foundational half).
 
 ---
 
 ## 2. Invariants — Phase 0 rules carry, plus these Phase 1 specifics
 
-Everything in Phase 0 Section 2 applies unchanged: per-module schema + scoped Drizzle instance, the lint rule that makes cross-module `schema/` imports fail the build, one shared Pool, contracts as the only cross-module surface, EventBus coordinator for cross-module events, ULID PKs, tenant scope column + index on every table, soft-delete only. Additions for this session:
+Everything in Phase 0 Section 2 applies unchanged: per-module schema + scoped Drizzle instance; the lint rule that makes cross-module `schema/` imports fail the build; one shared Pool; contracts as the only cross-module surface; EventBus coordinator for cross-module events; ULID PKs; tenant scope column + index on every table; soft-delete only. Additions:
 
-- **Resource → `org` references go through `org.read`, by text ID, no cross-schema FK** — identical to Phase 0's O4. `resource.plant_id` and `resource.calendar_id` are plain text, validated at write time via the `org.read` contract. A bad or inactive reference is rejected with a typed error surfaced in the UI (the Phase 0 `INVALID_PLANT_REFERENCE` pattern).
-- **`org.read` evolves additively (first contract version bump).** If `org.read 1.0` does not already expose calendar read + validation, extend it to **`org.read 1.1`** — additive MINOR only (new methods, no changed/removed ones), so every Phase 0 consumer of `1.0` keeps compiling and passing untouched. This is the id/version discipline (SKIP-21, foundational half) exercised for real; prove the existing `auth` consumer is unaffected.
-- **Master Data *publishes* its contract** in `packages/contracts` with `id + version` (e.g. `masterdata.read 1.0`), ready for phase 2's consumer. **No binding resolver** — the contract is published, not yet resolved through a per-tenant binding.
-- **Routing operations carry the *standard* baseline.** `std_setup_time` and `std_cycle_time` on each routing operation are the deterministic baseline (D7). Phase 2's committed-schedule records will carry `setup_source`/`cycle_source` defaulting to `standard` = these values, with ML overlaying later (SKIP-04). So this session establishes the `standard` source of truth — model it cleanly; nothing here is ML.
-- **Standard cycle time + calendar are the planned-throughput basis** for the "expected X/hour vs actual" story (phase 3). Capture them faithfully now (ideal cycle time per part-on-resource lives on the routing operation; resource availability comes from its `org` calendar). No throughput computation this session — just the inputs.
-- **Demo fidelity limits, logged not silently dropped:** parts/routings are **current-version only** — no effectivity dating (SKIP-44); **no BOM** — parts are flat, no component structure (SKIP-45); **single UoM per part**, no conversion (part of SKIP-02). If you scope anything down beyond what these rows already cover, add a `SKIP` row in the same change.
+- **Resource → `org` references go through `org.read`, by text ID, no cross-schema FK** — identical to Phase 0's O4. `resource.plant_id` / `resource.calendar_id` are plain text, validated at write via the `org.read` contract; a bad/inactive reference is rejected with a typed error surfaced in the UI (the Phase 0 `INVALID_PLANT_REFERENCE` pattern).
+- **`org.read` evolves additively (first contract version bump).** If `org.read 1.0` doesn't already expose calendar read+validation, extend to **`org.read 1.1`** — additive MINOR only, so every Phase 0 consumer of `1.0` keeps compiling and passing untouched. Prove the existing `auth` consumer is unaffected.
+- **Master Data *publishes* its contract** in `packages/contracts` with `id + version` (e.g. `masterdata.read 1.0`), ready for Phase 2's consumer. **No binding resolver.**
+- **Cert/qualification + priority are reference data, externally sourced.** The skill/certification taxonomy, operator qualifications (MD15), and customer/program priority are **canonical view only**, seeded for the demo; external-system mappings live in the integration/mapping layer, not here. Master Data does **not** roster operators; `org` priority is a plain attribute, not a commercial engine.
+- **Routing operations carry the *standard* baseline.** `std_setup_time` / `std_cycle_time` are the deterministic baseline (D7). Phase 2's schedule records will carry `setup_source`/`cycle_source` defaulting to `standard` = these values. Model cleanly; nothing here is ML.
+- **Demo fidelity limits, logged not silently dropped:** parts/routings current-version only (no effectivity, SKIP-44); no BOM (SKIP-45); single UoM per part, no conversion (SKIP-02); margin/penalty order economics **out** (future phase — only customer/program *priority* is in). New scope-downs get a `SKIP` row in the same change.
 
 ---
 
 ## 3. This session — scope
 
-**Module → schema/table ownership:**
+**Module → schema/table ownership** (one Postgres schema per module, Drizzle instance scoped to it):
 
-| Module | Postgres schema | Owns tables (minimal) |
+| Module | Schema | Owns / changes |
 |---|---|---|
-| `master-data` | `master_data` | `part`, `resource`, `resource_group`, `resource_group_member`, `routing`, `routing_operation` |
+| `master-data` *(new)* | `master_data` | `part`, `resource`, `resource_group`, `resource_group_member`, `routing`, `routing_operation`, **`certification`** (taxonomy), **`operator`** (minimal, externally-sourced stub: id, name, home plant, optional `labor_rate`), **`operator_qualification`** (operator×certification join) |
+| `org` *(edit Phase 0 module)* | `org` | add `priority` to `customer` and `program` |
 
 Sketch (refine field-level in your draft; ground every field in a spec ref):
 
-- **`part`** — part number, description, `part_type` (`finished`\|`component`\|`raw`), base UoM, status. No BOM, no effectivity.
-- **`resource`** — name, `resource_type` (`line`\|`machine`\|`cell`\|`work_center`), `plant_id` (→ `org` via `org.read`), `calendar_id` (→ `org` via `org.read`), status. MDQ6: resources live here; scheduling consumes them.
-- **`resource_group`** + **`resource_group_member`** — named grouping of resources (§5.3); a resource may belong to multiple groups.
-- **`routing`** — header: `part_id` (intra-module FK to `part`), status. Current-version only.
-- **`routing_operation`** — `routing_id`, sequence number, target `resource_id` *or* `resource_group_id` (intra-module), `std_setup_time`, `std_cycle_time`, and the changeover attribute key(s) (§5.4) modeled but not yet sequenced. These standard times are the `standard` baseline (D7).
+- **`part`** — number, description, `part_type` (`finished`\|`component`\|`raw`), base UoM, status. No BOM, no effectivity.
+- **`resource`** — name, `resource_type` (`line`\|`machine`\|`cell`\|`work_center`), `plant_id` (→`org` via `org.read`), `calendar_id` (→`org` via `org.read`), status. MDQ6: resources live here; scheduling consumes them.
+- **`resource_group`** + **`resource_group_member`** — named grouping; a resource may belong to multiple (§5.3).
+- **`routing`** — `part_id` (intra-module FK), status. Current-version only.
+- **`routing_operation`** — `routing_id`, sequence, target `resource_id` or `resource_group_id` (intra-module), `std_setup_time`, `std_cycle_time`, changeover attribute key(s) (§5.4, modeled not yet sequenced). Standard times = the `standard` baseline (D7).
+- **`certification`** — code, name, description (MD15 taxonomy).
+- **`operator`** + **`operator_qualification`** — minimal externally-sourced operator stub and which certifications each holds (MD15). Seeded; no rostering.
+- **`org.customer` / `org.program`** — add `priority` (simple ordinal/tier).
 
-**Contracts:**
-- Consume `org.read` (bump to `1.1` if calendar read/validate isn't already there — additive).
-- Publish `masterdata.read 1.0` with `id + version` (part/resource/routing read + reference-validation methods), for phase 2's consumer. No resolver.
+**Contracts:** consume `org.read` (bump to `1.1` if calendar read/validate isn't there — additive); publish `masterdata.read 1.0` with `id + version` (part/resource/routing/certification read + reference-validation). No resolver.
 
-**Screens (admin), full CRUD incl. soft-delete from the start, browser-verified:** Parts, Resources, Resource Groups, Routings. Reuse the Phase 0 `AdminResourceScreen` / `FormSheet` / 8-component pattern where it fits. **Routings need a header-plus-operations master-detail editor** that the flat `FormSheet` pattern doesn't cover — propose that UI pattern in your `frontend-spec` delta (see Section 5).
+**Shell + screens:** build `AppShell` per `frontend-spec-shell.md` first (Deep Navy, TopBar, collapsible SidebarNav, drawer, OrgAvatar/UserAvatar, scroll DataTable), generalizing Phase 0's `AdminShell`. Then **full CRUD incl. soft-delete, browser-verified** screens for: Parts, Resources, Resource Groups, Routings, Certifications, Operators (with qualifications). Add `priority` to the existing Customers/Programs screens. Reuse the Phase 0 `AdminResourceScreen`/`FormSheet` pattern; **Routings need a header-plus-operations master-detail editor** the flat pattern doesn't cover — propose it (Section 5).
 
-**Out of scope:** scheduling, the binding resolver, optimizer, actuals, ML, BOM, effectivity, UoM conversion, tooling/physical-attribute domains, cloud providers, Kafka provider.
+**Out of scope:** scheduling, the binding resolver, optimizer, actuals, ML, BOM, effectivity, UoM conversion, tooling/physical-attribute domains, order economics margin/penalty, cloud providers, Kafka provider.
 
 ---
 
 ## 4. Working protocol
 
-1. **Draft the deltas** to `docs/api-spec.md` and `docs/frontend-spec.md` (the `master-data` module + tables, the `org.read 1.1` bump, the `masterdata.read 1.0` publication, the new screens and the routing-editor pattern), plus the `PROJECT-SUMMARY.md` state update. **Present and stop for sign-off. Do not implement tables or screens yet.**
-2. On sign-off: implement — schema + migration + seed, the module, contract changes, screens.
-3. Verify against Section 5, including the boundary proofs.
+1. **Draft the deltas** to `docs/api-spec.md` and `docs/frontend-spec.md` (the `master-data` module + tables, the `org` priority edit, the `org.read 1.1` bump, the `masterdata.read 1.0` publication, the shell build + new screens + routing-editor pattern), plus the `PROJECT-SUMMARY.md` state update. The shell follows `frontend-spec-shell.md` — incorporate, don't re-derive. **Present and stop for sign-off. Do not implement tables or screens yet.**
+2. On sign-off: build the shell, then schema + migration + seed, the module, contract changes, screens.
+3. Verify against Section 6, including the boundary proofs.
 4. Propose before any large or irreversible move.
 
 ---
 
 ## 5. Items to propose in your draft (genuine design choices — don't just pick)
 
-- **Routing editor UI pattern.** Header + ordered operations is a master-detail form, not a flat CRUD modal. Propose the pattern (inline operations table inside the routing sheet? dedicated routing-detail route? add/reorder/remove operation rows) and which new `packages/ui` component(s) it needs.
-- **Resource capacity granularity.** Confirm ideal cycle time lives at routing-operation grain (per part-on-resource), and whether `resource` also carries any nominal/theoretical rate or none in the demo. Propose minimal.
-- **Changeover attributes.** §5.4 keys changeover off part attributes. Propose what minimal attribute(s) the routing operation carries now (modeled, not yet driving sequencing) vs. deferred.
+- **Routing editor UI pattern** — header + ordered operations is master-detail, not a flat modal. Propose the pattern (inline operations table? dedicated route? add/reorder/remove) and the new `packages/ui` component(s).
+- **Operator-qualifications UI** — operator×certification is a many-to-many; propose how it's edited (multi-select on the operator, a matrix, etc.).
+- **Resource capacity granularity** — confirm ideal cycle time lives at routing-operation grain; whether `resource` carries any nominal rate or none. Propose minimal.
+- **Changeover attributes** — §5.4 keys changeover off part attributes; propose the minimal attribute(s) the operation carries now (modeled, not yet sequenced) vs deferred.
 
 ---
 
 ## 6. Definition of done — Phase 1
 
 - `bun run check` (typecheck + doc lint + boundary lint) green; API builds and boots; `next build` succeeds; `expo` type-checks clean.
-- Migration applies; seed creates sample parts, resources (referencing seeded plants + calendars), resource groups, and at least one routing with operations.
-- **Full CRUD including soft-delete on every new screen, browser-verified** — create → edit → deactivate → list reflects each change. (Don't repeat Phase 0's CRU-without-D gap; ship Delete from the first pass.)
-- **Boundary proofs (show these in the hand-back):**
-  1. `master-data` is its own Postgres schema with a Drizzle instance scoped to only its tables; the lint rule **fails the build** on a deliberate cross-module `schema/` import (negative-tested, then reverted), same as Phase 0.
-  2. `resource.plant_id` / `resource.calendar_id` are text, **no cross-schema FK**; FK audit shows only `master_data`→`master_data` intra-module FKs. A bogus/inactive plant *and* calendar reference is rejected through `org.read` with a typed error visible in the UI; valid active ones pass — verified live.
-  3. `org.read` bumped to `1.1` is additive: the Phase 0 `auth` consumer of the contract compiles and passes unchanged — show it.
+- Migration applies; seed creates sample parts, resources (referencing seeded plants + calendars), resource groups, ≥1 routing with operations, a certification set, operators with qualifications, and customer/program priorities.
+- **Shell built per `frontend-spec-shell.md`** — Deep Navy, collapsible sidebar (persisted), TopBar (search/bell/avatar menu), responsive drawer at `small`, round OrgAvatar (logo-or-placeholder) + UserAvatar, DataTable horizontal-scroll at `small`.
+- **Full CRUD incl. soft-delete on every new screen, browser-verified** — create → edit → deactivate → list reflects each change. (Don't repeat Phase 0's CRU-without-D gap; ship Delete from the first pass.)
+- **Boundary proofs (show in the hand-back):**
+  1. `master-data` is its own Postgres schema, Drizzle instance scoped to only its tables; the lint rule **fails the build** on a deliberate cross-module `schema/` import (negative-tested, then reverted).
+  2. `resource.plant_id` / `resource.calendar_id` are text, **no cross-schema FK**; FK audit shows only intra-module FKs. A bogus/inactive plant *and* calendar ref is rejected through `org.read` with a typed UI error; valid ones pass — verified live.
+  3. `org.read` bumped to `1.1` is additive: the Phase 0 `auth` consumer compiles and passes unchanged — show it.
   4. `masterdata.read 1.0` is published in `packages/contracts` with `id + version`; confirm **no binding resolver** was built.
-- Docs reflect what was built; completion log updated (SKIP-02 progress; any new fidelity SKIP rows).
-- Stop at this checkpoint. Do not start phase 2.
+- Docs reflect what was built; completion log updated (SKIP-02 progress; any new fidelity SKIP rows). Stop at this checkpoint. Do not start Phase 2.
 
 ---
 

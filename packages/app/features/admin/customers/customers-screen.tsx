@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import type { CustomerDto } from '@perduraflow/contracts'
-import { AppButton, AppInput, DataTable, Popup, PageHeader, StatusPill } from '@perduraflow/ui'
+import type { CustomerDto, OrgPriority } from '@perduraflow/contracts'
+import { AppButton, AppInput, DataTable, FormField, Popup, PageHeader, SelectField, StatusPill } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, useCustomerMutations } from '../../../hooks/useOrg'
@@ -19,8 +19,10 @@ export function CustomersScreen() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [fence, setFence] = useState('')
+  const [priority, setPriority] = useState<OrgPriority>('standard')
 
   const { show } = usePopup()
+  const priorityOptions = (['standard', 'high', 'critical'] as const).map((v) => ({ value: v, label: t(`priority.${v}`) }))
 
   const confirmDeactivate = () => {
     if (!editingId) return
@@ -46,16 +48,18 @@ export function CustomersScreen() {
     setEditingId(null)
     setName('')
     setFence('')
+    setPriority('standard')
     setOpen(true)
   }
   const openEdit = (c: CustomerDto) => {
     setEditingId(c.id)
     setName(c.name)
     setFence(c.firmFenceDays?.toString() ?? '')
+    setPriority(c.priority)
     setOpen(true)
   }
   const submit = () => {
-    const body = { name, firmFenceDays: fence.trim() === '' ? null : Number(fence) }
+    const body = { name, firmFenceDays: fence.trim() === '' ? null : Number(fence), priority }
     const onSuccess = () => setOpen(false)
     if (editingId) update.mutate({ id: editingId, body }, { onSuccess })
     else create.mutate(body, { onSuccess })
@@ -76,6 +80,7 @@ export function CustomersScreen() {
         columns={[
           { key: 'name', label: t('customers.fields.name'), flex: 2, sortable: true },
           { key: 'firmFenceDays', label: t('customers.fields.firmFenceDays') },
+          { key: 'priority', label: t('customers.fields.priority'), sortable: true, render: (c) => t(`priority.${c.priority}`) },
           {
             key: 'isActive',
             label: t('common.status'),
@@ -112,6 +117,9 @@ export function CustomersScreen() {
           onChangeText={setFence}
           keyboardType="number-pad"
         />
+        <FormField label={t('customers.fields.priority')}>
+          <SelectField options={priorityOptions} value={priority} onChange={(v) => setPriority((v as OrgPriority) ?? 'standard')} />
+        </FormField>
         {editingId ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
