@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { CustomerDto } from '@perduraflow/contracts'
-import { AppButton, AppInput, DataTable, FormSheet, PageHeader, StatusPill } from '@perduraflow/ui'
+import { AppButton, AppInput, DataTable, Popup, PageHeader, StatusPill } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, useCustomerMutations } from '../../../hooks/useOrg'
@@ -82,15 +82,27 @@ export function CustomersScreen() {
           },
         ]}
       />
-      <FormSheet
+      <Popup
         open={open}
+        onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        submitting={create.isPending || update.isPending}
-        submitLabel={editingId ? t('actions.save') : t('actions.create')}
-        cancelLabel={t('actions.cancel')}
+        dismissable={false}
         error={formError}
-        onCancel={() => setOpen(false)}
-        onSubmit={submit}
+        footer={
+          <>
+            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
+              {t('actions.cancel')}
+            </AppButton>
+            <AppButton
+              variant="primary"
+              size="$3"
+              loading={create.isPending || update.isPending}
+              onPress={submit}
+            >
+              {editingId ? t('actions.save') : t('actions.create')}
+            </AppButton>
+          </>
+        }
       >
         <AppInput label={t('customers.fields.name')} value={name} onChangeText={setName} />
         <AppInput
@@ -104,7 +116,7 @@ export function CustomersScreen() {
             {t('actions.deactivate')}
           </AppButton>
         ) : null}
-      </FormSheet>
+      </Popup>
     </AdminShell>
   )
 }

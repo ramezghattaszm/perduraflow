@@ -7,7 +7,7 @@ import {
   AppInput,
   DataTable,
   FormField,
-  FormSheet,
+  Popup,
   PageHeader,
   SelectField,
   StatusPill,
@@ -108,15 +108,27 @@ export function PlantsScreen() {
           },
         ]}
       />
-      <FormSheet
+      <Popup
         open={open}
+        onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        submitting={create.isPending || update.isPending}
-        submitLabel={editingId ? t('actions.save') : t('actions.create')}
-        cancelLabel={t('actions.cancel')}
+        dismissable={false}
         error={formError}
-        onCancel={() => setOpen(false)}
-        onSubmit={submit}
+        footer={
+          <>
+            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
+              {t('actions.cancel')}
+            </AppButton>
+            <AppButton
+              variant="primary"
+              size="$3"
+              loading={create.isPending || update.isPending}
+              onPress={submit}
+            >
+              {editingId ? t('actions.save') : t('actions.create')}
+            </AppButton>
+          </>
+        }
       >
         <AppInput label={t('plants.fields.name')} value={form.name} onChangeText={(v) => set({ name: v })} />
         <AppInput
@@ -144,7 +156,7 @@ export function PlantsScreen() {
             {t('actions.deactivate')}
           </AppButton>
         ) : null}
-      </FormSheet>
+      </Popup>
     </AdminShell>
   )
 }

@@ -1,16 +1,19 @@
 import type { ReactNode } from 'react'
-import { Portal, Sheet, useMedia, XStack, YStack } from 'tamagui'
+import { Portal, ScrollView, Sheet, useMedia, XStack, YStack } from 'tamagui'
 import { H, P } from './typography'
 
 /**
- * Popup — one responsive modal primitive driven by an explicit `useMedia`
+ * Popup — the one responsive modal primitive, driven by an explicit `useMedia`
  * branch (no `Adapt`):
  *  - **small screens** (≤ md) → a real Tamagui `Sheet` (`native` so iOS/Android
  *    get the platform bottom sheet, with drag-to-dismiss / snap);
  *  - **larger screens** → a centered dialog (Portal + `position:fixed` scrim).
  *
- * High z-index so it always sits above other overlays. Presentational only — the
- * app drives one at a time via the popup store + `PopupHost` (see `usePopup`).
+ * Layout is fixed header (title/description) · scrollable body (`children`) ·
+ * error line · fixed footer — so tall forms scroll while the actions stay put.
+ * Used two ways: declaratively for create/edit forms (the screen owns the form
+ * state, `dismissable={false}`), and via the `usePopup` store for one-off
+ * confirms/alerts. High z-index so it always sits above other overlays.
  *
  * @example
  * <Popup open={open} onClose={close} title="Heads up" footer={<AppButton onPress={close}>OK</AppButton>}>
@@ -29,8 +32,10 @@ export interface PopupProps {
   /** Secondary line under the title (the "message"). */
   description?: string
   size?: PopupSize
-  /** When false, overlay-press / drag-to-dismiss are disabled. Default true. */
+  /** When false, overlay-press / drag-to-dismiss are disabled (e.g. forms). Default true. */
   dismissable?: boolean
+  /** Inline error shown above the footer (e.g. a rejected server/contract write). */
+  error?: string
   /** Action row (right-aligned on desktop; below the content in the sheet). */
   footer?: ReactNode
   children?: ReactNode
@@ -50,6 +55,7 @@ export function Popup({
   description,
   size = 'small',
   dismissable = true,
+  error,
   footer,
   children,
 }: PopupProps) {
@@ -58,26 +64,33 @@ export function Popup({
   // max-width key for "small screen": <= 767.98px gets the bottom sheet.
   const isSheet = Boolean(media['max-md'])
 
-  const body = (
-    <>
-      {title ? (
-        <H level={4} color="$textPrimary">
-          {title}
-        </H>
-      ) : null}
-      {description ? (
-        <P size={4} color="$textSecondary">
-          {description}
-        </P>
-      ) : null}
-      {children}
-      {footer ? (
-        <XStack justifyContent="flex-end" gap="$3" marginTop="$2" flexWrap="wrap">
-          {footer}
-        </XStack>
-      ) : null}
-    </>
-  )
+  const header =
+    title || description ? (
+      <YStack gap="$1">
+        {title ? (
+          <H level={4} color="$textPrimary">
+            {title}
+          </H>
+        ) : null}
+        {description ? (
+          <P size={4} color="$textSecondary">
+            {description}
+          </P>
+        ) : null}
+      </YStack>
+    ) : null
+
+  const errorLine = error ? (
+    <P size={5} color="$danger">
+      {error}
+    </P>
+  ) : null
+
+  const footerRow = footer ? (
+    <XStack justifyContent="flex-end" gap="$3" marginTop="$2" flexWrap="wrap">
+      {footer}
+    </XStack>
+  ) : null
 
   if (isSheet) {
     return (
@@ -88,7 +101,7 @@ export function Popup({
         onOpenChange={(next: boolean) => {
           if (!next) onClose()
         }}
-        snapPoints={[60]}
+        snapPoints={[80]}
         dismissOnSnapToBottom={dismissable}
         dismissOnOverlayPress={dismissable}
         zIndex={Z}
@@ -106,18 +119,15 @@ export function Popup({
           borderTopLeftRadius="$6"
           borderTopRightRadius="$6"
         >
-          <Sheet.Handle
-            alignSelf="center"
-            width={44}
-            height={4}
-            borderRadius="$10"
-            backgroundColor="$borderColor"
-          />
+          <Sheet.Handle alignSelf="center" width={44} height={4} borderRadius="$10" backgroundColor="$borderColor" />
+          {header}
           <Sheet.ScrollView>
             <YStack gap="$3" paddingBottom="$4">
-              {body}
+              {children}
             </YStack>
           </Sheet.ScrollView>
+          {errorLine}
+          {footerRow}
         </Sheet.Frame>
       </Sheet>
     )
@@ -151,9 +161,13 @@ export function Popup({
           maxHeight="90%"
           padding="$5"
           gap="$3"
-          overflow="hidden"
         >
-          {body}
+          {header}
+          <ScrollView flex={1}>
+            <YStack gap="$3">{children}</YStack>
+          </ScrollView>
+          {errorLine}
+          {footerRow}
         </YStack>
       </YStack>
     </Portal>

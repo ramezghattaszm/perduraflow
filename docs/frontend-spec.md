@@ -49,11 +49,10 @@ Default. `H`/`P` scale unchanged (UI §4). Inter.
 |---|---|---|
 | `DataTable` | `columns`, `rows`, `onRowPress`, `isLoading`, empty slot | The list view behind every admin CRUD screen (plants, customers, …). Replaces per-screen table styling. |
 | `FormField` | wraps `AppInput`/`AppSwitch`/select; `label`, `error`, `required` | Labelled field for every create/edit form. |
-| `FormSheet` | `title`, `onSubmit`, `onCancel`, `submitting` | Create/edit container (modal on web/tablet) used by all CRUD forms. |
 | `SelectField` | `options`, `value`, `onChange`, `multiple` | Enum + reference pickers (e.g. `group_type`, `data_scope`, customer→program, multi-plant scope). |
 | `StatusPill` | `tone` (`active`/`inactive`/`neutral`) | Row status (`plant.status`, `is_active`). |
 | `PageHeader` | `title`, `actions` slot | Consistent admin page header + primary action (New …). |
-| `Popup` | `open`, `onClose`, `title`, `description`, `size`, `dismissable`, `footer` | Responsive modal: centered dialog on desktop, native `Sheet` on small (UI §17). Driven by `usePopup`. |
+| `Popup` | `open`, `onClose`, `title`, `description`, `size`, `dismissable`, `error`, `footer` | The one responsive modal (UI §17): centered dialog on desktop, native `Sheet` on small. Used declaratively for every create/edit form **and** via `usePopup` for confirms. Replaced `FormSheet`. |
 | `TextLink` | `size`, `weight` (extends `P`) | Clickable inline text (pointer cursor + hover); replaces `<P onPress>` for links. |
 | `ConfirmDialog` | `title`, `message`, `tone`, `onConfirm` | Predates `Popup`/`usePopup`; **superseded** by them for confirms (kept as a primitive). |
 | `SidebarNav` / `NavItem` | `items`, `activeId` | Web/tablet shell navigation. |
@@ -65,13 +64,14 @@ Existing template components reused as-is: `Screen`, `AppButton`, `AppInput`, `A
 
 - **Confirms/alerts go through `usePopup`** (`packages/app/stores/popup.store.ts`) — one global popup
   at a time, rendered by `PopupHost` in the app `Provider` (UI §17). Don't add per-screen confirm
-  state. The admin **Deactivate** action on every entity closes its edit `FormSheet`, then
+  state. The admin **Deactivate** action on every entity closes its edit form popup, then
   `show({ title, message, buttons: [Cancel, Deactivate] })`.
 - **Soft delete = Deactivate, never hard delete** (API schema rule). Plants transition
   `status → 'inactive'`; every other org/auth entity sets `isActive=false`. Lists keep showing the
   deactivated row with an "Inactive" `StatusPill` (no row removal). The `Deactivate` button shows
   only while editing an existing row.
-- **Create/edit forms stay in `FormSheet`** (declarative, holds local input state) — not `usePopup`.
+- **Create/edit forms use `Popup` declaratively** (`open`/`footer`/`error`, `dismissable={false}`,
+  screen owns the form state) — not the `usePopup` store. One overlay primitive for forms and confirms.
 
 ---
 
@@ -95,8 +95,8 @@ Shared screens in `packages/app/features`; app routers (`apps/next`, `apps/expo`
   profile · settings          ← existing
 ```
 
-Detail/edit can be a route (`[id]`) or a `FormSheet` over the list — **proposal: `FormSheet` modal
-over the list** for CRUD (fewer routes, faster authoring), with `[id]` kept for deep-linkable detail
+Detail/edit can be a route (`[id]`) or a `Popup` modal over the list — **decided: `Popup` modal over
+the list** for CRUD (fewer routes, faster authoring), with `[id]` kept for deep-linkable detail
 where useful.
 
 ---
@@ -104,7 +104,7 @@ where useful.
 ## 5. Screens
 
 All are thin screens over shared `packages/ui` components (UI §0.1). The seven admin screens share
-one **`AdminResourceScreen` pattern** (list via `DataTable` + create/edit `FormSheet`), differing
+one **`AdminResourceScreen` pattern** (list via `DataTable` + create/edit `Popup`), differing
 only by config (columns, form fields, hooks) — not duplicated layout.
 
 | Screen | Feature folder | Platform split? | Notes |
@@ -146,6 +146,6 @@ None in phase 0.
 | ID | Question | Status |
 |---|---|---|
 | FS1 | Keep the template blue palette unchanged for phase 0. | **Confirmed** |
-| FS2 | CRUD edit via `FormSheet` modal over the list. | **Confirmed** |
+| FS2 | CRUD edit via `Popup` modal over the list (was `FormSheet`; consolidated onto `Popup`). | **Confirmed** |
 | FS3 | Calendar fields get basic JSON-backed editors in phase 0; richer structured shift/holiday/maintenance builders later → **SKIP-52** in the completion log. maintenance_windows plant-level (no resource_id). | **Confirmed** |
 | FS4 | Web nav: persistent left `SidebarNav`. | **Confirmed** |

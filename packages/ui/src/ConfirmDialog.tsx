@@ -3,9 +3,11 @@ import { AppButton } from './AppButton'
 import { H, P } from './typography'
 
 /**
- * ConfirmDialog — a small confirmation modal (same overlay treatment as
- * FormSheet) for destructive/irreversible actions like deactivating an entity.
- * `tone` colors the confirm button.
+ * ConfirmDialog — a small Portal-rendered confirmation modal for
+ * destructive/irreversible actions; `tone` colors the confirm button.
+ *
+ * @remarks Superseded by `Popup` + `usePopup` for confirmations (UI §17); kept
+ * as a standalone primitive. Prefer `usePopup().show({ buttons: [...] })`.
  *
  * @example
  * <ConfirmDialog open={open} title="Deactivate plant?" message="It will be hidden." tone="danger"

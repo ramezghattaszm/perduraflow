@@ -716,7 +716,8 @@ matching `*.stories.tsx`.
 
 ## 17. Overlays — modals, sheets & popups
 
-Three shared overlay primitives, all in `packages/ui`. Two rules govern all of them.
+One overlay primitive — **`Popup`** (in `packages/ui`) — used both for forms and confirms. Two rules
+govern it. (`ConfirmDialog` predates it and is a deprecated alias; `FormSheet` was folded into `Popup`.)
 
 ### Rule 1 — overlays render through a Portal, never a bare absolute YStack
 
@@ -743,7 +744,8 @@ Imperative alerts/confirms go through a single global popup, not per-screen moda
 
 - **`Popup`** (component) — responsive: a centered **dialog** on `≥ md`, a real Tamagui **`Sheet`**
   (with the **`native`** flag, so iOS/Android get the platform bottom sheet) on small screens,
-  branched via `media['max-md']` (see §3 "Responsive media"). High `zIndex` so it clears the FormSheet.
+  branched via `media['max-md']` (see §3 "Responsive media"). Fixed header · scrollable body · footer,
+  so tall forms scroll while actions stay put. High `zIndex` so confirms clear an open form popup.
 - **`popup.store.ts`** (`usePopup`) — a Zustand store holding **one** `PopupOptions | null`
   (`show` replaces, `hide` clears). Options: `title`, `message`, `content`, `buttons`
   (`{ text, tone, onPress }` — `onPress` returning `false` keeps it open), `size`, `dismissable`.
@@ -758,9 +760,12 @@ show({ title: t('actions.deactivate'), message: t('common.deactivateConfirm'), b
 ] })
 ```
 
-Use `usePopup` for confirms/alerts. Keep **`FormSheet`** (declarative, inline) for create/edit forms
-that hold local input state — an imperative popup is the wrong fit there. (`ConfirmDialog` predates
-`usePopup` and is superseded by it for confirmations.)
+`Popup` is used **two ways**: (1) **declaratively** for create/edit forms — render
+`<Popup open onClose title footer={…} dismissable={false} error={…}>` with the screen owning the form
+state (fields as `children`, Cancel/Save as `footer`, `dismissable={false}` so a stray scrim tap
+doesn't discard input); (2) via the **`usePopup` store** for one-off confirms/alerts. Do **not** push
+a stateful form through the `usePopup` store — its serialized, single-global, fire-and-forget model
+fits confirms, not live forms.
 
 ### Tamagui `Sheet` gotchas (web)
 

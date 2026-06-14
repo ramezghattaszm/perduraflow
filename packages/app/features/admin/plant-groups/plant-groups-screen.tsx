@@ -8,7 +8,7 @@ import {
   AppSwitch,
   DataTable,
   FormField,
-  FormSheet,
+  Popup,
   P,
   PageHeader,
   SelectField,
@@ -110,15 +110,27 @@ export function PlantGroupsScreen() {
           },
         ]}
       />
-      <FormSheet
+      <Popup
         open={open}
+        onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        submitting={create.isPending || update.isPending}
-        submitLabel={editingId ? t('actions.save') : t('actions.create')}
-        cancelLabel={t('actions.cancel')}
+        dismissable={false}
         error={formError}
-        onCancel={() => setOpen(false)}
-        onSubmit={submit}
+        footer={
+          <>
+            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
+              {t('actions.cancel')}
+            </AppButton>
+            <AppButton
+              variant="primary"
+              size="$3"
+              loading={create.isPending || update.isPending}
+              onPress={submit}
+            >
+              {editingId ? t('actions.save') : t('actions.create')}
+            </AppButton>
+          </>
+        }
       >
         <AppInput label={t('plantGroups.fields.name')} value={name} onChangeText={setName} />
         <FormField label={t('plantGroups.fields.groupType')}>
@@ -144,7 +156,7 @@ export function PlantGroupsScreen() {
             {t('actions.deactivate')}
           </AppButton>
         ) : null}
-      </FormSheet>
+      </Popup>
     </AdminShell>
   )
 }
