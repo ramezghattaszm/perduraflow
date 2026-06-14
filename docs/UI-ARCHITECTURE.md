@@ -255,6 +255,13 @@ const ACTIVE_COLOR = '#2D5BE3' // $primary
 const INACTIVE_COLOR = '#6B7280' // $textSecondary
 ```
 
+### Responsive by default
+
+**Every screen and shared component must be responsive unless explicitly stated otherwise.**
+Design for small screens too: layouts reflow, the app shell collapses its sidebar to a top-left
+menu (lucide `Menu`) that opens it as a drawer on small screens, and modals become bottom sheets
+(§17). Don't ship a desktop-only layout.
+
 ### Responsive media is mobile-first (`min-width`) — use `max-*` for "small"
 
 The Tamagui v5 config's media queries are **min-width** (mobile-first): `media.sm` is true when the
@@ -785,3 +792,4 @@ fits confirms, not live forms.
 | ------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1.0     | —    | Generalized from the Mercor UI architecture; de-branded; bun + Turborepo; added §0 governing principles (reuse-over-inline, library-ready), §4 typography (H/P), §12 utilities and §6 stores elevated to fixed conventions; added `packages/contracts` boundary; two-layer token system. |
 | 1.1     | 2026-06-14 | Added §17 Overlays (Portal-rendered modals; `usePopup` single global popup → dialog on desktop / native `Sheet` on small; Tamagui Sheet gotchas). §3 responsive media is mobile-first (`min-width`; use `max-*` for small). §5 control conventions: password masking via `type` not `secureTextEntry`, font-size tokens in controls, `TextLink` for clickable text, button hover = opacity only. |
+| 1.2     | 2026-06-14 | §3 "Responsive by default" principle (every screen/component responsive unless stated). App shell collapses its sidebar to a top-left menu (lucide) drawer on small screens. Nav selection is a primary-colored font with **no** background/box. Overlay scrims set `pointerEvents:"auto"` (the Portal host is `pointer-events:none`, which inherits). |

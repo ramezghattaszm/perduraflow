@@ -16,6 +16,7 @@ export interface NavEntry {
   onPress: () => void
 }
 
+// Selection is shown by the font color only — no active background or box.
 const ItemFrame = styled(XStack, {
   name: 'NavItem',
   alignItems: 'center',
@@ -23,20 +24,15 @@ const ItemFrame = styled(XStack, {
   paddingHorizontal: '$3',
   paddingVertical: '$3',
   cursor: 'pointer',
-  variants: {
-    active: {
-      true: { backgroundColor: '$primary' },
-      false: { backgroundColor: 'transparent', hoverStyle: { backgroundColor: '$background' } },
-    },
-  } as const,
-  defaultVariants: { active: false },
+  backgroundColor: 'transparent',
+  hoverStyle: { backgroundColor: '$background' },
 })
 
-/** A single nav row (exported for direct use/composition). */
+/** A single nav row (exported for direct use/composition). Active = primary font, no box. */
 export function NavItem({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
-    <ItemFrame active={active} onPress={onPress}>
-      <P size={3} weight={active ? 'b' : 'm'} color={active ? '$surface' : '$textPrimary'}>
+    <ItemFrame onPress={onPress}>
+      <P size={3} weight={active ? 'b' : 'm'} color={active ? '$primary' : '$textPrimary'}>
         {label}
       </P>
     </ItemFrame>
