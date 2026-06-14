@@ -119,7 +119,13 @@ export function Popup({
           borderTopLeftRadius="$6"
           borderTopRightRadius="$6"
         >
-          <Sheet.Handle alignSelf="center" width={44} height={4} borderRadius="$10" backgroundColor="$borderColor" />
+          <Sheet.Handle
+            alignSelf="center"
+            width={44}
+            height={4}
+            borderRadius="$10"
+            backgroundColor="$borderColor"
+          />
           {header}
           <Sheet.ScrollView>
             <YStack gap="$3" paddingBottom="$4">
@@ -135,6 +141,7 @@ export function Popup({
 
   // Larger screens → centered dialog (Portal + fixed scrim).
   if (!open) return null
+
   return (
     <Portal>
       <YStack
@@ -148,6 +155,10 @@ export function Popup({
         alignItems="center"
         justifyContent="center"
         padding="$4"
+        // The Tamagui Portal host is pointer-events:none, and pointer-events
+        // inherits — without this the scrim paints the dim but lets clicks/hover
+        // fall through to the content behind it. Re-enable hit-testing here.
+        pointerEvents="auto"
         onPress={dismissable ? onClose : undefined}
       >
         <YStack

@@ -43,11 +43,14 @@ export function ConfirmDialog({
         left={0}
         right={0}
         bottom={0}
-        zIndex={1100}
+        zIndex={200100}
         alignItems="center"
         justifyContent="center"
         padding="$4"
         backgroundColor="$overlay"
+        // Portal host is pointer-events:none and it inherits — re-enable hit-testing
+        // or the scrim lets clicks/hover fall through to content behind it.
+        pointerEvents="auto"
       >
         <YStack
           width="100%"
