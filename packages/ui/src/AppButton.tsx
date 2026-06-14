@@ -4,6 +4,7 @@ import {
   Spinner,
   Text,
   styled,
+  type FontSizeTokens,
   type GetProps,
   type TamaguiElement,
 } from 'tamagui'
@@ -21,12 +22,37 @@ const ButtonFrame = styled(Button, {
   name: 'AppButton',
   borderWidth: 1,
   borderColor: 'transparent',
+  // Hover/press feedback is a slight opacity shift only (no background change),
+  // applied uniformly across variants. Disabled buttons set pointerEvents=none
+  // (see AppButton) so neither fires.
+  hoverStyle: { opacity: 0.8 },
+  pressStyle: { opacity: 0.7 },
   variants: {
     variant: {
-      primary: { backgroundColor: '$primary', borderColor: '$primary' },
-      ghost: { backgroundColor: 'transparent', borderColor: '$primary' },
-      danger: { backgroundColor: '$danger', borderColor: '$danger' },
-      light: { backgroundColor: '$surface', borderColor: '$borderColor' },
+      primary: {
+        backgroundColor: '$primary',
+        borderColor: '$primary',
+        hoverStyle: { backgroundColor: '$primary' },
+        pressStyle: { backgroundColor: '$primary' },
+      },
+      ghost: {
+        backgroundColor: 'transparent',
+        borderColor: '$primary',
+        hoverStyle: { backgroundColor: '$primary' },
+        pressStyle: { backgroundColor: '$primary' },
+      },
+      danger: {
+        backgroundColor: '$danger',
+        borderColor: '$danger',
+        hoverStyle: { backgroundColor: '$danger' },
+        pressStyle: { backgroundColor: '$danger' },
+      },
+      light: {
+        backgroundColor: '$surface',
+        borderColor: '$borderColor',
+        hoverStyle: { backgroundColor: '$surface' },
+        pressStyle: { backgroundColor: '$surface' },
+      },
     },
     size: {
       $3: { height: 40, paddingHorizontal: '$3', borderRadius: '$4' },
@@ -46,7 +72,8 @@ const TEXT_COLOR = {
   danger: '$surface',
   light: '$primary',
 } as const
-const TEXT_SIZE: Record<Size, number> = { $3: 14, $4: 16, $5: 18 }
+// Font size-token per button size (14/16/18px via the fonts.ts scale), not raw numbers.
+const TEXT_SIZE: Record<Size, FontSizeTokens> = { $3: '$4', $4: '$6', $5: '$7' }
 
 export type AppButtonProps = Omit<GetProps<typeof ButtonFrame>, 'children' | 'disabled'> & {
   variant?: Variant
@@ -69,7 +96,7 @@ export type AppButtonProps = Omit<GetProps<typeof ButtonFrame>, 'children' | 'di
  */
 export const AppButton = forwardRef<TamaguiElement, AppButtonProps>(function AppButton(
   { onPress, disabled, loading, children, variant = 'primary', size = '$4', ...props },
-  ref,
+  ref
 ) {
   const isDisabled = Boolean(disabled || loading)
   const color = TEXT_COLOR[variant]

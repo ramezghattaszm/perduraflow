@@ -6,6 +6,7 @@ export * from '@perduraflow/config'
 
 // Typography system (permanent template fixtures).
 export * from './typography'
+export * from './TextLink'
 
 // Shared components — variant-driven, library-ready (UI-ARCHITECTURE.md §0.2).
 export * from './Screen'

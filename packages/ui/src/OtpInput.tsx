@@ -17,7 +17,7 @@ const Box = styled(Input, {
   color: '$textPrimary',
   borderRadius: '$4',
   textAlign: 'center',
-  fontSize: 22,
+  fontSize: '$9', // 22px via the font size-token scale (fonts.ts)
   variants: {
     variant: {
       default: {},

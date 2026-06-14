@@ -30,15 +30,15 @@ export function AppToast() {
       paddingVertical="$3"
     >
       <XStack gap="$3" alignItems="center">
-        <Text fontSize={16}>{c.icon}</Text>
+        <Text fontSize="$6">{c.icon}</Text>
         <YStack flex={1}>
           {current.title ? (
-            <Toast.Title fontFamily="$heading" fontWeight="600" fontSize={15} color={c.text}>
+            <Toast.Title fontFamily="$heading" fontWeight="600" fontSize="$5" color={c.text}>
               {current.title}
             </Toast.Title>
           ) : null}
           {current.message ? (
-            <Toast.Description fontFamily="$body" fontSize={14} color={c.text}>
+            <Toast.Description fontFamily="$body" fontSize="$4" color={c.text}>
               {current.message}
             </Toast.Description>
           ) : null}

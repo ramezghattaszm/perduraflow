@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'solito/navigation'
-import { AppButton, AppInput, H, P, Screen, XStack, YStack } from '@perduraflow/ui'
+import { AppButton, AppInput, H, P, Screen, TextLink, XStack, YStack } from '@perduraflow/ui'
 import { useRegister } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 import { useTranslation, translateError } from '../../i18n'
@@ -53,9 +53,9 @@ export function RegisterScreen() {
           <P size={4} color="$textSecondary">
             {t('auth:register.haveAccount')}
           </P>
-          <P size={4} weight="b" color="$primary" onPress={() => router.push('/login')}>
+          <TextLink size={4} weight="b" onPress={() => router.push('/login')}>
             {t('auth:register.signIn')}
-          </P>
+          </TextLink>
         </XStack>
       </YStack>
     </Screen>

@@ -37,7 +37,12 @@ apiClient.interceptors.response.use(
   },
   async (error: AxiosError) => {
     const original = error.config as RetriableConfig | undefined
-    if (error.response?.status === 401 && original && !original._retry) {
+    // A 401 from an auth endpoint (login, refresh, register, …) means bad
+    // credentials / no session — NOT an expired access token. Don't attempt a
+    // silent refresh + logout for those; let the original error surface so the
+    // screen can show it (e.g. INVALID_CREDENTIALS on the login form).
+    const isAuthRoute = original?.url?.includes('/auth/') ?? false
+    if (error.response?.status === 401 && original && !original._retry && !isAuthRoute) {
       original._retry = true
       try {
         refreshing ??= doRefresh()

@@ -17,7 +17,7 @@ const Field = styled(Input, {
   borderRadius: '$4',
   height: 48,
   paddingHorizontal: '$3',
-  fontSize: 16,
+  fontSize: '$6', // 16px via the font size-token scale (fonts.ts), not a raw number
   variants: {
     variant: {
       default: {},
@@ -76,7 +76,7 @@ export function AppInput({
           borderRadius="$4"
           minHeight={96}
           padding="$3"
-          fontSize={16}
+          fontSize="$6"
           {...(props as GetProps<typeof TextArea>)}
         />
       ) : type === 'password' ? (
@@ -86,7 +86,10 @@ export function AppInput({
             invalid={invalid}
             flex={1}
             paddingRight="$7"
-            secureTextEntry={hidden}
+            // Tamagui's unified `type` masks on BOTH platforms (web → DOM
+            // type=password; native Input maps type=password → secureTextEntry).
+            // `secureTextEntry` alone is a native-only prop and is ignored on web.
+            type={hidden ? 'password' : 'text'}
             autoCapitalize="none"
             {...props}
           />
@@ -96,6 +99,7 @@ export function AppInput({
             color="$primary"
             position="absolute"
             right="$3"
+            cursor='pointer'
             onPress={() => setHidden((h) => !h)}
           >
             {hidden ? 'Show' : 'Hide'}

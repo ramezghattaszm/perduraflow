@@ -2,9 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'solito/navigation'
-import { AppButton, AppInput, H, P, Screen, XStack, YStack } from '@perduraflow/ui'
+import { AppButton, AppInput, H, P, Screen, TextLink, XStack, YStack } from '@perduraflow/ui'
 import { useLogin } from '../../hooks/useAuth'
-import { useToast } from '../../hooks/useToast'
 import { useTranslation, translateError } from '../../i18n'
 import { getApiErrorCode } from '../../utils/error'
 
@@ -12,18 +11,13 @@ export function LoginScreen() {
   const { t } = useTranslation()
   const router = useRouter()
   const login = useLogin()
-  const { showToast } = useToast()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
+  // The error is shown inline below the form (persistent until the next submit),
+  // so no transient toast here.
   const onSubmit = () => {
-    login.mutate(
-      { email, password },
-      {
-        onSuccess: () => router.replace('/'),
-        onError: (err) => showToast(translateError(getApiErrorCode(err)), { type: 'error' }),
-      },
-    )
+    login.mutate({ email, password }, { onSuccess: () => router.replace('/') })
   }
 
   return (
@@ -46,19 +40,24 @@ export function LoginScreen() {
           value={password}
           onChangeText={setPassword}
         />
+        {login.isError ? (
+          <P size={4} color="$danger">
+            {translateError(getApiErrorCode(login.error))}
+          </P>
+        ) : null}
         <AppButton onPress={onSubmit} loading={login.isPending}>
           {t('auth:login.submit')}
         </AppButton>
-        <P size={4} weight="m" color="$primary" textAlign="center" onPress={() => router.push('/forgot-password')}>
+        <TextLink size={4} weight="m" textAlign="center" onPress={() => router.push('/forgot-password')}>
           {t('auth:login.forgot')}
-        </P>
+        </TextLink>
         <XStack justifyContent="center" gap="$2">
           <P size={4} color="$textSecondary">
             {t('auth:login.noAccount')}
           </P>
-          <P size={4} weight="b" color="$primary" onPress={() => router.push('/register')}>
+          <TextLink size={4} weight="b" onPress={() => router.push('/register')}>
             {t('auth:login.signUp')}
-          </P>
+          </TextLink>
         </XStack>
       </YStack>
     </Screen>
