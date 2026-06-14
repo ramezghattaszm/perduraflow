@@ -14,9 +14,14 @@
   "OTP_RATE_LIMITED": "Too many attempts. Please wait and try again.",
   "TENANT_NOT_FOUND": "We couldn't find your workspace.",
   "USER_NOT_FOUND": "User not found.",
-  "EXAMPLE_NOT_FOUND": "That item no longer exists.",
-  "FILE_NOT_FOUND": "File not found.",
-  "FILE_TOO_LARGE": "That file is too large.",
-  "FILE_TYPE_NOT_ALLOWED": "That file type isn't allowed.",
+  "ROLE_NOT_FOUND": "That role no longer exists.",
+  "APPROVAL_TIER_NOT_FOUND": "That approval tier no longer exists.",
+  "PLANT_NOT_FOUND": "That plant no longer exists.",
+  "PLANT_GROUP_NOT_FOUND": "That plant group no longer exists.",
+  "CUSTOMER_NOT_FOUND": "That customer no longer exists.",
+  "PROGRAM_NOT_FOUND": "That program no longer exists.",
+  "CALENDAR_NOT_FOUND": "That calendar no longer exists.",
+  "INVALID_PLANT_REFERENCE": "One or more selected plants no longer exist.",
+  "DUPLICATE_NAME": "That name is already in use.",
   "GENERIC": "Something went wrong. Please try again."
 }

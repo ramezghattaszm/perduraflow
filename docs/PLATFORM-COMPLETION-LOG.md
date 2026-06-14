@@ -112,6 +112,7 @@ Scheduling-module features the demo simplifies. These complete the module itself
 | **SKIP-49** | Rescheduling / nervousness control | Full re-run only | Stability-biased: local repair, in-progress protected, committed jobs protected within a configurable stability window | D44 · optimizer warm-start/repair | Deferred |
 | **SKIP-50** | Master-data completeness validation | Basic presence checks | Block-or-warn policy; hold demand + raise data-quality exception rather than guess | D45 · config policy | Deferred |
 | **SKIP-51** | Integration / actuals source | Built-in actuals simulator (demo fixture) emitting 4.3 events + manual entry | Real connectors per the three D35 binding modes; MES real-time actuals feed | D35 / §13 · connector build | Pending ruling (decision pt 4) |
+| **SKIP-52** | Calendar config UI fidelity | Basic JSON-backed editors for `shift_patterns` / `holidays` / `maintenance_windows`; `maintenance_windows` plant-level (no `resource_id`) | Structured shift-pattern / holiday / maintenance-window builders; maintenance windows referencing resources once Master Data assets exist | D17 / 5.7 · phase 1 resources (SKIP-02) | Deferred |
 
 ---
 

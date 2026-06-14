@@ -1,0 +1,156 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import type { AdminUser } from '@perduraflow/contracts'
+import {
+  AppButton,
+  AppInput,
+  AppSwitch,
+  ConfirmDialog,
+  DataTable,
+  FormField,
+  FormSheet,
+  P,
+  PageHeader,
+  SelectField,
+  StatusPill,
+  XStack,
+} from '@perduraflow/ui'
+import { translateError, useTranslation } from '../../../i18n'
+import { getApiErrorCode } from '../../../utils/error'
+import { useAdminUsers, useRoles, useUserMutations } from '../../../hooks/useAdmin'
+import { AdminShell } from '../../shell/admin-shell'
+
+/** Users admin screen — people in the tenant and the role assigned to each. */
+export function UsersScreen() {
+  const { t } = useTranslation('admin')
+  const { data: users = [], isLoading } = useAdminUsers()
+  const { data: roles = [] } = useRoles()
+  const { create, update } = useUserMutations()
+
+  const [open, setOpen] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [roleId, setRoleId] = useState<string | null>(null)
+  const [verified, setVerified] = useState(true)
+
+  const deactivate = () => {
+    if (!editingId) return
+    update.mutate(
+      { id: editingId, body: { isActive: false } },
+      { onSuccess: () => { setConfirmOpen(false); setOpen(false) } },
+    )
+  }
+  const submitError = create.error ?? update.error
+  const formError = submitError ? translateError(getApiErrorCode(submitError)) : undefined
+
+  const roleName = useMemo(() => new Map(roles.map((r) => [r.id, r.name])), [roles])
+  const roleOptions = roles.map((r) => ({ value: r.id, label: r.name }))
+
+  const openNew = () => {
+    setEditingId(null)
+    setName('')
+    setEmail('')
+    setPassword('')
+    setRoleId(null)
+    setVerified(true)
+    setOpen(true)
+  }
+  const openEdit = (u: AdminUser) => {
+    setEditingId(u.id)
+    setName(u.name)
+    setEmail(u.email)
+    setPassword('')
+    setRoleId(u.roleId)
+    setVerified(u.isVerified)
+    setOpen(true)
+  }
+  const submit = () => {
+    const onSuccess = () => setOpen(false)
+    if (editingId) update.mutate({ id: editingId, body: { name, roleId, isVerified: verified } }, { onSuccess })
+    else create.mutate({ name, email, password, roleId, isVerified: verified }, { onSuccess })
+  }
+
+  return (
+    <AdminShell activeId="users">
+      <PageHeader
+        title={t('users.title')}
+        subtitle={t('users.subtitle')}
+        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+      />
+      <DataTable<AdminUser>
+        isLoading={isLoading}
+        rows={users}
+        onRowPress={openEdit}
+        emptyTitle={t('users.title')}
+        columns={[
+          { key: 'name', label: t('users.fields.name'), flex: 2 },
+          { key: 'email', label: t('users.fields.email'), flex: 2 },
+          {
+            key: 'roleId',
+            label: t('users.fields.roleId'),
+            render: (u) => <P size={4}>{u.roleId ? (roleName.get(u.roleId) ?? '—') : '—'}</P>,
+          },
+          {
+            key: 'isVerified',
+            label: t('users.fields.isVerified'),
+            render: (u) =>
+              u.isVerified ? <StatusPill tone="active">✓</StatusPill> : <P size={4} color="$textSecondary">—</P>,
+          },
+          {
+            key: 'isActive',
+            label: t('common.status'),
+            render: (u) => <StatusPill tone={u.isActive ? 'active' : 'inactive'}>{u.isActive ? t('common.active') : t('common.inactive')}</StatusPill>,
+          },
+        ]}
+      />
+      <FormSheet
+        open={open}
+        title={editingId ? t('actions.edit') : t('actions.new')}
+        submitting={create.isPending || update.isPending}
+        submitLabel={editingId ? t('actions.save') : t('actions.create')}
+        cancelLabel={t('actions.cancel')}
+        error={formError}
+        onCancel={() => setOpen(false)}
+        onSubmit={submit}
+      >
+        <AppInput label={t('users.fields.name')} value={name} onChangeText={setName} />
+        {editingId ? null : (
+          <>
+            <AppInput type="email" label={t('users.fields.email')} value={email} onChangeText={setEmail} />
+            <AppInput type="password" label={t('users.fields.password')} value={password} onChangeText={setPassword} />
+          </>
+        )}
+        <FormField label={t('users.fields.roleId')}>
+          <SelectField options={roleOptions} value={roleId} onChange={setRoleId} />
+        </FormField>
+        <FormField label={t('users.fields.isVerified')}>
+          <XStack alignItems="center" gap="$3">
+            <AppSwitch checked={verified} onCheckedChange={setVerified} />
+            <P size={4} color="$textSecondary">
+              {verified ? t('common.active') : t('common.inactive')}
+            </P>
+          </XStack>
+        </FormField>
+        {editingId ? (
+          <AppButton variant="danger" size="$3" onPress={() => setConfirmOpen(true)}>
+            {t('actions.deactivate')}
+          </AppButton>
+        ) : null}
+      </FormSheet>
+      <ConfirmDialog
+        open={confirmOpen}
+        title={t('actions.deactivate')}
+        tone="danger"
+        confirmLabel={t('actions.deactivate')}
+        cancelLabel={t('actions.cancel')}
+        submitting={update.isPending}
+        onConfirm={deactivate}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </AdminShell>
+  )
+}

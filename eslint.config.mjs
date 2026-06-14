@@ -36,6 +36,45 @@ export default [
     ],
   },
 
+  // Module boundary rule (api-spec §0 O3): a module may not import another
+  // module's `schema/` (or repository) — cross-module access goes through
+  // @perduraflow/contracts + the consumed read interface only. This is what
+  // makes a cross-module query uncompilable rather than merely discouraged.
+  // The migration generator (apps/api/drizzle.config.ts) and the seed
+  // (apps/api/src/db/seed.ts) are NOT under modules/, so they are exempt by
+  // design — they legitimately aggregate every module's schema.
+  {
+    files: ['apps/api/src/modules/**/*.ts'],
+    ignores: ['apps/api/src/modules/**/schema/**'],
+    languageOptions,
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '../*/schema',
+                '../*/schema/*',
+                '../../*/schema',
+                '../../*/schema/*',
+                '**/modules/*/schema',
+                '**/modules/*/schema/*',
+              ],
+              message:
+                "Module boundary (api-spec §0 O3): a module may not import another module's schema/. Use @perduraflow/contracts + the consumed read interface.",
+            },
+            {
+              group: ['../*/*.repository', '../../*/*.repository'],
+              message:
+                "Module boundary (O1): import the other module's contract/read interface, not its repository.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Base: exported classes, functions, and const declarations (covers UI
   // components built with styled(), hooks, stores, providers, guards, exported
   // helpers). Presence only — no forced param/return descriptions.
@@ -86,6 +125,8 @@ export default [
       'apps/api/src/**/*.module.ts',
       'apps/api/src/db/**/*.ts',
       'apps/api/src/**/*.repository.ts',
+      'apps/api/src/**/*.db.ts',
+      'apps/api/src/**/*.mapper.ts',
     ],
     plugins: { jsdoc },
     languageOptions,

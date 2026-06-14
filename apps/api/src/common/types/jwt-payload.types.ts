@@ -1,13 +1,15 @@
-import type { UserRole } from '@perduraflow/contracts'
-
 /**
- * JWT access-token payload. Carries the tenant scope (tenantId) resolved at
- * registration — every user-facing query is scoped by it server-side. No
- * second-level grouping (no exchangeId): apps that need one add it here.
+ * JWT access-token payload. Carries the tenant scope (`tenantId`) resolved at
+ * login — every user-facing query is scoped by it server-side. The role is a
+ * reference into the tenant's editable role set (D33): `roleId`/`roleName` for
+ * display, and `canConfigure` (the `configure` permission) for admin gating
+ * (SKIP-43 keeps the permission set to this one capability for phase 0).
  */
 export interface JwtPayload {
   sub: string // user ULID
   email: string
-  role: UserRole
   tenantId: string
+  roleId: string | null
+  roleName: string | null
+  canConfigure: boolean
 }

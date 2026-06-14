@@ -1,5 +1,4 @@
 import 'reflect-metadata'
-import { resolve } from 'node:path'
 import { NestFactory, Reflector } from '@nestjs/core'
 import type { NestExpressApplication } from '@nestjs/platform-express'
 import cookieParser from 'cookie-parser'
@@ -19,11 +18,6 @@ async function bootstrap(): Promise<void> {
     origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(',').map((o) => o.trim()),
     credentials: true,
   })
-
-  // Serve locally-stored uploads in dev (S3 serves its own URLs).
-  if (env.STORAGE_PROVIDER !== 's3') {
-    app.useStaticAssets(resolve(env.LOCAL_STORAGE_PATH), { prefix: '/uploads' })
-  }
 
   await app.listen(env.PORT)
   console.log(`API listening on http://localhost:${env.PORT}/api/v1`)

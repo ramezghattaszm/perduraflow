@@ -1,1 +1,1 @@
-export { HomeScreen as default } from '@perduraflow/app/features/home/screen'
+export { DashboardScreen as default } from '@perduraflow/app/features/dashboard/dashboard-screen'

@@ -19,6 +19,16 @@ export * from './GradientScreen'
 export * from './AppToast'
 export * from './AppToastViewport'
 
+// Admin / data components (PerduraFlow phase 0) — variant-driven, library-safe.
+export * from './PageHeader'
+export * from './StatusPill'
+export * from './FormField'
+export * from './SelectField'
+export * from './DataTable'
+export * from './FormSheet'
+export * from './ConfirmDialog'
+export * from './SidebarNav'
+
 // type augmentation for tamagui custom config
 import type { Conf } from '@perduraflow/config'
 declare module 'tamagui' {

@@ -1,5 +1,6 @@
 import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
+import admin from './locales/en/admin.json'
 import auth from './locales/en/auth.json'
 import common from './locales/en/common.json'
 import errors from './locales/en/errors.json'
@@ -9,7 +10,7 @@ import errors from './locales/en/errors.json'
  * errors.json mirrors the API's error codes — resolve a message with
  * getApiErrorCode(err) → t(`errors:${code}`). initI18n() is idempotent.
  */
-export const resources = { en: { common, auth, errors } } as const
+export const resources = { en: { common, auth, errors, admin } } as const
 export const defaultNS = 'common'
 
 export function initI18n(): typeof i18next {
@@ -19,7 +20,7 @@ export function initI18n(): typeof i18next {
     lng: 'en',
     fallbackLng: 'en',
     defaultNS,
-    ns: ['common', 'auth', 'errors'],
+    ns: ['common', 'auth', 'errors', 'admin'],
     interpolation: { escapeValue: false },
   })
   return i18next

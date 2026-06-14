@@ -1,0 +1,63 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "plants": "Plants",
+    "plantGroups": "Plant groups",
+    "customers": "Customers",
+    "programs": "Programs",
+    "calendars": "Calendars",
+    "roles": "Roles",
+    "users": "Users",
+    "section": "Administration"
+  },
+  "actions": {
+    "new": "New",
+    "edit": "Edit",
+    "create": "Create",
+    "save": "Save",
+    "cancel": "Cancel",
+    "deactivate": "Deactivate",
+    "confirm": "Confirm"
+  },
+  "common": { "name": "Name", "status": "Status", "active": "Active", "inactive": "Inactive", "none": "None" },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Your operations overview will appear here as modules are activated.",
+    "empty": "No dashboards have been registered yet."
+  },
+  "plants": {
+    "title": "Plants",
+    "subtitle": "Producing sites in this tenant.",
+    "fields": { "name": "Name", "timezone": "Timezone", "region": "Region", "location": "Location", "status": "Status" }
+  },
+  "plantGroups": {
+    "title": "Plant groups",
+    "subtitle": "Clusters, divisions and regions. Clusters may share resources.",
+    "fields": { "name": "Name", "groupType": "Group type", "allowsResourceSharing": "Allows resource sharing", "memberPlantIds": "Member plants" }
+  },
+  "customers": {
+    "title": "Customers",
+    "subtitle": "OEM customers and their default firm fence.",
+    "fields": { "name": "Name", "firmFenceDays": "Firm fence (days)" }
+  },
+  "programs": {
+    "title": "Programs",
+    "subtitle": "Customer/vehicle programs (firm fence overrides the customer).",
+    "fields": { "name": "Name", "customerId": "Customer", "firmFenceDays": "Firm fence (days)" }
+  },
+  "calendars": {
+    "title": "Calendars",
+    "subtitle": "Shift patterns, holidays and maintenance windows.",
+    "fields": { "name": "Name", "plantId": "Plant", "shiftPatterns": "Shift patterns (JSON)", "holidays": "Holidays (JSON)", "maintenanceWindows": "Maintenance windows (JSON)" }
+  },
+  "roles": {
+    "title": "Roles",
+    "subtitle": "Editable permission sets: data scope, approval tier and the configure capability.",
+    "fields": { "name": "Name", "dataScope": "Data scope", "scopedPlantIds": "Scoped plants", "scopedPlantGroupIds": "Scoped plant groups", "approvalTierId": "Approval tier", "canConfigure": "Can configure" }
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "People in this tenant and the role assigned to each.",
+    "fields": { "name": "Name", "email": "Email", "password": "Password", "roleId": "Role", "isVerified": "Verified" }
+  }
+}
