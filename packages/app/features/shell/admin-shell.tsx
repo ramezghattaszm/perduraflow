@@ -79,7 +79,13 @@ export function AdminShell({ activeId, maxWidth = 'fullscreen', children }: Admi
     </YStack>
   )
   const sidebar = (
-    <SidebarNav items={items} activeId={activeId} sectionLabel={t('nav.section')} header={brand} footer={signOut} />
+    <SidebarNav
+      items={items}
+      activeId={activeId}
+      sectionLabel={t('nav.section')}
+      header={brand}
+      footer={signOut}
+    />
   )
 
   const max =
@@ -110,7 +116,7 @@ export function AdminShell({ activeId, maxWidth = 'fullscreen', children }: Admi
             hoverStyle={{ backgroundColor: '$background' }}
             role="button"
             aria-label="Open menu"
-            accessibilityLabel="Open menu"
+            //accessibilitylabel="Open menu"
           >
             <Menu size={24} color="$textPrimary" />
           </XStack>

@@ -69,7 +69,16 @@
       "Bash(bun install *)",
       "Bash(echo \"install exit: $?\")",
       "Bash(bun --filter @acme/ui build-storybook)",
-      "Bash(echo \"build-storybook exit: $?\")"
+      "Bash(echo \"build-storybook exit: $?\")",
+      "Bash(ls docs/*.template.md)",
+      "Bash(ls apps *)",
+      "Bash(bun --filter @perduraflow/contracts build)",
+      "Bash(rm -rf modules/example modules/users modules/notifications modules/storage modules/admin)",
+      "Bash(rm -rf db/schema db/drizzle.module.ts)",
+      "Bash(rm -rf tenant)",
+      "Bash(rm -f common/guards/roles.guard.ts common/decorators/roles.decorator.ts common/mappers/user.mapper.ts)",
+      "Bash(mkdir -p modules/tenant/schema modules/auth/schema modules/auth/dto modules/org/schema modules/org/dto modules/eventbus)",
+      "Bash(bun --filter @perduraflow/api type-check)"
     ],
     "additionalDirectories": [
       "/tmp",
