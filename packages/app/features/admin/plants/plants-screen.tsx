@@ -105,12 +105,13 @@ export function PlantsScreen() {
         onRowPress={openEdit}
         emptyTitle={t('plants.title')}
         columns={[
-          { key: 'name', label: t('plants.fields.name'), flex: 2 },
-          { key: 'timezone', label: t('plants.fields.timezone'), flex: 2 },
-          { key: 'region', label: t('plants.fields.region') },
+          { key: 'name', label: t('plants.fields.name'), flex: 2, sortable: true },
+          { key: 'timezone', label: t('plants.fields.timezone'), flex: 2, sortable: true },
+          { key: 'region', label: t('plants.fields.region'), sortable: true },
           {
             key: 'status',
             label: t('plants.fields.status'),
+            sortable: true,
             render: (p) => (
               <StatusPill tone={p.status === 'active' ? 'active' : 'inactive'}>
                 {p.status === 'active' ? t('common.active') : t('common.inactive')}

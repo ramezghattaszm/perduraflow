@@ -99,7 +99,7 @@ export function UsersScreen() {
         onRowPress={openEdit}
         emptyTitle={t('users.title')}
         columns={[
-          { key: 'name', label: t('users.fields.name'), flex: 2 },
+          { key: 'name', label: t('users.fields.name'), flex: 2, sortable: true },
           { key: 'email', label: t('users.fields.email'), flex: 2 },
           {
             key: 'roleId',

@@ -21,9 +21,14 @@ export const WithRows: Story = {
   render: () => (
     <DataTable<Row>
       columns={[
-        { key: 'name', label: 'Name', flex: 2 },
-        { key: 'region', label: 'Region' },
-        { key: 'status', label: 'Status', render: (r) => <StatusPill tone={r.status}>{r.status}</StatusPill> },
+        { key: 'name', label: 'Name', flex: 2, sortable: true },
+        { key: 'region', label: 'Region', sortable: true },
+        {
+          key: 'status',
+          label: 'Status',
+          sortable: true,
+          render: (r) => <StatusPill tone={r.status}>{r.status}</StatusPill>,
+        },
       ]}
       rows={rows}
       onRowPress={() => {}}

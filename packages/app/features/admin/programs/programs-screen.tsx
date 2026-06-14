@@ -92,7 +92,7 @@ export function ProgramsScreen() {
         onRowPress={openEdit}
         emptyTitle={t('programs.title')}
         columns={[
-          { key: 'name', label: t('programs.fields.name'), flex: 2 },
+          { key: 'name', label: t('programs.fields.name'), flex: 2, sortable: true },
           {
             key: 'customerId',
             label: t('programs.fields.customerId'),

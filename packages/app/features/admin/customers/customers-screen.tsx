@@ -74,7 +74,7 @@ export function CustomersScreen() {
         onRowPress={openEdit}
         emptyTitle={t('customers.title')}
         columns={[
-          { key: 'name', label: t('customers.fields.name'), flex: 2 },
+          { key: 'name', label: t('customers.fields.name'), flex: 2, sortable: true },
           { key: 'firmFenceDays', label: t('customers.fields.firmFenceDays') },
           {
             key: 'isActive',

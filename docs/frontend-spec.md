@@ -47,7 +47,7 @@ Default. `H`/`P` scale unchanged (UI §4). Inter.
 
 | Component | Variants / props | Purpose (used by) |
 |---|---|---|
-| `DataTable` | `columns`, `rows`, `onRowPress`, `isLoading`, empty slot | The list view behind every admin CRUD screen (plants, customers, …). Replaces per-screen table styling. |
+| `DataTable` | `columns` (incl. per-column `sortable` / `sortValue`), `rows`, `onRowPress`, `isLoading`, empty slot | The list view behind every admin CRUD screen (plants, customers, …). Sortable columns toggle asc → desc → unsorted on header click (↑/↓ indicator). Replaces per-screen table styling. |
 | `FormField` | wraps `AppInput`/`AppSwitch`/select; `label`, `error`, `required` | Labelled field for every create/edit form. |
 | `SelectField` | `options`, `value`, `onChange`, `multiple` | Enum + reference pickers (e.g. `group_type`, `data_scope`, customer→program, multi-plant scope). |
 | `StatusPill` | `tone` (`active`/`inactive`/`neutral`) | Row status (`plant.status`, `is_active`). |

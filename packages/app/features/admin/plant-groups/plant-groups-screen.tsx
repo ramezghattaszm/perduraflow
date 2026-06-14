@@ -97,7 +97,7 @@ export function PlantGroupsScreen() {
         onRowPress={openEdit}
         emptyTitle={t('plantGroups.title')}
         columns={[
-          { key: 'name', label: t('plantGroups.fields.name'), flex: 2 },
+          { key: 'name', label: t('plantGroups.fields.name'), flex: 2, sortable: true },
           { key: 'groupType', label: t('plantGroups.fields.groupType') },
           {
             key: 'memberPlantIds',

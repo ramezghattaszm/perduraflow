@@ -116,7 +116,7 @@ export function RolesScreen() {
         onRowPress={openEdit}
         emptyTitle={t('roles.title')}
         columns={[
-          { key: 'name', label: t('roles.fields.name'), flex: 2 },
+          { key: 'name', label: t('roles.fields.name'), flex: 2, sortable: true },
           { key: 'dataScope', label: t('roles.fields.dataScope') },
           {
             key: 'approvalTierId',

@@ -112,7 +112,7 @@ export function CalendarsScreen() {
         onRowPress={openEdit}
         emptyTitle={t('calendars.title')}
         columns={[
-          { key: 'name', label: t('calendars.fields.name'), flex: 2 },
+          { key: 'name', label: t('calendars.fields.name'), flex: 2, sortable: true },
           {
             key: 'plantId',
             label: t('calendars.fields.plantId'),
