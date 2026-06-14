@@ -1,4 +1,4 @@
-import { YStack } from 'tamagui'
+import { Portal, YStack } from 'tamagui'
 import { AppButton } from './AppButton'
 import { H, P } from './typography'
 
@@ -34,21 +34,22 @@ export function ConfirmDialog({
 }) {
   if (!open) return null
   return (
-    <YStack
-      position="absolute"
-      top={0}
-      left={0}
-      right={0}
-      bottom={0}
-      zIndex={1100}
-      alignItems="center"
-      justifyContent="center"
-      padding="$4"
-      backgroundColor="$overlay"
-    >
+    <Portal>
       <YStack
-        width="100%"
-        maxWidth={420}
+        position="fixed"
+        top={0}
+        left={0}
+        right={0}
+        bottom={0}
+        zIndex={1100}
+        alignItems="center"
+        justifyContent="center"
+        padding="$4"
+        backgroundColor="$overlay"
+      >
+        <YStack
+          width="100%"
+          maxWidth={420}
         backgroundColor="$surface"
         borderRadius="$6"
         borderWidth={1}
@@ -72,7 +73,8 @@ export function ConfirmDialog({
             {confirmLabel}
           </AppButton>
         </YStack>
+        </YStack>
       </YStack>
-    </YStack>
+    </Portal>
   )
 }

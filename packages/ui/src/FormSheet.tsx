@@ -1,13 +1,14 @@
 import type { ReactNode } from 'react'
-import { ScrollView, XStack, YStack } from 'tamagui'
+import { Portal, ScrollView, XStack, YStack } from 'tamagui'
 import { AppButton } from './AppButton'
 import { H, P } from './typography'
 
 /**
  * FormSheet — a centered modal panel for create/edit forms (the frontend-spec's
- * "FormSheet modal over the list"). Rendered as an in-app overlay (no portal
- * dependency) so it behaves identically on web and native; on web/tablet this is
- * the authoring surface. When `open` is false it renders nothing.
+ * "FormSheet modal over the list"). Rendered through a Tamagui `Portal` so the
+ * scrim + card cover the whole viewport instead of being trapped inside (and
+ * collapsed by) an ancestor's scroll/flex box. When `open` is false it renders
+ * nothing.
  *
  * @example
  * <FormSheet open={open} title="New plant" submitting={m.isPending} onSubmit={save} onCancel={close}>
@@ -38,22 +39,23 @@ export function FormSheet({
 }) {
   if (!open) return null
   return (
-    <YStack
-      position="absolute"
-      top={0}
-      left={0}
-      right={0}
-      bottom={0}
-      zIndex={1000}
-      alignItems="center"
-      justifyContent="center"
-      padding="$4"
-      backgroundColor="$overlay"
-    >
+    <Portal>
       <YStack
-        width="100%"
-        maxWidth={520}
-        maxHeight="90%"
+        position="fixed"
+        top={0}
+        left={0}
+        right={0}
+        bottom={0}
+        zIndex={1000}
+        alignItems="center"
+        justifyContent="center"
+        padding="$4"
+        backgroundColor="$overlay"
+      >
+        <YStack
+          width="100%"
+          maxWidth={520}
+          maxHeight="90%"
         backgroundColor="$surface"
         borderRadius="$6"
         borderWidth={1}
@@ -91,7 +93,8 @@ export function FormSheet({
             {submitLabel}
           </AppButton>
         </XStack>
+        </YStack>
       </YStack>
-    </YStack>
+    </Portal>
   )
 }
