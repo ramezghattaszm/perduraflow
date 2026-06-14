@@ -161,11 +161,15 @@ ESLint `no-restricted-imports` zones: any file under `modules/A/**` is forbidden
 > Logical shape for sign-off; exact column types finalized at implementation. All carry
 > `id` (ULID PK), `tenant_id` (text, indexed), `created_at`; soft delete as noted.
 
-**tenant.tenant** — `name`, `is_active`. Single seeded row; the scope root.
+**tenant.tenant** — `name`, `logo_url` (nullable; shell `OrgAvatar`, set via seed/config — SKIP-53),
+`is_active`. Single seeded row; the scope root.
 
 **auth.user** — `tenant_id`, `name`, `email` (unique), `password_hash`, `role_id` (text → `auth.role.id`,
-intra-schema FK), `is_verified`, `avatar_url`, `updated_at`. *(Replaces the template's `role` text
-enum with `role_id`.)*
+intra-schema FK), `is_verified`, `avatar_url`, `preferences` (jsonb; per-user UI prefs e.g.
+`sidebarCollapsed` — server-persisted, never browser storage), `updated_at`. *(Replaces the template's
+`role` text enum with `role_id`.)* `/users/me` returns the profile + the tenant brand
+(`tenantName`/`tenantLogoUrl`) so the shell renders without a second request; `PATCH /users/me` merges
+a partial `preferences` patch.
 
 **auth.role** (D33) — `tenant_id`, `name`, `is_default_seed` (bool), `data_scope`
 (enum `plant|plant_group|multi_plant|tenant`), `scoped_plant_ids` (jsonb text[] — org IDs, O4),

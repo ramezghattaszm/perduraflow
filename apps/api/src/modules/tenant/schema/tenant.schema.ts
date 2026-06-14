@@ -11,6 +11,8 @@ import { tenantSchema } from './_schema'
 export const tenant = tenantSchema.table('tenant', {
   id: text('id').primaryKey().$defaultFn(generateId),
   name: text('name').notNull(),
+  /** Tenant logo URL; null → OrgAvatar placeholder. Managed later (SKIP-53). */
+  logoUrl: text('logo_url'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })

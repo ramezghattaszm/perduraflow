@@ -8,7 +8,26 @@
     "calendars": "Calendars",
     "roles": "Roles",
     "users": "Users",
-    "section": "Administration"
+    "section": "Administration",
+    "sections": {
+      "administration": "Administration",
+      "access": "Access"
+    }
+  },
+  "shell": {
+    "brandSubtitle": "Production",
+    "poweredBy": "Powered by PerduraFlow",
+    "openMenu": "Open menu",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar",
+    "search": "Search…",
+    "notifications": "Notifications",
+    "allCaughtUp": "You’re all caught up",
+    "account": {
+      "profile": "Your profile",
+      "preferences": "Preferences",
+      "signOut": "Sign out"
+    }
   },
   "actions": {
     "new": "New",

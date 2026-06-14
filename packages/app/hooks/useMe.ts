@@ -1,9 +1,10 @@
+import { useCallback } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import type { UpdateProfileRequest, UserProfile } from '@perduraflow/contracts'
+import type { UpdateProfileRequest, UserPreferences, UserProfile } from '@perduraflow/contracts'
 import { apiClient } from '../lib/axios'
 import { queryClient } from '../lib/query-client'
 import { QUERY_KEYS } from '../lib/query-keys'
-import { useAuthActions, useIsAuthenticated } from '../stores/auth.store'
+import { useAuthActions, useAuthStore, useIsAuthenticated } from '../stores/auth.store'
 
 /** Query for the current user (`GET /users/me`). Enabled only when authenticated. */
 export function useMe() {
@@ -26,4 +27,23 @@ export function useUpdateProfile() {
       queryClient.setQueryData(QUERY_KEYS.me(), user)
     },
   })
+}
+
+/**
+ * Persists a UI preferences patch (e.g. sidebar collapse) server-side. Updates
+ * the auth store optimistically so the UI reflects the change immediately, then
+ * PATCHes `/users/me`; the mutation's onSuccess reconciles with the server copy.
+ * Preferences are server-persisted, never browser storage (UI shell spec §6).
+ */
+export function useUpdatePreferences() {
+  const { setUser } = useAuthActions()
+  const update = useUpdateProfile()
+  return useCallback(
+    (prefs: UserPreferences) => {
+      const current = useAuthStore.getState().user
+      if (current) setUser({ ...current, preferences: { ...current.preferences, ...prefs } })
+      update.mutate({ preferences: prefs })
+    },
+    [setUser, update],
+  )
 }

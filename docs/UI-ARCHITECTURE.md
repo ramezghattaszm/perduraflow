@@ -162,6 +162,9 @@ const lightColors = {
   surfaceGhost: 'rgba(255,255,255,0.18)', // translucent surface on gradients (pill inputs, etc.)
   overlay: 'rgba(0,0,0,0.2)', // scrim over images/media
   navBar: '#00429E', // tab bar / nav chrome background
+  surfaceRaised: '#FFFFFF', // 3rd elevation: menus/popovers/tooltips/raised header (dark reads lighter; light = surface)
+  primarySoft: 'rgba(45,91,227,0.10)', // selected nav item / active row tint
+  hoverFill: 'rgba(0,0,0,0.045)', // row / nav-item / icon-button hover
 }
 const darkColors = {
   /* dark variants of the same semantic roles */
@@ -180,10 +183,18 @@ Actual palette values are an app decision (`frontend-spec.md`). The **semantic r
 fixed by the template** so components are portable across apps. There are two tiers:
 
 - **Core roles** (the 12 above) — every app sets values for these; components rely on them.
-- **Extended roles** (`surfaceGhost`, `overlay`, `navBar`) — ship with the template for common
-  patterns; an app may retune or leave them. Do **not** introduce a one-off color as a new
-  semantic role unless it recurs — collapse it into an existing role (e.g. a lighter brand shade
-  for a header bleed is `$primary`, not a new token; muted error text is `$danger` with opacity).
+- **Extended roles** (`surfaceGhost`, `overlay`, `navBar`, `surfaceRaised`, `primarySoft`,
+  `hoverFill`) — ship with the template for common chrome patterns (the app shell uses
+  `surfaceRaised` for menus/popovers/tooltips, `primarySoft` for the selected nav item / active
+  row, `hoverFill` for row & icon-button hover); an app may retune or leave them. Do **not**
+  introduce a one-off color as a new semantic role unless it recurs — collapse it into an existing
+  role (e.g. a lighter brand shade for a header bleed is `$primary`, not a new token; muted error
+  text is `$danger` with opacity).
+
+> **Deterministic avatar fills are the second raw-hex exception** (alongside the react-navigation
+> tab bar below). `UserAvatar` derives a stable fill from the user id out of a small fixed
+> categorical palette — these are not theme roles (they must stay constant across light/dark and
+> per-user), so they live as a local `const` hex array in the component, documented as such.
 
 ### Light & dark themes (both first-class)
 

@@ -1,4 +1,5 @@
-import { boolean, index, text, timestamp } from 'drizzle-orm/pg-core'
+import { boolean, index, jsonb, text, timestamp } from 'drizzle-orm/pg-core'
+import type { UserPreferences } from '@perduraflow/contracts'
 import { generateId } from '../../../db/ulid'
 import { authSchema } from './_schema'
 import { role } from './role.schema'
@@ -18,6 +19,8 @@ export const user = authSchema.table(
     email: text('email').notNull().unique(),
     passwordHash: text('password_hash').notNull(),
     avatarUrl: text('avatar_url'),
+    /** Per-user UI preferences (e.g. sidebar collapsed); server-side, not browser storage. */
+    preferences: jsonb('preferences').$type<UserPreferences>().notNull().default({}),
     isVerified: boolean('is_verified').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     roleId: text('role_id').references(() => role.id),

@@ -34,7 +34,7 @@ import { TenantService } from '../tenant/tenant.service'
 import { NotifierService } from '../notifier/notifier.service'
 import { AuthRepository } from './auth.repository'
 import { toAdminUser, toApprovalTierDto, toRoleDto, toUserProfile } from './auth.mapper'
-import type { Role, User } from './schema'
+import type { NewUser, Role, User } from './schema'
 
 const BCRYPT_ROUNDS = 10
 const OTP_TTL_MS = 10 * 60 * 1000
@@ -62,6 +62,11 @@ export class AuthService {
     return u.roleId ? this.repo.findRoleById(u.tenantId, u.roleId) : undefined
   }
 
+  /** Build the private profile DTO, resolving the tenant brand for the shell. */
+  private async profile(u: User, role: Role | undefined): Promise<UserProfile> {
+    return toUserProfile(u, role, await this.tenants.getBrand(u.tenantId))
+  }
+
   private async issueTokens(u: User, role: Role | undefined): Promise<AuthTokens> {
     const payload: JwtPayload = {
       sub: u.id,
@@ -84,7 +89,7 @@ export class AuthService {
 
   private async session(u: User): Promise<AuthResponse> {
     const role = await this.loadRole(u)
-    return { ...(await this.issueTokens(u, role)), user: toUserProfile(u, role) }
+    return { ...(await this.issueTokens(u, role)), user: await this.profile(u, role) }
   }
 
   private async generateAndSendOtp(target: string, type: OtpPurpose): Promise<void> {
@@ -217,21 +222,25 @@ export class AuthService {
   async getMe(userId: string): Promise<UserProfile> {
     const u = await this.repo.findUserById(userId)
     if (!u) throw new AppException(HttpStatus.NOT_FOUND, 'User not found', ERROR_CODES.USER_NOT_FOUND)
-    return toUserProfile(u, await this.loadRole(u))
+    return this.profile(u, await this.loadRole(u))
   }
 
   /**
-   * Updates the caller's own profile (name/avatar). Cross-user updates are
-   * impossible by construction (no id param).
+   * Updates the caller's own profile (name/avatar/UI preferences). Cross-user
+   * updates are impossible by construction (no id param). Preferences are merged
+   * onto the stored object so a partial patch never drops other keys.
    * @throws AppException USER_NOT_FOUND - no user for this id
    */
   async updateMe(userId: string, dto: UpdateProfileRequest): Promise<UserProfile> {
-    const patch: Partial<{ name: string; avatarUrl: string | null }> = {}
+    const current = await this.repo.findUserById(userId)
+    if (!current) throw new AppException(HttpStatus.NOT_FOUND, 'User not found', ERROR_CODES.USER_NOT_FOUND)
+    const patch: Partial<NewUser> = {}
     if (dto.name !== undefined) patch.name = dto.name
     if (dto.avatarUrl !== undefined) patch.avatarUrl = dto.avatarUrl
+    if (dto.preferences !== undefined) patch.preferences = { ...current.preferences, ...dto.preferences }
     const u = await this.repo.updateOwnProfile(userId, patch)
     if (!u) throw new AppException(HttpStatus.NOT_FOUND, 'User not found', ERROR_CODES.USER_NOT_FOUND)
-    return toUserProfile(u, await this.loadRole(u))
+    return this.profile(u, await this.loadRole(u))
   }
 
   // --- admin: users ----------------------------------------------------------

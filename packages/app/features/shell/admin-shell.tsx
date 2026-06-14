@@ -2,10 +2,10 @@
 
 import { type ReactNode, useState } from 'react'
 import { useRouter } from 'solito/navigation'
-import { Menu } from '@tamagui/lucide-icons'
 import {
-  AppButton,
-  H,
+  type NavSection,
+  OrgAvatar,
+  P,
   Portal,
   ScrollView,
   SidebarNav,
@@ -14,114 +14,74 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
-import { useLogout } from '../../hooks/useAuth'
+import { useUpdatePreferences } from '../../hooks/useMe'
 import { useCurrentUser } from '../../stores/auth.store'
-import { ADMIN_NAV } from './nav'
+import { TopBar } from './top-bar'
+import { ADMIN_NAV, type NavConfigSection } from './nav'
 
-export interface AdminShellProps {
-  maxWidth?: number | 'small' | 'medium' | 'large' | 'fullscreen'
+type MaxWidth = number | 'small' | 'medium' | 'large' | 'fullscreen'
+const widthProps: Record<'small' | 'medium' | 'large', number> = { small: 800, medium: 1100, large: 1800 }
+
+export interface AppShellProps {
+  /** Navigation config (sections + items). Admin passes `ADMIN_NAV`. */
+  nav: NavConfigSection[]
   activeId: string
+  maxWidth?: MaxWidth
   children: ReactNode
 }
 
-const widthProps = {
-  small: { maxWidth: 800 },
-  medium: { maxWidth: 1100 },
-  large: { maxWidth: 1800 },
-}
-
 /**
- * Admin shell — the kernel UI chrome (D34/A6). Responsive: a persistent left
- * SidebarNav on larger screens; on small screens (≤ md) the sidebar collapses
- * behind a top-left menu (lucide) that opens it as a drawer. Each admin screen
- * renders inside it with its `activeId`; navigation is via Solito.
+ * AppShell — the app chrome (UI shell spec): a full-height SidebarNav (brand zone,
+ * sections, collapse rail, footer), a utility TopBar over the content column, and
+ * the scrolling content. Responsive: at `small` the sidebar becomes an off-canvas
+ * drawer opened from the TopBar menu button. Sidebar collapse is a per-user
+ * preference persisted server-side (never browser storage). Admin is one `nav`
+ * configuration; other areas supply their own.
  */
-export function AdminShell({ activeId, maxWidth = 'fullscreen', children }: AdminShellProps) {
+export function AppShell({ nav, activeId, maxWidth = 'fullscreen', children }: AppShellProps) {
   const router = useRouter()
   const { t } = useTranslation('admin')
   const user = useCurrentUser()
-  const logout = useLogout()
+  const updatePreferences = useUpdatePreferences()
   const media = useMedia()
   const isSmall = Boolean(media['max-md'])
   const [navOpen, setNavOpen] = useState(false)
+  const collapsed = Boolean(user?.preferences?.sidebarCollapsed)
 
-  // Selecting an item also closes the drawer (no-op on large screens).
-  const items = ADMIN_NAV.map((e) => ({
-    id: e.id,
-    label: t(e.labelKey),
-    onPress: () => {
-      router.push(e.path)
-      setNavOpen(false)
-    },
+  // Resolve nav config → SidebarNav sections (labels + navigation side effects).
+  const sections: NavSection[] = nav.map((section) => ({
+    id: section.id,
+    label: t(section.sectionLabelKey),
+    items: section.items.map((it) => ({
+      id: it.id,
+      label: t(it.labelKey),
+      icon: it.icon,
+      onPress: () => {
+        router.push(it.path)
+        setNavOpen(false)
+      },
+    })),
   }))
 
-  const brand = (
-    <H level={4} color="$primary">
-      PerduraFlow
-    </H>
+  // Breadcrumb = active section / active item (utility bar only — never the title).
+  const activeSection = nav.find((s) => s.items.some((it) => it.id === activeId))
+  const activeItem = activeSection?.items.find((it) => it.id === activeId)
+  const breadcrumb =
+    activeSection && activeItem ? [t(activeSection.sectionLabelKey), t(activeItem.labelKey)] : undefined
+
+  const brandName = user?.tenantName ?? ''
+  const renderBrand = (c: boolean) => (
+    <BrandZone collapsed={c} name={brandName} logoUrl={user?.tenantLogoUrl} subtitle={t('shell.brandSubtitle')} />
   )
-  const signOut = (
-    <YStack gap="$2">
-      <AppButton
-        size="$3"
-        variant="light"
-        onPress={() =>
-          logout.mutate(undefined, {
-            onSuccess: () => {
-              setNavOpen(false)
-              router.replace('/login')
-            },
-          })
-        }
-      >
-        {user?.name ? `Sign out (${user.name})` : 'Sign out'}
-      </AppButton>
-    </YStack>
-  )
-  const sidebar = (
-    <SidebarNav
-      items={items}
-      activeId={activeId}
-      sectionLabel={t('nav.section')}
-      header={brand}
-      footer={signOut}
-    />
-  )
+  const renderFooter = (c: boolean) => <PoweredBy collapsed={c} label={t('shell.poweredBy')} />
 
   const max =
-    typeof maxWidth === 'number'
-      ? maxWidth
-      : !maxWidth || maxWidth === 'fullscreen'
-        ? undefined
-        : widthProps[maxWidth].maxWidth
+    typeof maxWidth === 'number' ? maxWidth : maxWidth === 'fullscreen' ? undefined : widthProps[maxWidth]
 
   if (isSmall) {
     return (
       <YStack flex={1} backgroundColor="$background" style={{ minHeight: '100dvh' }}>
-        <XStack
-          alignItems="center"
-          gap="$2"
-          paddingHorizontal="$4"
-          paddingVertical="$3"
-          backgroundColor="$surface"
-          borderBottomWidth={1}
-          borderBottomColor="$borderColor"
-        >
-          <XStack
-            onPress={() => setNavOpen(true)}
-            cursor="pointer"
-            padding="$2"
-            marginLeft="$-2"
-            borderRadius="$4"
-            hoverStyle={{ backgroundColor: '$background' }}
-            role="button"
-            aria-label="Open menu"
-            //accessibilitylabel="Open menu"
-          >
-            <Menu size={24} color="$textPrimary" />
-          </XStack>
-          {brand}
-        </XStack>
+        <TopBar isSmall collapsed={false} onToggleCollapse={() => {}} onOpenDrawer={() => setNavOpen(true)} />
         <ScrollView flex={1}>
           <YStack flex={1} padding="$4" gap="$4" width="100%">
             {children}
@@ -140,8 +100,13 @@ export function AdminShell({ activeId, maxWidth = 'fullscreen', children }: Admi
               pointerEvents="auto"
               onPress={() => setNavOpen(false)}
             >
-              <YStack onPress={(e) => e.stopPropagation()} height="100%">
-                {sidebar}
+              <YStack onPress={(e) => e.stopPropagation()} height="100%" alignSelf="flex-start">
+                <SidebarNav
+                  sections={sections}
+                  activeId={activeId}
+                  header={renderBrand}
+                  footer={renderFooter}
+                />
               </YStack>
             </YStack>
           </Portal>
@@ -152,12 +117,105 @@ export function AdminShell({ activeId, maxWidth = 'fullscreen', children }: Admi
 
   return (
     <XStack flex={1} backgroundColor="$background" style={{ minHeight: '100dvh' }}>
-      {sidebar}
-      <ScrollView flex={1}>
-        <YStack flex={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center">
-          {children}
-        </YStack>
-      </ScrollView>
+      <SidebarNav
+        sections={sections}
+        activeId={activeId}
+        collapsed={collapsed}
+        header={renderBrand}
+        footer={renderFooter}
+      />
+      <YStack flex={1} minWidth={0}>
+        <TopBar
+          isSmall={false}
+          collapsed={collapsed}
+          onToggleCollapse={() => updatePreferences({ sidebarCollapsed: !collapsed })}
+          onOpenDrawer={() => {}}
+          breadcrumb={breadcrumb}
+        />
+        <ScrollView flex={1}>
+          <YStack flex={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center">
+            {children}
+          </YStack>
+        </ScrollView>
+      </YStack>
     </XStack>
+  )
+}
+
+/** Sidebar brand zone: OrgAvatar + tenant name + context line; avatar-only when collapsed. */
+function BrandZone({
+  collapsed,
+  name,
+  logoUrl,
+  subtitle,
+}: {
+  collapsed: boolean
+  name: string
+  logoUrl?: string | null
+  subtitle: string
+}) {
+  return (
+    <XStack
+      alignItems="center"
+      gap="$3"
+      paddingVertical="$2"
+      paddingHorizontal={collapsed ? '$0' : '$2'}
+      justifyContent={collapsed ? 'center' : 'flex-start'}
+    >
+      <OrgAvatar src={logoUrl} name={name} size={collapsed ? 30 : 34} />
+      {collapsed ? null : (
+        <YStack flex={1}>
+          <P size={3} weight="b" numberOfLines={1}>
+            {name}
+          </P>
+          <P size={7} color="$textSecondary" numberOfLines={1}>
+            {subtitle}
+          </P>
+        </YStack>
+      )}
+    </XStack>
+  )
+}
+
+/** Sidebar footer: subordinate PerduraFlow product mark; mark-only when collapsed. */
+function PoweredBy({ collapsed, label }: { collapsed: boolean; label: string }) {
+  const mark = (
+    <XStack width={24} height={24} borderRadius="$3" backgroundColor="$primary" alignItems="center" justifyContent="center">
+      <P size={8} weight="h" color="$surface">
+        PF
+      </P>
+    </XStack>
+  )
+  return collapsed ? (
+    <XStack justifyContent="center" paddingVertical="$2">
+      {mark}
+    </XStack>
+  ) : (
+    <XStack alignItems="center" gap="$2" paddingHorizontal="$2" paddingVertical="$2">
+      {mark}
+      <P size={7} color="$textSecondary">
+        {label}
+      </P>
+    </XStack>
+  )
+}
+
+/**
+ * AdminShell — the admin-area configuration of {@link AppShell} (D34/A6). Wires
+ * the admin nav; each admin screen renders inside it with its `activeId`.
+ */
+export function AdminShell({
+  activeId,
+  maxWidth = 'fullscreen',
+  children,
+}: {
+  activeId: string
+  maxWidth?: MaxWidth
+  children: ReactNode
+}) {
+  return (
+    <AppShell nav={ADMIN_NAV} activeId={activeId} maxWidth={maxWidth}>
+      {children}
+    </AppShell>
   )
 }

@@ -13,24 +13,29 @@
 
 ## 1. Palette (semantic token values)
 
-The template already ships a tuned light+dark palette (`packages/config/src/tamagui.config.ts`) on a
-blue brand (`#2D5BE3`). It fits an industrial operations tool well; **proposal: keep the template
-palette unchanged for phase 0.** Role names are fixed (UI §3); only values could change later.
+Blue brand (`#2D5BE3`) on a tuned light+dark palette (`packages/config/src/tamagui.config.ts`). The
+dark neutrals were retuned to **Deep Navy** (UI shell spec §2) and three extended roles added in both
+modes (`surfaceRaised`, `primarySoft`, `hoverFill`). Role names are fixed (UI §3); values are the app
+decision below.
 
 | Semantic role | Light | Dark | Note |
 |---|---|---|---|
 | `primary` | `#2D5BE3` | `#5B8DEF` | keep (template) |
 | `primaryLight` | `#7EB3FF` | `#93B4F5` | keep |
-| `surface` | `#FFFFFF` | `#161B26` | keep |
-| `background` | `#F7F8FA` | `#0B0F1A` | keep |
+| `surface` | `#FFFFFF` | `#131926` | Deep Navy (dark retuned) |
+| `background` | `#F7F8FA` | `#080B14` | Deep Navy (dark retuned) |
 | `textPrimary` | `#1A1A2E` | `#E6E8EB` | keep |
 | `textSecondary` | `#5B6472` | `#9AA3B2` | keep |
-| `borderColor` | `#E3E8F0` | `#232A36` | keep |
+| `borderColor` | `#E3E8F0` | `#232C3D` | Deep Navy (dark retuned) |
 | `success` | `#16A34A` | `#4ADE80` | keep |
 | `danger` | `#DC2626` | `#F87171` | keep |
 | `warning` | `#D97706` | `#FBBF24` | keep |
 | `gradientStart` | `#C8E6FF` | `#1E2A4A` | keep |
 | `gradientEnd` | `#4A6FE3` | `#1E3A8A` | keep |
+| `navBar` | `#00429E` | `#0A1324` | sidebar / nav chrome (Deep Navy on dark) |
+| `surfaceRaised` | `#FFFFFF` | `#1A2030` | menus/popovers/tooltips/raised header (dark elevates lighter) |
+| `primarySoft` | `rgba(45,91,227,0.10)` | `rgba(91,141,239,0.14)` | selected nav item / active row tint |
+| `hoverFill` | `rgba(0,0,0,0.045)` | `rgba(255,255,255,0.05)` | row / nav-item / icon-button hover |
 
 ---
 
@@ -55,7 +60,12 @@ Default. `H`/`P` scale unchanged (UI §4). Inter.
 | `Popup` | `open`, `onClose`, `title`, `description`, `size`, `dismissable`, `error`, `footer` | The one responsive modal (UI §17): centered dialog on desktop, native `Sheet` on small. Used declaratively for every create/edit form **and** via `usePopup` for confirms. Replaced `FormSheet`. |
 | `TextLink` | `size`, `weight` (extends `P`) | Clickable inline text (pointer cursor + hover); replaces `<P onPress>` for links. |
 | `ConfirmDialog` | `title`, `message`, `tone`, `onConfirm` | Predates `Popup`/`usePopup`; **superseded** by them for confirms (kept as a primitive). |
-| `SidebarNav` / `NavItem` | `items`, `activeId` | Web/tablet shell navigation. |
+| `SidebarNav` / `NavItem` | `sections` (label + icon items), `activeId`, `collapsed`, `header`/`footer` render props | Shell navigation: labelled sections, active = `primarySoft` fill + `primary` icon/text + 3px accent bar, hover `hoverFill`, collapses to a 74px icon rail with `AppTooltip` labels (UI shell spec §6). |
+| `OrgAvatar` | `src`, `name`, `size` | Round tenant identity; logo or building-glyph placeholder on `surfaceRaised` (SKIP-53). |
+| `UserAvatar` | `id`, `name`, `src`, `size` | Round person identity; image or initials on a deterministic per-id fill. |
+| `IconButton` | `icon` (lucide), `label`, `active` | Square borderless chrome affordance (collapse/menu/bell); `hoverFill` hover, `aria-label`. |
+| `NotificationBell` | `open`, `onOpenChange`, `items`, `title`, `emptyText` | Bell + unread dot + popover on `surfaceRaised` (presentational; SKIP-23). |
+| `AppTooltip` | `label`, `placement`, `disabled` | Lightweight hover label for the collapsed rail (named to avoid Tamagui's `Tooltip`). |
 
 Existing template components reused as-is: `Screen`, `AppButton`, `AppInput`, `AppSwitch`,
 `EmptyState`, `H`/`P`, toast.
@@ -72,6 +82,23 @@ Existing template components reused as-is: `Screen`, `AppButton`, `AppInput`, `A
   only while editing an existing row.
 - **Create/edit forms use `Popup` declaratively** (`open`/`footer`/`error`, `dismissable={false}`,
   screen owns the form state) — not the `usePopup` store. One overlay primitive for forms and confirms.
+
+### App shell (`features/shell/`) — see `frontend-spec-shell.md`
+
+- **`AppShell`** composes `SidebarNav` + **`TopBar`** + scrolling content; **`AdminShell`** is the
+  admin `nav` configuration of it (`ADMIN_NAV` = `Administration` / `Access` sections in `nav.ts`).
+  Other areas (scheduling) supply their own `nav`.
+- **`TopBar`** holds the collapse/menu toggle, breadcrumb (active section / screen), a presentational
+  ⌘K search affordance, the `NotificationBell`, and the `UserAvatar` account menu. Only one of
+  {notifications, account} is open at once; the page title is never duplicated here (stays in `PageHeader`).
+- **Brand hierarchy is client-primary**: the tenant `OrgAvatar` + name + context line lead the sidebar
+  top; PerduraFlow is the subordinate "Powered by" mark in the footer. Tenant name/logo come from
+  `/users/me` (`tenantName` / `tenantLogoUrl`); logo is seed/config only for now (SKIP-53).
+- **Responsive**: at `media['max-md']` the sidebar becomes an off-canvas drawer (Portal scrim) opened
+  from the TopBar menu button; `DataTable` keeps all columns and scrolls horizontally (no column drop).
+- **Sidebar collapse is a per-user preference persisted server-side** — `user.preferences` JSON on the
+  user row, read from the auth store and written via `useUpdatePreferences()` (optimistic) → `PATCH
+  /users/me`. **Never `localStorage`/`sessionStorage`** for this.
 
 ---
 

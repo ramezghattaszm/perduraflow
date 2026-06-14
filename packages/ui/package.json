@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@perduraflow/config": "0.0.1",
+    "@tamagui/lucide-icons": "2.0.0-rc.16",
     "@tamagui/toast": "2.0.0-rc.16",
     "expo-linear-gradient": "~15.0.8",
     "react-native-safe-area-context": "~5.6.0",

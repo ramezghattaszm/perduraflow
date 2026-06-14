@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react'
-import { Spinner, XStack, YStack } from 'tamagui'
+import { ScrollView, Spinner, XStack, YStack } from 'tamagui'
 import { EmptyState } from './EmptyState'
 import { P } from './typography'
 
@@ -55,6 +55,7 @@ export function DataTable<T extends { id: string }>({
   isLoading,
   emptyTitle = 'Nothing here yet',
   emptyMessage,
+  minRowWidth = 720,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -62,6 +63,8 @@ export function DataTable<T extends { id: string }>({
   isLoading?: boolean
   emptyTitle?: string
   emptyMessage?: string
+  /** Min table width before the row scrolls horizontally on small screens (UI shell spec §7). */
+  minRowWidth?: number
 }) {
   const [sort, setSort] = useState<SortState>(null)
 
@@ -95,8 +98,11 @@ export function DataTable<T extends { id: string }>({
   }
 
   return (
-    <YStack borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden">
-      <XStack backgroundColor="$background" paddingVertical="$3" paddingHorizontal="$4" gap="$3">
+    // Horizontal-scroll wrapper: at `small` the table keeps all columns at
+    // `minRowWidth` and scrolls (no scrollbar) instead of dropping columns (UI shell spec §7).
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} width="100%" contentContainerStyle={{ minWidth: '100%' }}>
+      <YStack flex={1} minWidth={minRowWidth} borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden">
+        <XStack backgroundColor="$background" paddingVertical="$3" paddingHorizontal="$4" gap="$3">
         {columns.map((c) => {
           const active = sort?.key === c.key
           const indicator = active ? (sort?.dir === 'asc' ? ' ↑' : ' ↓') : ''
@@ -145,6 +151,7 @@ export function DataTable<T extends { id: string }>({
           ))}
         </XStack>
       ))}
-    </YStack>
+      </YStack>
+    </ScrollView>
   )
 }

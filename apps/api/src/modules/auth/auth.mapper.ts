@@ -2,11 +2,16 @@ import type { AdminUser, ApprovalTier as ApprovalTierDto, DataScope, Role as Rol
 import type { ApprovalTier, Role, User } from './schema'
 
 /**
- * Map a user row (+ its resolved role) to the private profile DTO. The role is
- * resolved to `roleName` + `canConfigure` here (D33) rather than a hardcoded
- * enum. Never includes passwordHash (API §11).
+ * Map a user row (+ its resolved role + tenant brand) to the private profile DTO.
+ * The role is resolved to `roleName` + `canConfigure` here (D33) rather than a
+ * hardcoded enum. `brand` is the tenant name/logo read via TenantService (the
+ * shell renders the OrgAvatar from it). Never includes passwordHash (API §11).
  */
-export function toUserProfile(u: User, r: Role | undefined): UserProfile {
+export function toUserProfile(
+  u: User,
+  r: Role | undefined,
+  brand: { name: string; logoUrl: string | null },
+): UserProfile {
   return {
     id: u.id,
     email: u.email,
@@ -16,6 +21,9 @@ export function toUserProfile(u: User, r: Role | undefined): UserProfile {
     roleName: r?.name ?? null,
     canConfigure: r?.canConfigure ?? false,
     tenantId: u.tenantId,
+    tenantName: brand.name,
+    tenantLogoUrl: brand.logoUrl,
+    preferences: u.preferences ?? {},
     isVerified: u.isVerified,
     createdAt: u.createdAt.toISOString(),
   }

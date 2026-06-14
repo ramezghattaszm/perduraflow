@@ -31,4 +31,13 @@ export class TenantService {
   async exists(tenantId: string): Promise<boolean> {
     return Boolean(await this.repo.findById(tenantId))
   }
+
+  /**
+   * The tenant's display brand (name + logo) for the app shell (UI shell spec
+   * §4). Falls back to the default name + no logo if the row is missing.
+   */
+  async getBrand(tenantId: string): Promise<{ name: string; logoUrl: string | null }> {
+    const t = await this.repo.findById(tenantId)
+    return { name: t?.name ?? DEFAULT_TENANT_NAME, logoUrl: t?.logoUrl ?? null }
+  }
 }

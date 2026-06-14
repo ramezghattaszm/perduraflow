@@ -15,6 +15,13 @@
       "when": 1781404997841,
       "tag": "0001_charming_vapor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781444366531,
+      "tag": "0002_classy_purple_man",
+      "breakpoints": true
     }
   ]
 }

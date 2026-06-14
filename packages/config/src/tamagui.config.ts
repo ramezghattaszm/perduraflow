@@ -30,17 +30,19 @@ const palette = {
   // light neutrals
   bgLight: '#F7F8FA',
   surfaceLight: '#FFFFFF',
+  surfaceRaisedLight: '#FFFFFF', // light elevates via border/shadow, = surface
   inkLight: '#1A1A2E',
   slateLight: '#5B6472',
   lineLight: '#E3E8F0',
   navBarLight: '#00429E',
-  // dark neutrals (very dark desaturated navy; surface lighter than bg)
-  bgDark: '#0B0F1A',
-  surfaceDark: '#161B26',
+  // dark neutrals — Deep Navy (very dark desaturated navy; elevation reads lighter)
+  bgDark: '#080B14',
+  surfaceDark: '#131926',
+  surfaceRaisedDark: '#1A2030', // 3rd elevation layer (menus/popovers/raised header)
   inkDark: '#E6E8EB',
   slateDark: '#9AA3B2',
-  lineDark: '#232A36',
-  navBarDark: '#0B1730',
+  lineDark: '#232C3D',
+  navBarDark: '#0A1324',
   // status — light
   successLight: '#16A34A',
   dangerLight: '#DC2626',
@@ -49,11 +51,15 @@ const palette = {
   successDark: '#4ADE80',
   dangerDark: '#F87171',
   warningDark: '#FBBF24',
-  // translucent
+  // translucent + tints
   whiteA18: 'rgba(255,255,255,0.18)',
   whiteA08: 'rgba(255,255,255,0.08)',
   blackA20: 'rgba(0,0,0,0.2)',
   blackA45: 'rgba(0,0,0,0.45)',
+  primarySoftLight: 'rgba(45,91,227,0.10)', // selected nav/active row tint
+  primarySoftDark: 'rgba(91,141,239,0.14)',
+  hoverFillLight: 'rgba(0,0,0,0.045)', // row / nav-item / icon-button hover
+  hoverFillDark: 'rgba(255,255,255,0.05)',
 } as const
 
 // Layer 2 — semantic roles. Core (12) + extended (3). Every role defined in both.
@@ -75,6 +81,9 @@ const lightColors = {
   surfaceGhost: palette.whiteA18,
   overlay: palette.blackA20,
   navBar: palette.navBarLight,
+  surfaceRaised: palette.surfaceRaisedLight,
+  primarySoft: palette.primarySoftLight,
+  hoverFill: palette.hoverFillLight,
 } as const
 
 const darkColors = {
@@ -95,6 +104,9 @@ const darkColors = {
   surfaceGhost: palette.whiteA08,
   overlay: palette.blackA45,
   navBar: palette.navBarDark,
+  surfaceRaised: palette.surfaceRaisedDark,
+  primarySoft: palette.primarySoftDark,
+  hoverFill: palette.hoverFillDark,
 } as const
 
 export const config = createTamagui({

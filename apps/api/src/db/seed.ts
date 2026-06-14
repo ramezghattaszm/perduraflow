@@ -40,8 +40,12 @@ async function main(): Promise<void> {
   const db = drizzle(pool)
 
   // --- tenant ----------------------------------------------------------------
+  // Demo client identity for the shell's brand zone. logoUrl stays null so the
+  // OrgAvatar placeholder shows — real logos are tenant-supplied (SKIP-53).
+  const DEMO_TENANT = { name: 'Saltillo Industrial Group', logoUrl: null as string | null }
   const existingTenant = (await db.select().from(tenant).limit(1))[0]
-  const tenantRow = existingTenant ?? (await db.insert(tenant).values({ name: 'Default' }).returning())[0]
+  const tenantRow = existingTenant ?? (await db.insert(tenant).values(DEMO_TENANT).returning())[0]
+  if (existingTenant) await db.update(tenant).set(DEMO_TENANT).where(eq(tenant.id, existingTenant.id))
   const tenantId = tenantRow!.id
   console.log(`  ✓ tenant: ${tenantId}`)
 
