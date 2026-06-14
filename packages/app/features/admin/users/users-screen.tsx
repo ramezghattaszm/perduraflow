@@ -6,7 +6,6 @@ import {
   AppButton,
   AppInput,
   AppSwitch,
-  ConfirmDialog,
   DataTable,
   FormField,
   FormSheet,
@@ -19,6 +18,7 @@ import {
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useAdminUsers, useRoles, useUserMutations } from '../../../hooks/useAdmin'
+import { usePopup } from '../../../stores/popup.store'
 import { AdminShell } from '../../shell/admin-shell'
 
 /** Users admin screen — people in the tenant and the role assigned to each. */
@@ -29,7 +29,6 @@ export function UsersScreen() {
   const { create, update } = useUserMutations()
 
   const [open, setOpen] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -37,12 +36,24 @@ export function UsersScreen() {
   const [roleId, setRoleId] = useState<string | null>(null)
   const [verified, setVerified] = useState(true)
 
-  const deactivate = () => {
+  const { show } = usePopup()
+
+  const confirmDeactivate = () => {
     if (!editingId) return
-    update.mutate(
-      { id: editingId, body: { isActive: false } },
-      { onSuccess: () => { setConfirmOpen(false); setOpen(false) } },
-    )
+    const id = editingId
+    setOpen(false)
+    show({
+      title: t('actions.deactivate'),
+      message: t('common.deactivateConfirm'),
+      buttons: [
+        { text: t('actions.cancel'), tone: 'light' },
+        {
+          text: t('actions.deactivate'),
+          tone: 'danger',
+          onPress: () => update.mutate({ id, body: { isActive: false } }),
+        },
+      ],
+    })
   }
   const submitError = create.error ?? update.error
   const formError = submitError ? translateError(getApiErrorCode(submitError)) : undefined
@@ -136,21 +147,11 @@ export function UsersScreen() {
           </XStack>
         </FormField>
         {editingId ? (
-          <AppButton variant="danger" size="$3" onPress={() => setConfirmOpen(true)}>
+          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
         ) : null}
       </FormSheet>
-      <ConfirmDialog
-        open={confirmOpen}
-        title={t('actions.deactivate')}
-        tone="danger"
-        confirmLabel={t('actions.deactivate')}
-        cancelLabel={t('actions.cancel')}
-        submitting={update.isPending}
-        onConfirm={deactivate}
-        onCancel={() => setConfirmOpen(false)}
-      />
     </AdminShell>
   )
 }

@@ -547,6 +547,14 @@ bun --filter @perduraflow/api db:seed        # seed
 bun run db:setup                    # create the app database (root script)
 ```
 
+> **Build footgun — do not enable `incremental` in `apps/api/tsconfig.json`.** `nest-cli`'s
+> `deleteOutDir: true` wipes `dist/` on every build, but tsc's `incremental` writes
+> `tsconfig.tsbuildinfo` *outside* `dist/` — so after a wipe tsc believes everything is already
+> emitted and produces an **empty `dist/`**, and `node dist/main` fails with `MODULE_NOT_FOUND`.
+> `incremental` is a no-op when the outDir is cleared each build anyway. If you hit an empty `dist`,
+> `rm -f apps/api/tsconfig.tsbuildinfo && rm -rf apps/api/dist` and rebuild. Prefer `bun … api dev`
+> (watch) in development.
+
 ---
 
 ## 14. Documentation (JSDoc)
@@ -599,3 +607,4 @@ that contract is derived, not hand-maintained.
 | Version | Date | Notes |
 |---|---|---|
 | 1.0 | — | Generalized from the Mercor API architecture; de-branded; tenant-scoping promoted to a first-class rule; reduced to one `example` module; error codes trimmed to universal set; bun scripts. |
+| 1.1 | 2026-06-14 | §13: documented the NestJS build footgun (`incremental` + `deleteOutDir` → empty `dist`/`MODULE_NOT_FOUND`). Note: the *contract-bound module* override of §3 is recorded per-app in `api-spec.md §0` (not here). |

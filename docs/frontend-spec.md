@@ -53,11 +53,25 @@ Default. `H`/`P` scale unchanged (UI §4). Inter.
 | `SelectField` | `options`, `value`, `onChange`, `multiple` | Enum + reference pickers (e.g. `group_type`, `data_scope`, customer→program, multi-plant scope). |
 | `StatusPill` | `tone` (`active`/`inactive`/`neutral`) | Row status (`plant.status`, `is_active`). |
 | `PageHeader` | `title`, `actions` slot | Consistent admin page header + primary action (New …). |
-| `ConfirmDialog` | `title`, `message`, `tone`, `onConfirm` | Soft-delete / deactivate confirmation. |
+| `Popup` | `open`, `onClose`, `title`, `description`, `size`, `dismissable`, `footer` | Responsive modal: centered dialog on desktop, native `Sheet` on small (UI §17). Driven by `usePopup`. |
+| `TextLink` | `size`, `weight` (extends `P`) | Clickable inline text (pointer cursor + hover); replaces `<P onPress>` for links. |
+| `ConfirmDialog` | `title`, `message`, `tone`, `onConfirm` | Predates `Popup`/`usePopup`; **superseded** by them for confirms (kept as a primitive). |
 | `SidebarNav` / `NavItem` | `items`, `activeId` | Web/tablet shell navigation. |
 
 Existing template components reused as-is: `Screen`, `AppButton`, `AppInput`, `AppSwitch`,
 `EmptyState`, `H`/`P`, toast.
+
+### Popups & soft-delete conventions (this app)
+
+- **Confirms/alerts go through `usePopup`** (`packages/app/stores/popup.store.ts`) — one global popup
+  at a time, rendered by `PopupHost` in the app `Provider` (UI §17). Don't add per-screen confirm
+  state. The admin **Deactivate** action on every entity closes its edit `FormSheet`, then
+  `show({ title, message, buttons: [Cancel, Deactivate] })`.
+- **Soft delete = Deactivate, never hard delete** (API schema rule). Plants transition
+  `status → 'inactive'`; every other org/auth entity sets `isActive=false`. Lists keep showing the
+  deactivated row with an "Inactive" `StatusPill` (no row removal). The `Deactivate` button shows
+  only while editing an existing row.
+- **Create/edit forms stay in `FormSheet`** (declarative, holds local input state) — not `usePopup`.
 
 ---
 

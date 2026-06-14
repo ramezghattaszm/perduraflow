@@ -255,6 +255,20 @@ const ACTIVE_COLOR = '#2D5BE3' // $primary
 const INACTIVE_COLOR = '#6B7280' // $textSecondary
 ```
 
+### Responsive media is mobile-first (`min-width`) — use `max-*` for "small"
+
+The Tamagui v5 config's media queries are **min-width** (mobile-first): `media.sm` is true when the
+viewport is **≥ 640**, `media.md` ≥ 768, etc. So `media.sm` is *true on desktop* — it does **not**
+mean "small screen". To branch on a small/phone viewport, use the **max-width** keys:
+
+```ts
+const media = useMedia()
+const isSmall = Boolean(media['max-md']) // ≤ 767.98px — phones & narrow tablets
+// media.sm/md/lg = min-width (≥); media['max-sm'|'max-md'|…] = max-width (≤)
+```
+
+This is the one that bites: a naive `if (media.sm)` to "render the mobile layout" runs on desktop.
+
 ---
 
 ## 4. Typography (P / H components — permanent template fixtures)
@@ -395,6 +409,23 @@ with the variant color rather than relying on propagation, and drive text color 
 
 All other components are single-file and run on both platforms. In a `.web.tsx` variant, never
 import a native-only module (e.g. `expo-linear-gradient`).
+
+### Control conventions (learned the hard way)
+
+- **Password masking uses Tamagui's `type`, not `secureTextEntry`.** On web, Tamagui's `Input`
+  treats `secureTextEntry` as a *native-only prop and ignores it* — the field stays visible. The
+  unified, cross-platform prop is `type`: `type={hidden ? 'password' : 'text'}` (web → DOM
+  `type=password`; native `Input` maps `type:'password'` → `secureTextEntry`). `AppInput` does this.
+- **Font sizes in controls are tokens, not raw px.** Beyond `H`/`P`, control components
+  (`AppInput`, `AppButton`, `OtpInput`, `AppToast`) use the `$1–$16` font size tokens (defined in
+  `packages/config/fonts.ts`), e.g. `fontSize="$6"` (=16px) — never a bare number. Only
+  `typography.tsx` (the H/P scale definition) holds pixel values.
+- **Clickable text is `TextLink`, not `<P onPress>`.** A bare `P` with `onPress` has no pointer
+  cursor and no hover affordance on web. `TextLink` (styled over `P`) adds `cursor:'pointer'` +
+  primary color + hover/press opacity. Use it for "Forgot password?", "Sign up", etc.
+- **Buttons signal hover/press with opacity only.** `AppButton`'s frame has
+  `hoverStyle={{ opacity: 0.9 }}` / `pressStyle` — no background change — so the affordance is
+  uniform across variants. Disabled buttons set `pointerEvents:'none'`, so neither fires.
 
 ---
 
@@ -683,8 +714,69 @@ matching `*.stories.tsx`.
 
 ---
 
+## 17. Overlays — modals, sheets & popups
+
+Three shared overlay primitives, all in `packages/ui`. Two rules govern all of them.
+
+### Rule 1 — overlays render through a Portal, never a bare absolute YStack
+
+A `position:absolute` overlay resolves against the **nearest positioned ancestor**. Inside the app
+shell (a `ScrollView`/flex layout) that box collapses to roughly the content height, so a "full
+screen" scrim ends up a thin strip at the top and the centered card is invisible (this is a real bug
+we hit). Render overlays through a **Tamagui `Portal`** (mounts at the app root, outside the scroll
+container) with **`position="fixed"`** so the scrim covers the whole viewport, and a high `zIndex`
+(we use `200000`) so it sits above other overlays:
+
+```tsx
+<Portal>
+  <YStack position="fixed" top={0} left={0} right={0} bottom={0} zIndex={200000}
+    backgroundColor="$overlay" alignItems="center" justifyContent="center"
+    onPress={dismissable ? onClose : undefined}>
+    <YStack onPress={(e) => e.stopPropagation()} backgroundColor="$surface" /* …card… */>{children}</YStack>
+  </YStack>
+</Portal>
+```
+
+### Rule 2 — there is one global popup at a time (`usePopup`)
+
+Imperative alerts/confirms go through a single global popup, not per-screen modal state:
+
+- **`Popup`** (component) — responsive: a centered **dialog** on `≥ md`, a real Tamagui **`Sheet`**
+  (with the **`native`** flag, so iOS/Android get the platform bottom sheet) on small screens,
+  branched via `media['max-md']` (see §3 "Responsive media"). High `zIndex` so it clears the FormSheet.
+- **`popup.store.ts`** (`usePopup`) — a Zustand store holding **one** `PopupOptions | null`
+  (`show` replaces, `hide` clears). Options: `title`, `message`, `content`, `buttons`
+  (`{ text, tone, onPress }` — `onPress` returning `false` keeps it open), `size`, `dismissable`.
+- **`PopupHost`** — rendered once in the app `Provider` (next to the Toast host), so
+  `usePopup().show(...)` works anywhere. Pattern mirrors the Toast system (§13).
+
+```tsx
+const { show } = usePopup()
+show({ title: t('actions.deactivate'), message: t('common.deactivateConfirm'), buttons: [
+  { text: t('actions.cancel'), tone: 'light' },
+  { text: t('actions.deactivate'), tone: 'danger', onPress: () => deactivate() },
+] })
+```
+
+Use `usePopup` for confirms/alerts. Keep **`FormSheet`** (declarative, inline) for create/edit forms
+that hold local input state — an imperative popup is the wrong fit there. (`ConfirmDialog` predates
+`usePopup` and is superseded by it for confirmations.)
+
+### Tamagui `Sheet` gotchas (web)
+
+- The **`animation` prop goes on the `<Sheet>` root** (the controller drives the frame's slide). With
+  no animation the frame sits **off-screen** — the sheet looks like it "didn't open".
+- Use **percentage `snapPoints`** (e.g. `snapPoints={[60]}`). `snapPointsMode="fit"` measured 0 height
+  on web and left the frame off-screen.
+- The **`animation` prop type doesn't resolve** through this workspace's config build (the motion
+  driver's keys don't surface on styled props), so it's applied with a localized `@ts-expect-error`
+  — valid at runtime. If the config typing is ever fixed, that suppression will flag itself.
+
+---
+
 ## Revision History
 
 | Version | Date | Notes                                                                                                                                                                                                                                                                                    |
 | ------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1.0     | —    | Generalized from the Mercor UI architecture; de-branded; bun + Turborepo; added §0 governing principles (reuse-over-inline, library-ready), §4 typography (H/P), §12 utilities and §6 stores elevated to fixed conventions; added `packages/contracts` boundary; two-layer token system. |
+| 1.1     | 2026-06-14 | Added §17 Overlays (Portal-rendered modals; `usePopup` single global popup → dialog on desktop / native `Sheet` on small; Tamagui Sheet gotchas). §3 responsive media is mobile-first (`min-width`; use `max-*` for small). §5 control conventions: password masking via `type` not `secureTextEntry`, font-size tokens in controls, `TextLink` for clickable text, button hover = opacity only. |

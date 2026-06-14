@@ -5,7 +5,6 @@ import type { PlantDto } from '@perduraflow/contracts'
 import {
   AppButton,
   AppInput,
-  ConfirmDialog,
   DataTable,
   FormField,
   FormSheet,
@@ -16,6 +15,7 @@ import {
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { usePlants, usePlantMutations } from '../../../hooks/useOrg'
+import { usePopup } from '../../../stores/popup.store'
 import { AdminShell } from '../../shell/admin-shell'
 
 interface PlantForm {
@@ -32,18 +32,28 @@ export function PlantsScreen() {
   const { t } = useTranslation('admin')
   const { data: plants = [], isLoading } = usePlants()
   const { create, update } = usePlantMutations()
+  const { show } = usePopup()
   const [open, setOpen] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<PlantForm>(EMPTY)
   const set = (patch: Partial<PlantForm>) => setForm((f) => ({ ...f, ...patch }))
 
-  const deactivate = () => {
+  const confirmDeactivate = () => {
     if (!editingId) return
-    update.mutate(
-      { id: editingId, body: { status: 'inactive' } },
-      { onSuccess: () => { setConfirmOpen(false); setOpen(false) } },
-    )
+    const id = editingId
+    setOpen(false) // close the edit sheet first; the confirm popup stands alone
+    show({
+      title: t('actions.deactivate'),
+      message: t('common.deactivateConfirm'),
+      buttons: [
+        { text: t('actions.cancel'), tone: 'light' },
+        {
+          text: t('actions.deactivate'),
+          tone: 'danger',
+          onPress: () => update.mutate({ id, body: { status: 'inactive' } }),
+        },
+      ],
+    })
   }
   const submitError = create.error ?? update.error
   const formError = submitError ? translateError(getApiErrorCode(submitError)) : undefined
@@ -130,21 +140,11 @@ export function PlantsScreen() {
           </FormField>
         ) : null}
         {editingId ? (
-          <AppButton variant="danger" size="$3" onPress={() => setConfirmOpen(true)}>
+          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
         ) : null}
       </FormSheet>
-      <ConfirmDialog
-        open={confirmOpen}
-        title={t('actions.deactivate')}
-        tone="danger"
-        confirmLabel={t('actions.deactivate')}
-        cancelLabel={t('actions.cancel')}
-        submitting={update.isPending}
-        onConfirm={deactivate}
-        onCancel={() => setConfirmOpen(false)}
-      />
     </AdminShell>
   )
 }

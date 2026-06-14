@@ -19,7 +19,7 @@
     "deactivate": "Deactivate",
     "confirm": "Confirm"
   },
-  "common": { "name": "Name", "status": "Status", "active": "Active", "inactive": "Inactive", "none": "None" },
+  "common": { "name": "Name", "status": "Status", "active": "Active", "inactive": "Inactive", "none": "None", "deactivateConfirm": "This will be hidden from new scheduling but kept for history. You can reactivate it later." },
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "Your operations overview will appear here as modules are activated.",

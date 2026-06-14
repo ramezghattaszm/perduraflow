@@ -5,7 +5,6 @@ import type { CalendarDto } from '@perduraflow/contracts'
 import {
   AppButton,
   AppInput,
-  ConfirmDialog,
   DataTable,
   FormField,
   FormSheet,
@@ -17,6 +16,7 @@ import {
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCalendars, useCalendarMutations, usePlants } from '../../../hooks/useOrg'
+import { usePopup } from '../../../stores/popup.store'
 import { AdminShell } from '../../shell/admin-shell'
 
 const parseJson = (text: string): unknown => {
@@ -35,7 +35,6 @@ export function CalendarsScreen() {
   const { data: plants = [] } = usePlants()
   const { create, update } = useCalendarMutations()
   const [open, setOpen] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [plantId, setPlantId] = useState<string | null>(null)
@@ -43,12 +42,24 @@ export function CalendarsScreen() {
   const [holidays, setHolidays] = useState('[]')
   const [maint, setMaint] = useState('[]')
 
-  const deactivate = () => {
+  const { show } = usePopup()
+
+  const confirmDeactivate = () => {
     if (!editingId) return
-    update.mutate(
-      { id: editingId, body: { isActive: false } },
-      { onSuccess: () => { setConfirmOpen(false); setOpen(false) } },
-    )
+    const id = editingId
+    setOpen(false)
+    show({
+      title: t('actions.deactivate'),
+      message: t('common.deactivateConfirm'),
+      buttons: [
+        { text: t('actions.cancel'), tone: 'light' },
+        {
+          text: t('actions.deactivate'),
+          tone: 'danger',
+          onPress: () => update.mutate({ id, body: { isActive: false } }),
+        },
+      ],
+    })
   }
   const submitError = create.error ?? update.error
   const formError = submitError ? translateError(getApiErrorCode(submitError)) : undefined
@@ -137,21 +148,11 @@ export function CalendarsScreen() {
           onChangeText={setMaint}
         />
         {editingId ? (
-          <AppButton variant="danger" size="$3" onPress={() => setConfirmOpen(true)}>
+          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
         ) : null}
       </FormSheet>
-      <ConfirmDialog
-        open={confirmOpen}
-        title={t('actions.deactivate')}
-        tone="danger"
-        confirmLabel={t('actions.deactivate')}
-        cancelLabel={t('actions.cancel')}
-        submitting={update.isPending}
-        onConfirm={deactivate}
-        onCancel={() => setConfirmOpen(false)}
-      />
     </AdminShell>
   )
 }

@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import type { CustomerDto } from '@perduraflow/contracts'
-import { AppButton, AppInput, ConfirmDialog, DataTable, FormSheet, PageHeader, StatusPill } from '@perduraflow/ui'
+import { AppButton, AppInput, DataTable, FormSheet, PageHeader, StatusPill } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, useCustomerMutations } from '../../../hooks/useOrg'
+import { usePopup } from '../../../stores/popup.store'
 import { AdminShell } from '../../shell/admin-shell'
 
 /** Customers admin screen — OEM customers + default firm fence (5.7/D23). */
@@ -14,17 +15,28 @@ export function CustomersScreen() {
   const { data: customers = [], isLoading } = useCustomers()
   const { create, update } = useCustomerMutations()
   const [open, setOpen] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [fence, setFence] = useState('')
 
-  const deactivate = () => {
+  const { show } = usePopup()
+
+  const confirmDeactivate = () => {
     if (!editingId) return
-    update.mutate(
-      { id: editingId, body: { isActive: false } },
-      { onSuccess: () => { setConfirmOpen(false); setOpen(false) } },
-    )
+    const id = editingId
+    setOpen(false)
+    show({
+      title: t('actions.deactivate'),
+      message: t('common.deactivateConfirm'),
+      buttons: [
+        { text: t('actions.cancel'), tone: 'light' },
+        {
+          text: t('actions.deactivate'),
+          tone: 'danger',
+          onPress: () => update.mutate({ id, body: { isActive: false } }),
+        },
+      ],
+    })
   }
   const submitError = create.error ?? update.error
   const formError = submitError ? translateError(getApiErrorCode(submitError)) : undefined
@@ -88,21 +100,11 @@ export function CustomersScreen() {
           keyboardType="number-pad"
         />
         {editingId ? (
-          <AppButton variant="danger" size="$3" onPress={() => setConfirmOpen(true)}>
+          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
         ) : null}
       </FormSheet>
-      <ConfirmDialog
-        open={confirmOpen}
-        title={t('actions.deactivate')}
-        tone="danger"
-        confirmLabel={t('actions.deactivate')}
-        cancelLabel={t('actions.cancel')}
-        submitting={update.isPending}
-        onConfirm={deactivate}
-        onCancel={() => setConfirmOpen(false)}
-      />
     </AdminShell>
   )
 }

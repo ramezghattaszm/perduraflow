@@ -28,6 +28,7 @@ export * from './SelectField'
 export * from './DataTable'
 export * from './FormSheet'
 export * from './ConfirmDialog'
+export * from './Popup'
 export * from './SidebarNav'
 
 // type augmentation for tamagui custom config

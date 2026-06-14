@@ -8,12 +8,14 @@ import {
   ToastProvider,
   config,
 } from '@perduraflow/ui'
+import { PopupHost } from './PopupHost'
 import { SafeArea } from './safe-area'
 
 /**
- * App root provider: Tamagui theme + Toast. Mounted once at the top of each app
- * (expo _layout, next NextTamaguiProvider). Renders the shared <AppToast /> +
- * <AppToastViewport /> so useToast() works everywhere (UI-ARCHITECTURE.md §13).
+ * App root provider: Tamagui theme + Toast + global Popup host. Mounted once at
+ * the top of each app (expo _layout, next NextTamaguiProvider). Renders the
+ * shared <AppToast /> + <AppToastViewport /> so useToast() works everywhere
+ * (UI §13), and <PopupHost /> so usePopup() works everywhere (one popup at a time).
  */
 export function Provider({
   children,
@@ -33,6 +35,7 @@ export function Provider({
           {children}
           <AppToast />
           <AppToastViewport />
+          <PopupHost />
         </ToastProvider>
       </SafeArea>
     </TamaguiProvider>
