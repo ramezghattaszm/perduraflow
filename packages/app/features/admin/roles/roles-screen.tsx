@@ -20,6 +20,7 @@ import { getApiErrorCode } from '../../../utils/error'
 import { useApprovalTiers, useRoles, useRoleMutations } from '../../../hooks/useAdmin'
 import { usePlantGroups, usePlants } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
+import { Plus } from '@tamagui/lucide-icons'
 import { AdminShell } from '../../shell/admin-shell'
 
 const DATA_SCOPES: DataScope[] = ['plant', 'plant_group', 'multi_plant', 'tenant']
@@ -107,7 +108,7 @@ export function RolesScreen() {
       <PageHeader
         title={t('roles.title')}
         subtitle={t('roles.subtitle')}
-        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
       />
       <DataTable<Role>
         isLoading={isLoading}

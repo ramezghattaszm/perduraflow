@@ -1,9 +1,11 @@
-import { forwardRef, type ReactNode } from 'react'
+import { forwardRef, type ComponentType, type ReactNode } from 'react'
 import {
   Button,
   Spinner,
   Text,
+  XStack,
   styled,
+  type ColorTokens,
   type FontSizeTokens,
   type GetProps,
   type TamaguiElement,
@@ -38,8 +40,8 @@ const ButtonFrame = styled(Button, {
       ghost: {
         backgroundColor: 'transparent',
         borderColor: '$primary',
-        hoverStyle: { backgroundColor: '$primary' },
-        pressStyle: { backgroundColor: '$primary' },
+        hoverStyle: { backgroundColor: 'transparent' },
+        pressStyle: { backgroundColor: 'transparent' },
       },
       danger: {
         backgroundColor: '$danger',
@@ -55,9 +57,9 @@ const ButtonFrame = styled(Button, {
       },
     },
     size: {
-      $3: { height: 40, paddingHorizontal: '$3', borderRadius: '$4' },
-      $4: { height: 48, paddingHorizontal: '$4', borderRadius: '$4' },
-      $5: { height: 56, paddingHorizontal: '$5', borderRadius: '$6' },
+      $3: { height: 35, paddingHorizontal: '$3', borderRadius: '$4' },
+      $4: { height: 42, paddingHorizontal: '$4', borderRadius: '$4' },
+      $5: { height: 50, paddingHorizontal: '$5', borderRadius: '$6' },
     },
   } as const,
   defaultVariants: { variant: 'primary', size: '$4' },
@@ -75,11 +77,13 @@ const TEXT_COLOR = {
 // Font size-token per button size (14/16/18px via the fonts.ts scale), not raw numbers.
 const TEXT_SIZE: Record<Size, FontSizeTokens> = { $3: '$4', $4: '$6', $5: '$7' }
 
-export type AppButtonProps = Omit<GetProps<typeof ButtonFrame>, 'children' | 'disabled'> & {
+export type AppButtonProps = Omit<GetProps<typeof ButtonFrame>, 'children' | 'disabled' | 'icon'> & {
   variant?: Variant
   size?: Size
   loading?: boolean
   disabled?: boolean
+  /** Optional leading icon (e.g. a lucide icon component); colored to match the variant. */
+  icon?: ComponentType<{ size?: number; color?: ColorTokens }>
   children?: ReactNode
 }
 
@@ -95,11 +99,19 @@ export type AppButtonProps = Omit<GetProps<typeof ButtonFrame>, 'children' | 'di
  * <AppButton variant="primary" size="$4" onPress={save}>Save</AppButton>
  */
 export const AppButton = forwardRef<TamaguiElement, AppButtonProps>(function AppButton(
-  { onPress, disabled, loading, children, variant = 'primary', size = '$4', ...props },
+  { onPress, disabled, loading, children, icon: Icon, variant = 'primary', size = '$4', ...props },
   ref
 ) {
   const isDisabled = Boolean(disabled || loading)
   const color = TEXT_COLOR[variant]
+  const label =
+    typeof children === 'string' ? (
+      <Text fontFamily="$body" fontWeight="600" fontSize={TEXT_SIZE[size]} color={color}>
+        {children}
+      </Text>
+    ) : (
+      children
+    )
   return (
     <ButtonFrame
       ref={ref}
@@ -114,12 +126,13 @@ export const AppButton = forwardRef<TamaguiElement, AppButtonProps>(function App
     >
       {loading ? (
         <Spinner color={color} />
-      ) : typeof children === 'string' ? (
-        <Text fontFamily="$body" fontWeight="600" fontSize={TEXT_SIZE[size]} color={color}>
-          {children}
-        </Text>
+      ) : Icon ? (
+        <XStack gap="$2" alignItems="center">
+          <Icon size={16} color={color} />
+          {label}
+        </XStack>
       ) : (
-        children
+        label
       )}
     </ButtonFrame>
   )

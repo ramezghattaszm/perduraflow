@@ -19,6 +19,7 @@ import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { usePlantGroups, usePlantGroupMutations, usePlants } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
+import { Plus } from '@tamagui/lucide-icons'
 import { AdminShell } from '../../shell/admin-shell'
 
 const GROUP_TYPES: PlantGroupType[] = ['cluster', 'division', 'region', 'custom']
@@ -88,7 +89,7 @@ export function PlantGroupsScreen() {
       <PageHeader
         title={t('plantGroups.title')}
         subtitle={t('plantGroups.subtitle')}
-        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
       />
       <DataTable<PlantGroupDto>
         isLoading={isLoading}

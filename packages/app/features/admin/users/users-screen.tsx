@@ -19,6 +19,7 @@ import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useAdminUsers, useRoles, useUserMutations } from '../../../hooks/useAdmin'
 import { usePopup } from '../../../stores/popup.store'
+import { Plus } from '@tamagui/lucide-icons'
 import { AdminShell } from '../../shell/admin-shell'
 
 /** Users admin screen — people in the tenant and the role assigned to each. */
@@ -90,7 +91,7 @@ export function UsersScreen() {
       <PageHeader
         title={t('users.title')}
         subtitle={t('users.subtitle')}
-        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
       />
       <DataTable<AdminUser>
         isLoading={isLoading}

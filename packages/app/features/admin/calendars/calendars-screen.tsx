@@ -17,6 +17,7 @@ import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCalendars, useCalendarMutations, usePlants } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
+import { Plus } from '@tamagui/lucide-icons'
 import { AdminShell } from '../../shell/admin-shell'
 
 const parseJson = (text: string): unknown => {
@@ -103,7 +104,7 @@ export function CalendarsScreen() {
       <PageHeader
         title={t('calendars.title')}
         subtitle={t('calendars.subtitle')}
-        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
       />
       <DataTable<CalendarDto>
         isLoading={isLoading}

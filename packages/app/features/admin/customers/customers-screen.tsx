@@ -7,6 +7,7 @@ import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, useCustomerMutations } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
+import { Plus } from '@tamagui/lucide-icons'
 import { AdminShell } from '../../shell/admin-shell'
 
 /** Customers admin screen — OEM customers + default firm fence (5.7/D23). */
@@ -65,7 +66,7 @@ export function CustomersScreen() {
       <PageHeader
         title={t('customers.title')}
         subtitle={t('customers.subtitle')}
-        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
       />
       <DataTable<CustomerDto>
         isLoading={isLoading}

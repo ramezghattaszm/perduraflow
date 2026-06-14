@@ -161,9 +161,13 @@ export function Popup({
           maxHeight="90%"
           padding="$5"
           gap="$3"
+          overflow="hidden"
         >
           {header}
-          <ScrollView flex={1}>
+          {/* flexShrink + minHeight:0 (not flex:1) so the body sizes to content and
+              scrolls only when the card hits maxHeight — flex:1 sets basis 0% and
+              collapses the body to nothing inside an auto-height card. */}
+          <ScrollView flexShrink={1} minHeight={0}>
             <YStack gap="$3">{children}</YStack>
           </ScrollView>
           {errorLine}

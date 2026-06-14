@@ -16,6 +16,7 @@ import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { usePlants, usePlantMutations } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
+import { Plus } from '@tamagui/lucide-icons'
 import { AdminShell } from '../../shell/admin-shell'
 
 interface PlantForm {
@@ -65,7 +66,13 @@ export function PlantsScreen() {
   }
   const openEdit = (p: PlantDto) => {
     setEditingId(p.id)
-    setForm({ name: p.name, timezone: p.timezone, region: p.region ?? '', location: p.location ?? '', status: p.status })
+    setForm({
+      name: p.name,
+      timezone: p.timezone,
+      region: p.region ?? '',
+      location: p.location ?? '',
+      status: p.status,
+    })
     setOpen(true)
   }
   const submit = () => {
@@ -86,7 +93,11 @@ export function PlantsScreen() {
       <PageHeader
         title={t('plants.title')}
         subtitle={t('plants.subtitle')}
-        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<PlantDto>
         isLoading={isLoading}
@@ -130,15 +141,27 @@ export function PlantsScreen() {
           </>
         }
       >
-        <AppInput label={t('plants.fields.name')} value={form.name} onChangeText={(v) => set({ name: v })} />
+        <AppInput
+          label={t('plants.fields.name')}
+          value={form.name}
+          onChangeText={(v) => set({ name: v })}
+        />
         <AppInput
           label={t('plants.fields.timezone')}
           value={form.timezone}
           onChangeText={(v) => set({ timezone: v })}
           placeholder="America/Mexico_City"
         />
-        <AppInput label={t('plants.fields.region')} value={form.region} onChangeText={(v) => set({ region: v })} />
-        <AppInput label={t('plants.fields.location')} value={form.location} onChangeText={(v) => set({ location: v })} />
+        <AppInput
+          label={t('plants.fields.region')}
+          value={form.region}
+          onChangeText={(v) => set({ region: v })}
+        />
+        <AppInput
+          label={t('plants.fields.location')}
+          value={form.location}
+          onChangeText={(v) => set({ location: v })}
+        />
         {editingId ? (
           <FormField label={t('plants.fields.status')}>
             <SelectField

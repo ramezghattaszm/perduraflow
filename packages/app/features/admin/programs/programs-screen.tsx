@@ -17,6 +17,7 @@ import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, usePrograms, useProgramMutations } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
+import { Plus } from '@tamagui/lucide-icons'
 import { AdminShell } from '../../shell/admin-shell'
 
 /** Programs admin screen — customer/vehicle programs with firm-fence override (5.7/D23). */
@@ -83,7 +84,7 @@ export function ProgramsScreen() {
       <PageHeader
         title={t('programs.title')}
         subtitle={t('programs.subtitle')}
-        actions={<AppButton size="$3" onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
       />
       <DataTable<ProgramDto>
         isLoading={isLoading}
