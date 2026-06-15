@@ -16,6 +16,7 @@ import {
   XStack,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useAdminUsers, useRoles, useUserMutations } from '../../../hooks/useAdmin'
 import { usePopup } from '../../../stores/popup.store'
@@ -25,6 +26,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Users admin screen — people in the tenant and the role assigned to each. */
 export function UsersScreen() {
   const { t } = useTranslation('admin')
+  const canConfigure = useCanConfigure()
   const { data: users = [], isLoading } = useAdminUsers()
   const { data: roles = [] } = useRoles()
   const { create, update } = useUserMutations()
@@ -93,9 +95,11 @@ export function UsersScreen() {
         title={t('users.title')}
         subtitle={t('users.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<AdminUser>
@@ -145,6 +149,7 @@ export function UsersScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -153,6 +158,7 @@ export function UsersScreen() {
             >
               {editingId ? t('actions.save') : t('actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -185,9 +191,11 @@ export function UsersScreen() {
           </XStack>
         </FormField>
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

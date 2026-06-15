@@ -14,6 +14,7 @@ import {
   StatusPill,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCalendars, useCalendarMutations, usePlants } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
@@ -32,6 +33,7 @@ const stringify = (v: unknown): string => JSON.stringify(v ?? [], null, 2)
 /** Calendars admin screen — shift patterns/holidays/maintenance windows (D17; JSON editors, SKIP-52). */
 export function CalendarsScreen() {
   const { t } = useTranslation('admin')
+  const canConfigure = useCanConfigure()
   const { data: calendars = [], isLoading } = useCalendars()
   const { data: plants = [] } = usePlants()
   const { create, update } = useCalendarMutations()
@@ -105,9 +107,11 @@ export function CalendarsScreen() {
         title={t('calendars.title')}
         subtitle={t('calendars.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<CalendarDto>
@@ -148,6 +152,7 @@ export function CalendarsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -156,6 +161,7 @@ export function CalendarsScreen() {
             >
               {editingId ? t('actions.save') : t('actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -182,9 +188,11 @@ export function CalendarsScreen() {
           onChangeText={setMaint}
         />
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

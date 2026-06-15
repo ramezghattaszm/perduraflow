@@ -18,7 +18,9 @@
     "board": "Board",
     "section": "Administration",
     "sections": {
+      "operations": "Operations",
       "administration": "Administration",
+      "configuration": "Configuration",
       "masterData": "Master data",
       "scheduling": "Scheduling",
       "access": "Access"
@@ -31,6 +33,9 @@
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
     "search": "Search…",
+    "settings": "Settings",
+    "administration": "Administration",
+    "settingsSubtitle": "Configuration, master data and access.",
     "notifications": "Notifications",
     "allCaughtUp": "You’re all caught up",
     "account": {
@@ -50,6 +55,15 @@
   },
   "common": { "name": "Name", "status": "Status", "active": "Active", "inactive": "Inactive", "none": "None", "deactivateConfirm": "This will be hidden from new scheduling but kept for history. You can reactivate it later." },
   "priority": { "label": "Priority", "inherit": "Inherit from customer", "standard": "Standard", "high": "High", "critical": "Critical" },
+  "preferences": {
+    "title": "Preferences",
+    "subtitle": "Personalize how PerduraFlow looks for you.",
+    "theme": "Theme",
+    "themeHint": "Match your device appearance or pick a fixed theme.",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "Your operations overview will appear here as modules are activated.",

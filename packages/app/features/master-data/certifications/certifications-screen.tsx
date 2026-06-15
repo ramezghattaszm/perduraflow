@@ -5,6 +5,7 @@ import type { CertificationDto } from '@perduraflow/contracts'
 import { AppButton, AppInput, DataTable, Popup, PageHeader, StatusPill } from '@perduraflow/ui'
 import { Plus } from '@tamagui/lucide-icons'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCertifications, useCertificationMutations } from '../../../hooks/useMasterData'
 import { usePopup } from '../../../stores/popup.store'
@@ -13,6 +14,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Certifications admin screen — the skill/certification taxonomy (MD15). */
 export function CertificationsScreen() {
   const { t } = useTranslation(['masterData', 'admin'])
+  const canConfigure = useCanConfigure()
   const { data: certs = [], isLoading } = useCertifications()
   const { create, update } = useCertificationMutations()
   const { show } = usePopup()
@@ -70,9 +72,11 @@ export function CertificationsScreen() {
         title={t('certifications.title')}
         subtitle={t('certifications.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('admin:actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<CertificationDto>
@@ -106,6 +110,7 @@ export function CertificationsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('admin:actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -114,6 +119,7 @@ export function CertificationsScreen() {
             >
               {editingId ? t('admin:actions.save') : t('admin:actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -125,9 +131,11 @@ export function CertificationsScreen() {
           onChangeText={setDescription}
         />
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('admin:actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

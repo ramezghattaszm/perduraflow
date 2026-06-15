@@ -92,16 +92,21 @@ export function SidebarNav({
   collapsed,
   header,
   footer,
+  fill,
 }: {
   sections: NavSection[]
   activeId?: string
   collapsed?: boolean
   header?: (collapsed: boolean) => ReactNode
   footer?: (collapsed: boolean) => ReactNode
+  /** Fill the parent's height (`flex: 1`). Use inside an off-canvas drawer/overlay
+   *  column, where there's no `100dvh` viewport to stretch against on native. */
+  fill?: boolean
 }) {
   return (
     <YStack
       width={collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH}
+      flex={fill ? 1 : undefined}
       backgroundColor="$navBar"
       borderRightWidth={1}
       borderRightColor="$borderColor"

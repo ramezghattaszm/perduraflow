@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useColorScheme } from 'react-native'
 import { useFonts } from 'expo-font'
 import { SplashScreen, Stack } from 'expo-router'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { Provider } from '@perduraflow/app/provider'
 import { queryClient } from '@perduraflow/app/lib/query-client'
@@ -37,10 +38,12 @@ export default function RootLayout() {
   if (!interLoaded && !interError) return null
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <Provider defaultTheme={theme}>
-        <Stack screenOptions={{ headerShown: false }} />
-      </Provider>
-    </QueryClientProvider>
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>
+        <Provider defaultTheme={theme}>
+          <Stack screenOptions={{ headerShown: false }} />
+        </Provider>
+      </QueryClientProvider>
+    </SafeAreaProvider>
   )
 }

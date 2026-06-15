@@ -38,6 +38,12 @@ export const useIsAuthenticated = () => useAuthStore((s) => s.isAuthenticated)
 export const useIsHydrated = () => useAuthStore((s) => s.hydrated)
 /** The current user profile, or null when signed out. */
 export const useCurrentUser = () => useAuthStore((s) => s.user)
+/**
+ * Whether the current user may edit configuration / master data (the `canConfigure`
+ * role capability — D33/RBAC). Admin screens are view-readable to everyone (SR1);
+ * gate write affordances (New / Save / Deactivate) on this. Defaults to false.
+ */
+export const useCanConfigure = () => useAuthStore((s) => s.user?.canConfigure ?? false)
 /** Auth actions (setAuth/setUser/setHydrated/logout), shallow-compared. */
 export const useAuthActions = () =>
   useAuthStore(

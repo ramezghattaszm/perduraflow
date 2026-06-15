@@ -15,7 +15,14 @@
       "ops": "Operations",
       "demand": "Demand lines"
     },
-    "tooltip": { "setup": "setup", "run": "run" }
+    "tooltip": {
+      "setup": "Setup",
+      "run": "Run",
+      "resource": "Resource",
+      "demandLine": "Demand line",
+      "scheduled": "Scheduled",
+      "source": "Source"
+    }
   },
   "legend": {
     "run": "Run (sized by duration)",

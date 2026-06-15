@@ -14,6 +14,7 @@ import {
 } from '@perduraflow/ui'
 import { Plus } from '@tamagui/lucide-icons'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useParts, usePartMutations } from '../../../hooks/useMasterData'
 import { usePopup } from '../../../stores/popup.store'
@@ -22,6 +23,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Parts admin screen — part master core + the physical changeover-driver attributes (MD1/MD11). */
 export function PartsScreen() {
   const { t } = useTranslation(['masterData', 'admin'])
+  const canConfigure = useCanConfigure()
   const { data: parts = [], isLoading } = useParts()
   const { create, update } = usePartMutations()
   const { show } = usePopup()
@@ -104,9 +106,11 @@ export function PartsScreen() {
         title={t('parts.title')}
         subtitle={t('parts.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('admin:actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<PartDto>
@@ -147,6 +151,7 @@ export function PartsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('admin:actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -155,6 +160,7 @@ export function PartsScreen() {
             >
               {editingId ? t('admin:actions.save') : t('admin:actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -176,9 +182,11 @@ export function PartsScreen() {
         <AppInput label={t('parts.fields.gauge')} value={gauge} onChangeText={setGauge} />
         <AppInput label={t('parts.fields.colour')} value={colour} onChangeText={setColour} />
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('admin:actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

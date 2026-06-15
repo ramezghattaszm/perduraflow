@@ -16,6 +16,7 @@ import {
 } from '@perduraflow/ui'
 import { Plus } from '@tamagui/lucide-icons'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useParts, useRoutings, useRoutingMutations } from '../../../hooks/useMasterData'
 import { AdminShell } from '../../shell/admin-shell'
@@ -23,6 +24,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Routings list — create the header here, then edit header + operations on routings/[id] (FS5/FS8). */
 export function RoutingsScreen() {
   const { t } = useTranslation(['masterData', 'admin'])
+  const canConfigure = useCanConfigure()
   const router = useRouter()
   const { data: routings = [], isLoading } = useRoutings()
   const { data: parts = [] } = useParts()
@@ -48,7 +50,7 @@ export function RoutingsScreen() {
       {
         onSuccess: (r) => {
           setOpen(false)
-          router.push(`/master-data/routings/${r.id}`)
+          router.push(`/admin/master-data/routings/${r.id}`)
         },
       }
     )
@@ -60,15 +62,17 @@ export function RoutingsScreen() {
         title={t('routings.title')}
         subtitle={t('routings.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('admin:actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<RoutingDto>
         isLoading={isLoading}
         rows={routings}
-        onRowPress={(r) => router.push(`/master-data/routings/${r.id}`)}
+        onRowPress={(r) => router.push(`/admin/master-data/routings/${r.id}`)}
         emptyTitle={t('routings.title')}
         columns={[
           { key: 'name', label: t('routings.fields.name'), flex: 2, sortable: true },
@@ -105,9 +109,11 @@ export function RoutingsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('admin:actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton variant="primary" size="$3" loading={create.isPending} onPress={submit}>
               {t('admin:actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >

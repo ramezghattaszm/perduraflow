@@ -138,3 +138,101 @@ Only one of {account menu, notification popover} open at a time; outside-click c
 ---
 
 *Build this shell first in Phase 1, then land the Master Data screens (Parts, Resources, Resource Groups, Routings) into it already styled.*
+
+---
+
+# Revision 2 — operational / admin split + native (IMPLEMENTED — code gates green; device verification with user)
+
+> Source: `docs/SHELL-REVISION-NOTE.md`. **No API/schema/contract/data change** — screens already
+> exist and are responsive; this is a navigation/IA restructure + making the shell render natively.
+> Revises §6 (SidebarNav) and §5/§7 (TopBar / responsive) above; the Deep Navy tokens, OrgAvatar,
+> DataTable scroll, etc. are unchanged.
+
+## R2.1 Information architecture (constant across all sizes)
+
+Split by **frequency/role**, not by module:
+
+- **Operational** (primary nav, used every shift): **Dashboard**, **Scheduling → Board** (future
+  scheduling/performance/allocation screens join the Scheduling group). Short and stable.
+- **Admin / configuration** (occasional, behind a **gear**): its own grouped navigation —
+  - **Configuration:** Plants, Plant groups, Customers, Programs, Calendars
+  - **Master Data:** Parts, Resources, Resource groups, Routings, Certifications, Operators, Qualifications
+  - **Access:** Roles, Users
+- The split is **constant**; only its *rendering* adapts by breakpoint (R2.2).
+- **RBAC:** the admin entry is gated (see SR1). **Master Data stays view-readable** to operational
+  roles ("glance at a routing" without a role change); write affordances are config-gated.
+
+Two nav configs replace today's single flat `ADMIN_NAV`:
+- `OPERATIONAL_NAV` — `[Dashboard]`, `[Scheduling: Board]`.
+- `ADMIN_NAV` — `[Configuration: …]`, `[Master Data: …]`, `[Access: …]`.
+
+`AppShell` stays **one component** with the **operational sidebar always primary**
+(`OPERATIONAL_NAV`); no platform fork, no separate admin shell. The **admin nav is a separate overlay**
+(SR3): a slide-over panel on desktop/iPad (toggled by the TopBar gear) and a settings drill-down stack
+on phone (SR4). Admin screens render in the normal content area; on desktop the operational sidebar
+stays visible, so returning to operations is one click (no dedicated "back to app" affordance needed).
+
+## R2.2 Rendering per breakpoint (one implementation, breakpoint-driven)
+
+**Desktop / iPad (`≥ md`):**
+- Operational left sidebar = primary nav, **always visible**.
+- **Gear in the TopBar right cluster** (next to bell + avatar) → opens an **overlay slide-over panel**
+  with the grouped `ADMIN_NAV` (Configuration / Master Data / Access). Selecting an item navigates to
+  that admin screen (rendered in the content area) and closes the panel; the operational sidebar stays
+  put, so one click returns to operations (SR3 — overlay panel, not a sidebar-swap area).
+
+**iPhone / small (`max-md`):**
+- TopBar carries **essentials only**: hamburger (left), compact title, avatar (right). **Search
+  collapses to an icon; the gear is NOT in the TopBar.**
+- **Gear lives in the nav drawer** — the hamburger drawer (operational nav) gets a **"Settings /
+  Administration"** entry at its foot (RBAC-gated).
+- The admin area renders as a **full-screen settings drill-down stack** (not a second sidebar):
+  Settings → a grouped list (Configuration / Master Data / Access as rows) → a row pushes its screen →
+  a back chevron walks up the stack and back to operations. Same IA as desktop, native chrome.
+- **TopBar is size-tiered** — relocate in this order as width shrinks: **gear → search** go first;
+  **menu + avatar** are last to go.
+
+## R2.3 Route map (unified Solito paths; same path web + native)
+
+> **Namespaced `/admin/<group>/*`** (SR2). All config/master-data/access screens relocate under their
+> group — including Configuration (was `/admin/*`) and Access (was `/admin/*`), plus Master Data (was
+> `/master-data/*`). Screens are unchanged — route/nav move only. Old paths can 301/redirect if needed.
+
+| Area | Screen | Path (web `apps/next` + native `apps/expo`) | Moved from |
+|---|---|---|---|
+| Operational | Dashboard | `/` | (same) |
+| Operational | Board | `/scheduling/board` | (same) |
+| Admin landing | Settings/Admin home | `/admin` (phone: grouped list; desktop: gear opens the overlay panel) | (new) |
+| Configuration | Plants … Calendars | `/admin/config/plants`, `/admin/config/plant-groups`, `/admin/config/customers`, `/admin/config/programs`, `/admin/config/calendars` | `/admin/*` |
+| Master Data | Parts … Qualifications | `/admin/master-data/parts`, `/admin/master-data/resources`, `/admin/master-data/resource-groups`, `/admin/master-data/routings`, `/admin/master-data/routings/[id]`, `/admin/master-data/certifications`, `/admin/master-data/operators`, `/admin/master-data/qualifications` | `/master-data/*` |
+| Access | Roles, Users | `/admin/access/roles`, `/admin/access/users` | `/admin/*` |
+
+- **Web (`apps/next`):** operational screens under `(main)/`; admin screens under
+  `(main)/admin/<group>/`. No separate admin layout — admin screens render in the normal `AppShell`
+  (operational sidebar visible); the grouped admin nav is the gear-toggled overlay panel.
+- **Native (`apps/expo`):** mirror under `(app)/` and `(app)/admin/<group>/` (same Solito paths).
+  `(app)/admin` is the grouped settings list; `(app)/admin/<group>/<screen>` are stack-pushed full
+  screens (SR4). **Every operational + admin screen gets an Expo route** (today only Board is wired).
+
+## R2.4 Native enablement + safe-area (the difference between native and webview-in-a-frame)
+
+- **`AppShell` renders on Expo**, not just web: the responsive sidebar↔drawer behavior works natively.
+  Replace web-only chrome with cross-platform equivalents — root height via `flex:1` (native) /
+  `100dvh` (web) behind a single style, and the small-screen drawer as a Tamagui-primitive overlay
+  (absolute full-screen scrim + panel) rather than `position:fixed`. Breakpoint, not platform, drives
+  the sidebar-vs-drawer choice; only the lowest-level "fill the screen / overlay" primitive differs.
+- **Safe-area insets** (`useSafeAreaInsets`, `react-native-safe-area-context` — already a `packages/ui`
+  dep): the **TopBar sits below the status bar/notch** (`paddingTop += insets.top`); the **drawer,
+  settings stack, and any sheet clear the home indicator** (`paddingBottom += insets.bottom`). Web
+  insets are 0, so this is inert on web. Make it an explicit shell concern.
+- `react-native-svg` / Solito patterns stay; **no new nav dependency** proposed (Expo Router stack +
+  Tamagui overlays cover the drill-down + drawer — SR4).
+
+## R2.5 Open decisions (genuine choices — see the sign-off questions)
+
+| ID | Question | Decision |
+|---|---|---|
+| SR1 | **Master Data RBAC for operational roles.** | **CONFIRMED:** admin entry (gear / Settings) **visible to all** authed users; the admin area + Master Data are fully **viewable**; **write affordances** (New/Edit/Deactivate, the gear→edit paths) are **hidden unless `canConfigure`**. ("Glance at a routing" works; editing stays config-gated.) |
+| SR2 | **Admin route structure + Master Data relocation.** | **CONFIRMED: namespaced `/admin/<group>/*`** — `/admin/config/*`, `/admin/master-data/*`, `/admin/access/*`. All config/master-data/access screens relocate (incl. Plants/Roles); Master Data moves out of `/master-data/*`. |
+| SR3 | **Desktop/iPad admin chrome.** | **CONFIRMED: overlay panel** — the gear opens a slide-over admin-nav panel over the current operational screen; the operational sidebar stays primary (no sidebar-swap area, no back-to-app row). |
+| SR4 | **Native admin pattern + nav dep.** | **CONFIRMED: Expo Router stack drill-down** (Settings list → screen → back chevron) + Tamagui overlay for the operational drawer; **no new nav dependency.** |

@@ -73,7 +73,9 @@ export function DataTable<T extends { id: string }>({
     const col = columns.find((c) => c.key === sort.key && c.sortable)
     if (!col) return rows
     const valueOf = (row: T): SortPrimitive =>
-      col.sortValue ? col.sortValue(row) : (row as Record<string, unknown>)[col.key] as SortPrimitive
+      col.sortValue
+        ? col.sortValue(row)
+        : ((row as Record<string, unknown>)[col.key] as SortPrimitive)
     const sign = sort.dir === 'asc' ? 1 : -1
     return [...rows].sort((a, b) => sign * compareValues(valueOf(a), valueOf(b)))
   }, [rows, sort, columns])
@@ -100,63 +102,87 @@ export function DataTable<T extends { id: string }>({
   return (
     // Horizontal-scroll wrapper: at `small` the table keeps all columns at
     // `minRowWidth` and scrolls (no scrollbar) instead of dropping columns (UI shell spec §7).
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} width="100%" contentContainerStyle={{ minWidth: '100%' }}>
-      <YStack flex={1} minWidth={minRowWidth} borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden">
-        <XStack backgroundColor="$background" paddingVertical="$3" paddingHorizontal="$4" gap="$3">
-        {columns.map((c) => {
-          const active = sort?.key === c.key
-          const indicator = active ? (sort?.dir === 'asc' ? ' ↑' : ' ↓') : ''
-          return (
-            <XStack
-              key={c.key}
-              width={c.width}
-              flex={c.width ? undefined : (c.flex ?? 1)}
-              alignItems="center"
-              cursor={c.sortable ? 'pointer' : undefined}
-              hoverStyle={c.sortable ? { opacity: 0.7 } : undefined}
-              onPress={c.sortable ? () => toggleSort(c.key) : undefined}
-            >
-              <P size={6} weight="b" color={active ? '$primary' : '$textSecondary'}>
-                {c.label.toUpperCase()}
-                {indicator}
-              </P>
-            </XStack>
-          )
-        })}
-      </XStack>
-      {sortedRows.map((row) => (
-        <XStack
-          key={row.id}
-          paddingVertical="$3"
-          paddingHorizontal="$4"
-          gap="$3"
-          alignItems="center"
-          borderTopWidth={1}
-          borderTopColor="$borderColor"
-          backgroundColor="$surface"
-          cursor={onRowPress ? 'pointer' : undefined}
-          hoverStyle={onRowPress ? { backgroundColor: '$background' } : undefined}
-          onPress={onRowPress ? () => onRowPress(row) : undefined}
-        >
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      width="100%"
+      contentContainerStyle={{ minWidth: '100%' }}
+    >
+      <YStack
+        flex={1}
+        minWidth={minRowWidth}
+        borderWidth={1}
+        borderColor="$borderColor"
+        borderRadius="$4"
+        overflow="hidden"
+      >
+        <XStack backgroundColor="$surface" paddingVertical="$3" paddingHorizontal="$4" gap="$3">
           {columns.map((c) => {
-            const content: ReactNode = c.render
-              ? c.render(row)
-              : String((row as Record<string, unknown>)[c.key] ?? '—')
+            const active = sort?.key === c.key
+            const indicator = active ? (sort?.dir === 'asc' ? ' ↑' : ' ↓') : ''
             return (
-              <YStack key={c.key} width={c.width} flex={c.width ? undefined : (c.flex ?? 1)}>
-                {/* Wrap raw text so a string-returning `render` never lands directly in a View. */}
-                {typeof content === 'string' || typeof content === 'number' ? (
-                  <P size={4} color="$textPrimary">
-                    {content}
-                  </P>
-                ) : (
-                  content
-                )}
-              </YStack>
+              <XStack
+                key={c.key}
+                width={c.width}
+                flexGrow={c.width ? 0 : (c.flex ?? 1)}
+                flexShrink={c.width ? 0 : 1}
+                flexBasis={c.width ? undefined : 0}
+                minWidth={c.width ?? 0}
+                overflow="hidden"
+                alignItems="center"
+                cursor={c.sortable ? 'pointer' : undefined}
+                hoverStyle={c.sortable ? { opacity: 0.7 } : undefined}
+                onPress={c.sortable ? () => toggleSort(c.key) : undefined}
+              >
+                <P size={6} weight="b" color={active ? '$primary' : '$textSecondary'}>
+                  {c.label.toUpperCase()}
+                  {indicator}
+                </P>
+              </XStack>
             )
           })}
         </XStack>
-      ))}
+        {sortedRows.map((row) => (
+          <XStack
+            key={row.id}
+            paddingVertical="$3"
+            paddingHorizontal="$4"
+            gap="$3"
+            alignItems="center"
+            borderTopWidth={1}
+            borderTopColor="$borderColor"
+            backgroundColor="$background"
+            cursor={onRowPress ? 'pointer' : undefined}
+            hoverStyle={onRowPress ? { backgroundColor: '$surface' } : undefined}
+            onPress={onRowPress ? () => onRowPress(row) : undefined}
+          >
+            {columns.map((c) => {
+              const content: ReactNode = c.render
+                ? c.render(row)
+                : String((row as Record<string, unknown>)[c.key] ?? '—')
+              return (
+                <YStack
+                  key={c.key}
+                  width={c.width}
+                  flexGrow={c.width ? 0 : (c.flex ?? 1)}
+                  flexShrink={c.width ? 0 : 1}
+                  flexBasis={c.width ? undefined : 0}
+                  minWidth={c.width ?? 0}
+                  overflow="hidden"
+                >
+                  {/* Wrap raw text so a string-returning `render` never lands directly in a View. */}
+                  {typeof content === 'string' || typeof content === 'number' ? (
+                    <P size={4} color="$textPrimary">
+                      {content}
+                    </P>
+                  ) : (
+                    content
+                  )}
+                </YStack>
+              )
+            })}
+          </XStack>
+        ))}
       </YStack>
     </ScrollView>
   )

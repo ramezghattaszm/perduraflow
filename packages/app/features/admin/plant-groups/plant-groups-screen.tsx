@@ -16,6 +16,7 @@ import {
   XStack,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { usePlantGroups, usePlantGroupMutations, usePlants } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
@@ -27,6 +28,7 @@ const GROUP_TYPES: PlantGroupType[] = ['cluster', 'division', 'region', 'custom'
 /** Plant groups admin screen — clusters/divisions/regions with member plants (D49). */
 export function PlantGroupsScreen() {
   const { t } = useTranslation('admin')
+  const canConfigure = useCanConfigure()
   const { data: groups = [], isLoading } = usePlantGroups()
   const { data: plants = [] } = usePlants()
   const { create, update } = usePlantGroupMutations()
@@ -90,9 +92,11 @@ export function PlantGroupsScreen() {
         title={t('plantGroups.title')}
         subtitle={t('plantGroups.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<PlantGroupDto>
@@ -131,6 +135,7 @@ export function PlantGroupsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -139,6 +144,7 @@ export function PlantGroupsScreen() {
             >
               {editingId ? t('actions.save') : t('actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -162,9 +168,11 @@ export function PlantGroupsScreen() {
           <SelectField options={plantOptions} multiple value={members} onChange={setMembers} />
         </FormField>
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

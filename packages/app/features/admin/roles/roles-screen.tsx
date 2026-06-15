@@ -16,6 +16,7 @@ import {
   XStack,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useApprovalTiers, useRoles, useRoleMutations } from '../../../hooks/useAdmin'
 import { usePlantGroups, usePlants } from '../../../hooks/useOrg'
@@ -28,6 +29,7 @@ const DATA_SCOPES: DataScope[] = ['plant', 'plant_group', 'multi_plant', 'tenant
 /** Roles admin screen — D33 structure: data scope, scoped org refs (validated via org.read, O4), approval tier, configure. */
 export function RolesScreen() {
   const { t } = useTranslation('admin')
+  const canEdit = useCanConfigure()
   const { data: roles = [], isLoading } = useRoles()
   const { data: plants = [] } = usePlants()
   const { data: groups = [] } = usePlantGroups()
@@ -109,9 +111,11 @@ export function RolesScreen() {
         title={t('roles.title')}
         subtitle={t('roles.subtitle')}
         actions={
+          canEdit ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<Role>
@@ -164,6 +168,7 @@ export function RolesScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('actions.cancel')}
             </AppButton>
+            {canEdit ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -172,6 +177,7 @@ export function RolesScreen() {
             >
               {editingId ? t('actions.save') : t('actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -211,9 +217,11 @@ export function RolesScreen() {
           </XStack>
         </FormField>
         {editingId ? (
+          canEdit ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

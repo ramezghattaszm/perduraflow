@@ -17,6 +17,7 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useParts, useResourceGroups, useRouting, useRoutingMutations } from '../../../hooks/useMasterData'
 import { AdminShell } from '../../shell/admin-shell'
@@ -28,6 +29,7 @@ import { AdminShell } from '../../shell/admin-shell'
  */
 export function RoutingEditorScreen() {
   const { t } = useTranslation(['masterData', 'admin'])
+  const canConfigure = useCanConfigure()
   const router = useRouter()
   const params = useParams() as { id?: string }
   const id = params?.id
@@ -84,7 +86,7 @@ export function RoutingEditorScreen() {
 
   return (
     <AdminShell activeId="routings" maxWidth="large">
-      <TextLink size={4} weight="m" onPress={() => router.push('/master-data/routings')}>
+      <TextLink size={4} weight="m" onPress={() => router.push('/admin/master-data/routings')}>
         ← {t('routings.back')}
       </TextLink>
       {isLoading || !routing ? (
@@ -97,9 +99,11 @@ export function RoutingEditorScreen() {
             title={routing.name}
             subtitle={`${t('routings.fields.partId')}: ${partNo}`}
             actions={
-              <AppButton variant="primary" size="$3" loading={update.isPending} onPress={save}>
-                {t('admin:actions.save')}
-              </AppButton>
+              canConfigure ? (
+                <AppButton variant="primary" size="$3" loading={update.isPending} onPress={save}>
+                  {t('admin:actions.save')}
+                </AppButton>
+              ) : undefined
             }
           />
           {formError ? (

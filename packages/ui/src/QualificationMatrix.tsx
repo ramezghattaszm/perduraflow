@@ -19,6 +19,8 @@ export interface QualificationMatrixProps {
   rowHeader: string
   /** Shown when there are no rows or no columns. */
   emptyText: string
+  /** When true, cells render the current state but cannot be toggled (RBAC view-only). */
+  readOnly?: boolean
 }
 
 const ROW_LABEL_WIDTH = 200
@@ -41,6 +43,7 @@ export function QualificationMatrix({
   onToggle,
   rowHeader,
   emptyText,
+  readOnly = false,
 }: QualificationMatrixProps) {
   if (rows.length === 0 || cols.length === 0) {
     return <EmptyState title={emptyText} />
@@ -76,18 +79,18 @@ export function QualificationMatrix({
               return (
                 <XStack key={c.id} width={CELL_WIDTH} paddingVertical="$2" justifyContent="center" alignItems="center">
                   <XStack
-                    onPress={() => onToggle(r.id, c.id, !on)}
+                    onPress={readOnly ? undefined : () => onToggle(r.id, c.id, !on)}
                     width={28}
                     height={28}
                     borderRadius="$3"
                     borderWidth={1}
-                    cursor="pointer"
+                    cursor={readOnly ? 'default' : 'pointer'}
                     alignItems="center"
                     justifyContent="center"
                     backgroundColor={on ? '$primary' : 'transparent'}
                     borderColor={on ? '$primary' : '$borderColor'}
-                    hoverStyle={{ borderColor: '$primary' }}
-                    pressStyle={{ opacity: 0.7 }}
+                    hoverStyle={readOnly ? undefined : { borderColor: '$primary' }}
+                    pressStyle={readOnly ? undefined : { opacity: 0.7 }}
                     role="checkbox"
                     aria-checked={on}
                     aria-label={`${r.label} — ${c.label}`}

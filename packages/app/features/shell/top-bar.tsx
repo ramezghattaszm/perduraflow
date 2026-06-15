@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'solito/navigation'
-import { ChevronRight, Menu, PanelLeft, Search } from '@tamagui/lucide-icons'
+import { ChevronRight, Menu, PanelLeft, Search, Settings } from '@tamagui/lucide-icons'
 import {
   IconButton,
   NotificationBell,
@@ -26,6 +26,10 @@ export interface TopBarProps {
   onToggleCollapse: () => void
   /** Small screens: open the off-canvas nav drawer. */
   onOpenDrawer: () => void
+  /** Desktop/iPad: open the admin/config overlay panel (the gear). Omitted on small. */
+  onOpenAdmin?: () => void
+  /** Safe-area top inset (status bar / notch) — native; 0 on web. */
+  insetTop?: number
   /** Utility breadcrumb segments, e.g. ["Administration", "Plants"]. */
   breadcrumb?: string[]
 }
@@ -37,7 +41,7 @@ export interface TopBarProps {
  * a time; clicking the scrim closes both. Never duplicates the page title — that
  * stays in the body PageHeader.
  */
-export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, breadcrumb }: TopBarProps) {
+export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onOpenAdmin, insetTop = 0, breadcrumb }: TopBarProps) {
   const { t } = useTranslation('admin')
   const router = useRouter()
   const user = useCurrentUser()
@@ -49,9 +53,15 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, bre
     logout.mutate(undefined, { onSuccess: () => router.replace('/login') })
   }
 
+  const go = (path: string) => {
+    setOpen('none')
+    router.push(path)
+  }
+
   return (
     <XStack
-      height={58}
+      height={58 + insetTop}
+      paddingTop={insetTop}
       alignItems="center"
       gap="$3"
       paddingHorizontal="$3"
@@ -119,6 +129,10 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, bre
         </XStack>
       ) : null}
 
+      {!isSmall && onOpenAdmin ? (
+        <IconButton icon={Settings} label={t('shell.administration')} onPress={onOpenAdmin} />
+      ) : null}
+
       <NotificationBell
         open={open === 'bell'}
         onOpenChange={(o) => setOpen(o ? 'bell' : 'none')}
@@ -174,8 +188,8 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, bre
                   </P>
                 </YStack>
               </XStack>
-              <MenuRow label={t('shell.account.profile')} onPress={() => setOpen('none')} />
-              <MenuRow label={t('shell.account.preferences')} onPress={() => setOpen('none')} />
+              <MenuRow label={t('shell.account.profile')} onPress={() => go('/profile')} />
+              <MenuRow label={t('shell.account.preferences')} onPress={() => go('/settings')} />
               <Separator borderColor="$borderColor" />
               <MenuRow label={t('shell.account.signOut')} danger onPress={signOut} />
             </YStack>

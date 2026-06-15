@@ -15,6 +15,7 @@ import {
 } from '@perduraflow/ui'
 import { Plus } from '@tamagui/lucide-icons'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useOperators, useOperatorMutations } from '../../../hooks/useMasterData'
 import { usePlants } from '../../../hooks/useOrg'
@@ -24,6 +25,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Operators admin screen — externally-sourced operator stubs (MD15); quals on the matrix. */
 export function OperatorsScreen() {
   const { t } = useTranslation(['masterData', 'admin'])
+  const canConfigure = useCanConfigure()
   const { data: operators = [], isLoading } = useOperators()
   const { data: plants = [] } = usePlants()
   const { create, update } = useOperatorMutations()
@@ -89,9 +91,11 @@ export function OperatorsScreen() {
         title={t('operators.title')}
         subtitle={t('operators.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('admin:actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<OperatorDto>
@@ -134,6 +138,7 @@ export function OperatorsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('admin:actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -142,6 +147,7 @@ export function OperatorsScreen() {
             >
               {editingId ? t('admin:actions.save') : t('admin:actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -156,9 +162,11 @@ export function OperatorsScreen() {
           keyboardType="numeric"
         />
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('admin:actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

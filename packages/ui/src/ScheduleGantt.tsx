@@ -1,8 +1,28 @@
-import { useState } from 'react'
+import { type ComponentProps, type ReactNode, useRef, useState } from 'react'
 import { Circle, ClipPath, Defs, G, Line, Rect, Svg, Text as SvgText } from 'react-native-svg'
-import { ScrollView, useTheme, XStack, YStack } from 'tamagui'
+import { Portal, ScrollView, useTheme, XStack, YStack } from 'tamagui'
 import { EmptyState } from './EmptyState'
 import { P } from './typography'
+
+// Tamagui forwards hover events at runtime, but the workspace's stripped View
+// types omit them; this localized cast adds them (mirrors Tooltip's HoverStack).
+type HoverProps = ComponentProps<typeof YStack> & { onHoverIn?: () => void; onHoverOut?: () => void }
+const HoverStack = YStack as unknown as (props: HoverProps) => ReactNode
+
+interface Measurable {
+  measureInWindow?: (cb: (x: number, y: number, width: number, height: number) => void) => void
+}
+interface BarAnchor {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+interface ActivePopover {
+  bar: GanttBar
+  anchor: BarAnchor
+  pinned: boolean
+}
 
 /** A resource row (a line/machine). `subLabel` is an optional second line (e.g. type). */
 export interface GanttResource {
@@ -21,6 +41,8 @@ export interface GanttBar {
   id: string
   resourceId: string
   label: string
+  /** Business demand line (shown in the press popover). */
+  demandLineId?: string
   /** Source tag (e.g. "std") — shown in the tooltip/legend, never inside the bar. */
   sourceTag: string
   startMs: number
@@ -37,8 +59,12 @@ export interface ScheduleGanttProps {
   bars: GanttBar[]
   horizonStartMs: number
   horizonEndMs: number
-  /** Pressed bar → caller shows full detail (the tooltip). */
-  onBarPress?: (bar: GanttBar) => void
+  /**
+   * Detail content for a bar's popover. When provided, hovering a bar previews it
+   * and clicking pins it open (with an outside-click scrim). The renderer keeps
+   * the gantt presentational — the caller supplies labels/i18n.
+   */
+  barDetail?: (bar: GanttBar) => ReactNode
   emptyText?: string
 }
 
@@ -47,10 +73,12 @@ const AXIS_H = 38
 const LANE_H = 62
 const BAR_TOP = 12
 const BAR_H = 38
-const PX_PER_HOUR = 86
+const PX_PER_HOUR = 90
 const MIN_TRACK = 480
 const LABEL_MIN_W = 74
 const MS_PER_HOUR = 3_600_000
+/** Minimum hours shown so the track pans forward/back even when the schedule is short. */
+const DISPLAY_MIN_HOURS = 14
 
 /**
  * ScheduleGantt — read-first Gantt (scheduling spec / GANTT-FIX-NOTE). Bars are
@@ -66,12 +94,17 @@ const MS_PER_HOUR = 3_600_000
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, onBarPress, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
+  const [active, setActive] = useState<ActivePopover | null>(null)
   if (resources.length === 0) {
     return <EmptyState title={emptyText ?? 'Nothing to schedule'} />
   }
+  const showHover = (bar: GanttBar, anchor: BarAnchor) => setActive((cur) => (cur?.pinned ? cur : { bar, anchor, pinned: false }))
+  const hideHover = () => setActive((cur) => (cur && !cur.pinned ? null : cur))
+  const togglePin = (bar: GanttBar, anchor: BarAnchor) =>
+    setActive((cur) => (cur?.pinned && cur.bar.id === bar.id ? null : { bar, anchor, pinned: true }))
   const c = {
     bar: theme.primary?.val ?? '#3f6fd6',
     barTop: theme.primaryLight?.val ?? '#5b8def',
@@ -84,18 +117,25 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, o
     laneTint: theme.hoverFill?.val ?? 'rgba(255,255,255,0.03)',
   }
 
-  const spanMs = Math.max(horizonEndMs - horizonStartMs, MS_PER_HOUR)
-  // Track fills the viewport when the schedule is short, scrolls when it's long.
+  // Display window: from the horizon start (floored to the hour) to the later of
+  // the horizon end and a minimum span, so the track always has room to pan
+  // forward/back; gridlines fill it, and it scrolls (hidden bar) when wider than
+  // the viewport.
+  const displayStart = Math.floor(horizonStartMs / MS_PER_HOUR) * MS_PER_HOUR
+  const displayEnd = Math.max(
+    Math.ceil(horizonEndMs / MS_PER_HOUR) * MS_PER_HOUR,
+    displayStart + DISPLAY_MIN_HOURS * MS_PER_HOUR,
+  )
+  const spanMs = Math.max(displayEnd - displayStart, MS_PER_HOUR)
   const trackW = Math.max((spanMs / MS_PER_HOUR) * PX_PER_HOUR, trackArea, MIN_TRACK)
   const laneAreaH = resources.length * LANE_H
   const svgH = AXIS_H + laneAreaH
   const rowIndex = new Map(resources.map((r, i) => [r.id, i]))
-  const xFor = (ms: number) => ((ms - horizonStartMs) / MS_PER_HOUR) * PX_PER_HOUR
+  const xFor = (ms: number) => ((ms - displayStart) / MS_PER_HOUR) * PX_PER_HOUR
 
   // hour ticks across the FULL track (so gridlines run all the way across)
-  const firstTick = Math.floor(horizonStartMs / MS_PER_HOUR) * MS_PER_HOUR
   const ticks: number[] = []
-  for (let m = firstTick; xFor(m) <= trackW; m += MS_PER_HOUR) ticks.push(m)
+  for (let m = displayStart; xFor(m) <= trackW; m += MS_PER_HOUR) ticks.push(m)
   const hhmm = (ms: number) => `${String(new Date(ms).getUTCHours()).padStart(2, '0')}:00`
 
   return (
@@ -121,8 +161,8 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, o
         ))}
       </YStack>
 
-      {/* scrollable time track */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} onLayout={(e) => setTrackArea(e.nativeEvent.layout.width)}>
+      {/* scrollable time track (flex-bounded so it scrolls internally; hidden scrollbar) */}
+      <ScrollView flex={1} horizontal showsHorizontalScrollIndicator={false} onLayout={(e) => setTrackArea(e.nativeEvent.layout.width)}>
         <YStack width={trackW} height={svgH} position="relative">
           <Svg width={trackW} height={svgH}>
             {/* axis header band (matches the RESOURCE corner) */}
@@ -178,19 +218,83 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, o
               )
             })}
           </Svg>
-          {/* Tamagui press hit-targets over each bar (reliable web+native; SVG stays visual-only) */}
-          {onBarPress
+          {/* Hover/press hit-targets over each bar (Tamagui — reliable web+native) */}
+          {barDetail
             ? bars.map((b) => {
                 const ri = rowIndex.get(b.resourceId)
                 if (ri === undefined) return null
                 const x = xFor(b.startMs)
                 const w = Math.max(xFor(b.endMs) - x, 6)
                 const y = AXIS_H + ri * LANE_H + BAR_TOP
-                return <YStack key={`hit${b.id}`} position="absolute" left={x} top={y} width={w} height={BAR_H} cursor="pointer" onPress={() => onBarPress(b)} />
+                return (
+                  <BarHit key={`hit${b.id}`} bar={b} x={x} y={y} width={w} onHover={showHover} onLeave={hideHover} onPress={togglePin} />
+                )
               })
             : null}
         </YStack>
       </ScrollView>
+
+      {/* Popover: hover preview / click-pinned detail, anchored under the bar (Portal escapes clipping) */}
+      {active && barDetail ? (
+        <Portal>
+          {active.pinned ? (
+            <YStack position="fixed" top={0} left={0} right={0} bottom={0} zIndex={260000} pointerEvents="auto" onPress={() => setActive(null)} />
+          ) : null}
+          <YStack
+            position="fixed"
+            top={active.anchor.y + active.anchor.height + 6}
+            left={active.anchor.x}
+            maxWidth={300}
+            zIndex={260001}
+            pointerEvents={active.pinned ? 'auto' : 'none'}
+            backgroundColor="$surfaceRaised"
+            borderColor="$borderColor"
+            borderWidth={1}
+            borderRadius="$4"
+            padding="$3"
+            elevation="$4"
+          >
+            {barDetail(active.bar)}
+          </YStack>
+        </Portal>
+      ) : null}
     </XStack>
+  )
+}
+
+/** Per-bar hover/press hit-target that reports its window-anchor for the popover. */
+function BarHit({
+  bar,
+  x,
+  y,
+  width,
+  onHover,
+  onLeave,
+  onPress,
+}: {
+  bar: GanttBar
+  x: number
+  y: number
+  width: number
+  onHover: (bar: GanttBar, anchor: BarAnchor) => void
+  onLeave: () => void
+  onPress: (bar: GanttBar, anchor: BarAnchor) => void
+}) {
+  const ref = useRef<Measurable | null>(null)
+  const measure = (cb: (a: BarAnchor) => void) =>
+    ref.current?.measureInWindow?.((mx, my, mw, mh) => cb({ x: mx, y: my, width: mw, height: mh }))
+  return (
+    <HoverStack
+      ref={ref as never}
+      position="absolute"
+      left={x}
+      top={y}
+      width={width}
+      height={BAR_H}
+      cursor="pointer"
+      onHoverIn={() => measure((a) => onHover(bar, a))}
+      onHoverOut={onLeave}
+      onPress={() => measure((a) => onPress(bar, a))}
+    />
   )
 }

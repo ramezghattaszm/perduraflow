@@ -38,7 +38,6 @@ export function BoardContent() {
   const { data: parts = [] } = useParts()
   const [plantId, setPlantId] = useState<string | null>(null)
   const [versionId, setVersionId] = useState<string | null>(null)
-  const [selected, setSelected] = useState<GanttBar | null>(null)
 
   // default plant = first
   useEffect(() => {
@@ -93,6 +92,7 @@ export function BoardContent() {
   const bars: GanttBar[] = (detail?.operations ?? []).map((o) => ({
     id: o.id,
     resourceId: o.resourceId,
+    demandLineId: o.demandLineId,
     label: partNo.get(o.partId) ?? o.partId.slice(0, 6),
     sourceTag: t(`source.${o.setupSource}`),
     startMs: new Date(o.plannedStart).getTime(),
@@ -107,6 +107,7 @@ export function BoardContent() {
     label: r.name,
     subLabel: t(`masterData:resources.types.${r.resourceType}`),
   }))
+  const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
 
   const actionError = solve.error ?? commit.error
   const errorMsg = actionError ? translateError(getApiErrorCode(actionError)) : undefined
@@ -174,26 +175,47 @@ export function BoardContent() {
           {t('board.empty')}
         </P>
       ) : detail ? (
-        <>
-          <ScheduleGantt
-            resources={ganttResources}
-            bars={bars}
-            horizonStartMs={new Date(detail.version.horizonStart).getTime()}
-            horizonEndMs={new Date(detail.version.horizonEnd).getTime()}
-            onBarPress={setSelected}
-            emptyText={t('board.noResources')}
-          />
-          {selected ? (
-            <P size={5} color="$textSecondary">
-              {selected.label} · {fmtTime(selected.startMs)}–{fmtTime(selected.endMs)} · {t('board.tooltip.setup')}{' '}
-              {Math.round(selected.setupMin)}m / {t('board.tooltip.run')} {Math.round(selected.runMin)}m ·{' '}
-              {selected.sourceTag}
-              {selected.atRisk ? ` · ${t('atRisk')}` : ''}
-            </P>
-          ) : null}
-        </>
+        <ScheduleGantt
+          resources={ganttResources}
+          bars={bars}
+          horizonStartMs={new Date(detail.version.horizonStart).getTime()}
+          horizonEndMs={new Date(detail.version.horizonEnd).getTime()}
+          barDetail={(bar) => (
+            <YStack gap="$2" minWidth={210}>
+              <P size={4} weight="b" color="$textPrimary">
+                {bar.label}
+              </P>
+              <DetailRow label={t('board.tooltip.resource')} value={resourceName.get(bar.resourceId) ?? '—'} />
+              <DetailRow label={t('board.tooltip.demandLine')} value={bar.demandLineId ?? '—'} />
+              <DetailRow label={t('board.tooltip.scheduled')} value={`${fmtTime(bar.startMs)} – ${fmtTime(bar.endMs)}`} />
+              <DetailRow label={t('board.tooltip.setup')} value={`${Math.round(bar.setupMin)} min`} />
+              <DetailRow label={t('board.tooltip.run')} value={`${Math.round(bar.runMin)} min`} />
+              <DetailRow label={t('board.tooltip.source')} value={bar.sourceTag} />
+              {bar.atRisk ? (
+                <P size={5} weight="b" color="$danger">
+                  {t('atRisk')}
+                </P>
+              ) : null}
+            </YStack>
+          )}
+          emptyText={t('board.noResources')}
+        />
       ) : null}
     </>
+  )
+}
+
+/** A label/value row in the bar-detail popover. */
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <XStack justifyContent="space-between" gap="$4">
+      <P size={4} color="$textSecondary">
+        {label}
+      </P>
+      <P size={4} weight="m" color="$textPrimary">
+        {value}
+      </P>
+    </XStack>
   )
 }
 

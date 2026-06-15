@@ -13,6 +13,7 @@ import {
   StatusPill,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { usePlants, usePlantMutations } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
@@ -31,6 +32,7 @@ const EMPTY: PlantForm = { name: '', timezone: '', region: '', location: '', sta
 /** Plants admin screen — CRUD over the tenant's producing sites (5.7). */
 export function PlantsScreen() {
   const { t } = useTranslation('admin')
+  const canConfigure = useCanConfigure()
   const { data: plants = [], isLoading } = usePlants()
   const { create, update } = usePlantMutations()
   const { show } = usePopup()
@@ -94,9 +96,11 @@ export function PlantsScreen() {
         title={t('plants.title')}
         subtitle={t('plants.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<PlantDto>
@@ -131,6 +135,7 @@ export function PlantsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -139,6 +144,7 @@ export function PlantsScreen() {
             >
               {editingId ? t('actions.save') : t('actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -176,9 +182,11 @@ export function PlantsScreen() {
           </FormField>
         ) : null}
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

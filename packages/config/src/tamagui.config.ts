@@ -34,7 +34,7 @@ const palette = {
   inkLight: '#1A1A2E',
   slateLight: '#5B6472',
   lineLight: '#E3E8F0',
-  navBarLight: '#00429E',
+  navBarLight: '#EEF1F6', // close to bgLight (#F7F8FA), subtly recessed — mirrors dark
   // dark neutrals — Deep Navy (very dark desaturated navy; elevation reads lighter)
   bgDark: '#080B14',
   surfaceDark: '#131926',

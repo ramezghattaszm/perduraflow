@@ -1,12 +1,13 @@
 'use client'
 
 import { type ReactNode, useState } from 'react'
+import { Platform } from 'react-native'
 import { useRouter } from 'solito/navigation'
+import { Settings } from '@tamagui/lucide-icons'
 import {
   type NavSection,
   OrgAvatar,
   P,
-  Portal,
   ScrollView,
   SidebarNav,
   useMedia,
@@ -14,57 +15,65 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
+import { useSafeArea } from '../../provider/safe-area/use-safe-area'
 import { useUpdatePreferences } from '../../hooks/useMe'
 import { useCurrentUser } from '../../stores/auth.store'
 import { TopBar } from './top-bar'
-import { ADMIN_NAV, type NavConfigSection } from './nav'
+import { ADMIN_NAV, OPERATIONAL_NAV, type NavConfigSection } from './nav'
 
 type MaxWidth = number | 'small' | 'medium' | 'large' | 'fullscreen'
 const widthProps: Record<'small' | 'medium' | 'large', number> = { small: 800, medium: 1100, large: 1800 }
+// Web fills the viewport with 100dvh; native fills its Stack screen via 100%.
+const FULL_HEIGHT = Platform.OS === 'web' ? '100dvh' : '100%'
 
 export interface AppShellProps {
-  /** Navigation config (sections + items). Admin passes `ADMIN_NAV`. */
-  nav: NavConfigSection[]
   activeId: string
   maxWidth?: MaxWidth
   children: ReactNode
 }
 
 /**
- * AppShell — the app chrome (UI shell spec): a full-height SidebarNav (brand zone,
- * sections, collapse rail, footer), a utility TopBar over the content column, and
- * the scrolling content. Responsive: at `small` the sidebar becomes an off-canvas
- * drawer opened from the TopBar menu button. Sidebar collapse is a per-user
- * preference persisted server-side (never browser storage). Admin is one `nav`
- * configuration; other areas supply their own.
+ * AppShell — the app chrome (frontend-spec-shell Revision 2). One responsive
+ * implementation across web + native: the **operational** sidebar is always
+ * primary; the **admin/config** nav lives behind a gear — a slide-over overlay
+ * panel on desktop/iPad, and the off-canvas drawer's "Settings" entry → the
+ * `/admin` settings stack on phone. Renders natively (Expo) with safe-area insets
+ * (TopBar below the notch, drawers clear the home indicator). Collapse is a
+ * per-user server-side preference. `AdminShell` is the alias every screen uses.
  */
-export function AppShell({ nav, activeId, maxWidth = 'fullscreen', children }: AppShellProps) {
+export function AppShell({ activeId, maxWidth = 'fullscreen', children }: AppShellProps) {
   const router = useRouter()
   const { t } = useTranslation('admin')
   const user = useCurrentUser()
   const updatePreferences = useUpdatePreferences()
   const media = useMedia()
+  const insets = useSafeArea()
   const isSmall = Boolean(media['max-md'])
   const [navOpen, setNavOpen] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
   const collapsed = Boolean(user?.preferences?.sidebarCollapsed)
 
-  // Resolve nav config → SidebarNav sections (labels + navigation side effects).
-  const sections: NavSection[] = nav.map((section) => ({
-    id: section.id,
-    label: t(section.sectionLabelKey),
-    items: section.items.map((it) => ({
-      id: it.id,
-      label: t(it.labelKey),
-      icon: it.icon,
-      onPress: () => {
-        router.push(it.path)
-        setNavOpen(false)
-      },
-    })),
-  }))
+  const build = (nav: NavConfigSection[], onAfter: () => void): NavSection[] =>
+    nav.map((section) => ({
+      id: section.id,
+      label: t(section.sectionLabelKey),
+      items: section.items.map((it) => ({
+        id: it.id,
+        label: t(it.labelKey),
+        icon: it.icon,
+        onPress: () => {
+          router.push(it.path)
+          onAfter()
+        },
+      })),
+    }))
 
-  // Breadcrumb = active section / active item (utility bar only — never the title).
-  const activeSection = nav.find((s) => s.items.some((it) => it.id === activeId))
+  const opSections = build(OPERATIONAL_NAV, () => setNavOpen(false))
+  const adminSections = build(ADMIN_NAV, () => setAdminOpen(false))
+
+  // Breadcrumb = active section / item, searched across both navs (utility bar only).
+  const allNav = [...OPERATIONAL_NAV, ...ADMIN_NAV]
+  const activeSection = allNav.find((s) => s.items.some((it) => it.id === activeId))
   const activeItem = activeSection?.items.find((it) => it.id === activeId)
   const breadcrumb =
     activeSection && activeItem ? [t(activeSection.sectionLabelKey), t(activeItem.labelKey)] : undefined
@@ -74,70 +83,141 @@ export function AppShell({ nav, activeId, maxWidth = 'fullscreen', children }: A
     <BrandZone collapsed={c} name={brandName} logoUrl={user?.tenantLogoUrl} subtitle={t('shell.brandSubtitle')} />
   )
   const renderFooter = (c: boolean) => <PoweredBy collapsed={c} label={t('shell.poweredBy')} />
+  // Phone drawer footer adds the Settings/Administration entry (RBAC: visible to all — SR1).
+  const renderDrawerFooter = (c: boolean) => (
+    <YStack gap="$1">
+      <SettingsRow
+        label={t('shell.settings')}
+        onPress={() => {
+          setNavOpen(false)
+          router.push('/admin')
+        }}
+      />
+      <PoweredBy collapsed={c} label={t('shell.poweredBy')} />
+    </YStack>
+  )
 
   const max =
     typeof maxWidth === 'number' ? maxWidth : maxWidth === 'fullscreen' ? undefined : widthProps[maxWidth]
 
-  if (isSmall) {
-    return (
-      <YStack flex={1} backgroundColor="$background" style={{ minHeight: '100dvh' }}>
-        <TopBar isSmall collapsed={false} onToggleCollapse={() => {}} onOpenDrawer={() => setNavOpen(true)} />
-        <ScrollView flex={1}>
-          <YStack flex={1} padding="$4" gap="$4" width="100%">
-            {children}
-          </YStack>
-        </ScrollView>
-        {navOpen ? (
-          <Portal>
-            <YStack
-              position="fixed"
-              top={0}
-              left={0}
-              right={0}
-              bottom={0}
-              zIndex={200000}
-              backgroundColor="$overlay"
-              pointerEvents="auto"
-              onPress={() => setNavOpen(false)}
-            >
-              <YStack onPress={(e) => e.stopPropagation()} height="100%" alignSelf="flex-start">
-                <SidebarNav
-                  sections={sections}
-                  activeId={activeId}
-                  header={renderBrand}
-                  footer={renderFooter}
-                />
-              </YStack>
-            </YStack>
-          </Portal>
-        ) : null}
-      </YStack>
-    )
-  }
-
   return (
-    <XStack flex={1} backgroundColor="$background" style={{ minHeight: '100dvh' }}>
-      <SidebarNav
-        sections={sections}
-        activeId={activeId}
-        collapsed={collapsed}
-        header={renderBrand}
-        footer={renderFooter}
-      />
-      <YStack flex={1} minWidth={0}>
-        <TopBar
-          isSmall={false}
-          collapsed={collapsed}
-          onToggleCollapse={() => updatePreferences({ sidebarCollapsed: !collapsed })}
-          onOpenDrawer={() => {}}
-          breadcrumb={breadcrumb}
-        />
-        <ScrollView flex={1}>
-          <YStack flex={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center">
-            {children}
+    <YStack flex={1} backgroundColor="$background" position="relative" style={{ height: FULL_HEIGHT, overflow: 'hidden' }}>
+      {isSmall ? (
+        <>
+          <TopBar isSmall collapsed={false} insetTop={insets.top} onToggleCollapse={() => {}} onOpenDrawer={() => setNavOpen(true)} />
+          <ScrollView flex={1}>
+            <YStack flex={1} padding="$4" gap="$4" width="100%" paddingBottom={insets.bottom + 16}>
+              {children}
+            </YStack>
+          </ScrollView>
+        </>
+      ) : (
+        <XStack flex={1}>
+          <SidebarNav sections={opSections} activeId={activeId} collapsed={collapsed} header={renderBrand} footer={renderFooter} />
+          <YStack flex={1} minWidth={0}>
+            <TopBar
+              isSmall={false}
+              collapsed={collapsed}
+              insetTop={insets.top}
+              onToggleCollapse={() => updatePreferences({ sidebarCollapsed: !collapsed })}
+              onOpenDrawer={() => {}}
+              onOpenAdmin={() => setAdminOpen(true)}
+              breadcrumb={breadcrumb}
+            />
+            <ScrollView flex={1}>
+              <YStack flex={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center" paddingBottom={insets.bottom + 24}>
+                {children}
+              </YStack>
+            </ScrollView>
           </YStack>
-        </ScrollView>
+        </XStack>
+      )}
+
+      {/* Phone operational drawer (off-canvas left) — absolute so it works web + native */}
+      {navOpen ? (
+        <Overlay onClose={() => setNavOpen(false)} align="flex-start" insets={insets}>
+          <SidebarNav sections={opSections} activeId={activeId} header={renderBrand} footer={renderDrawerFooter} fill />
+        </Overlay>
+      ) : null}
+
+      {/* Desktop/iPad admin nav (gear → slide-over panel from the right) */}
+      {adminOpen ? (
+        <Overlay onClose={() => setAdminOpen(false)} align="flex-end" insets={insets}>
+          <SidebarNav
+            sections={adminSections}
+            activeId={activeId}
+            fill
+            header={() => (
+              <XStack alignItems="center" gap="$2" paddingHorizontal="$2" paddingVertical="$2">
+                <Settings size={20} color="$primary" />
+                <P size={3} weight="b">
+                  {t('shell.administration')}
+                </P>
+              </XStack>
+            )}
+          />
+        </Overlay>
+      ) : null}
+    </YStack>
+  )
+}
+
+/** Full-screen scrim + an edge-aligned panel; cross-platform (absolute, not fixed). */
+function Overlay({
+  onClose,
+  align,
+  insets,
+  children,
+}: {
+  onClose: () => void
+  align: 'flex-start' | 'flex-end'
+  insets: { top: number; bottom: number }
+  children: ReactNode
+}) {
+  return (
+    <YStack
+      position="absolute"
+      top={0}
+      left={0}
+      right={0}
+      bottom={0}
+      zIndex={200000}
+      backgroundColor="$overlay"
+      pointerEvents="auto"
+      onPress={onClose}
+    >
+      <YStack
+        onPress={(e) => e.stopPropagation()}
+        height="100%"
+        alignSelf={align}
+        paddingTop={insets.top}
+        paddingBottom={insets.bottom}
+      >
+        {children}
       </YStack>
+    </YStack>
+  )
+}
+
+/** A "Settings / Administration" row for the phone drawer foot (RBAC: visible to all). */
+function SettingsRow({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <XStack
+      onPress={onPress}
+      alignItems="center"
+      gap="$3"
+      height={44}
+      paddingHorizontal="$3"
+      borderRadius="$4"
+      cursor="pointer"
+      hoverStyle={{ backgroundColor: '$hoverFill' }}
+      role="button"
+      aria-label={label}
+    >
+      <Settings size={20} color="$textSecondary" />
+      <P size={3} weight="m" color="$textPrimary">
+        {label}
+      </P>
     </XStack>
   )
 }
@@ -201,8 +281,8 @@ function PoweredBy({ collapsed, label }: { collapsed: boolean; label: string }) 
 }
 
 /**
- * AdminShell — the admin-area configuration of {@link AppShell} (D34/A6). Wires
- * the admin nav; each admin screen renders inside it with its `activeId`.
+ * AdminShell — alias kept so every screen keeps importing one shell. Renders the
+ * one {@link AppShell}; the operational/admin split is internal (Revision 2).
  */
 export function AdminShell({
   activeId,
@@ -214,7 +294,7 @@ export function AdminShell({
   children: ReactNode
 }) {
   return (
-    <AppShell nav={ADMIN_NAV} activeId={activeId} maxWidth={maxWidth}>
+    <AppShell activeId={activeId} maxWidth={maxWidth}>
       {children}
     </AppShell>
   )

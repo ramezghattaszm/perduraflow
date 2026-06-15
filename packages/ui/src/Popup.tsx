@@ -170,19 +170,24 @@ export function Popup({
           width="90%"
           maxWidth={MAX_WIDTH[size]}
           maxHeight="90%"
-          padding="$5"
+          paddingVertical="$5"
           gap="$3"
           overflow="hidden"
         >
-          {header}
+          {/* Horizontal padding lives on the sections, not the card, so the body
+              ScrollView spans the full width and its scrollbar sits flush to the
+              card's right edge (no padding gutter beside it). */}
+          {header ? <YStack paddingHorizontal="$5">{header}</YStack> : null}
           {/* flexShrink + minHeight:0 (not flex:1) so the body sizes to content and
               scrolls only when the card hits maxHeight — flex:1 sets basis 0% and
               collapses the body to nothing inside an auto-height card. */}
           <ScrollView flexShrink={1} minHeight={0}>
-            <YStack gap="$3">{children}</YStack>
+            <YStack gap="$3" paddingHorizontal="$5">
+              {children}
+            </YStack>
           </ScrollView>
-          {errorLine}
-          {footerRow}
+          {errorLine ? <YStack paddingHorizontal="$5">{errorLine}</YStack> : null}
+          {footerRow ? <YStack paddingHorizontal="$5">{footerRow}</YStack> : null}
         </YStack>
       </YStack>
     </Portal>

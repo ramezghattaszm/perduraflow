@@ -13,6 +13,7 @@ import {
   StatusPill,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, useCustomerMutations } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
@@ -22,6 +23,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Customers admin screen — OEM customers + default firm fence (5.7/D23). */
 export function CustomersScreen() {
   const { t } = useTranslation('admin')
+  const canConfigure = useCanConfigure()
   const { data: customers = [], isLoading } = useCustomers()
   const { create, update } = useCustomerMutations()
   const [open, setOpen] = useState(false)
@@ -83,9 +85,11 @@ export function CustomersScreen() {
         title={t('customers.title')}
         subtitle={t('customers.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<CustomerDto>
@@ -124,6 +128,7 @@ export function CustomersScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -132,6 +137,7 @@ export function CustomersScreen() {
             >
               {editingId ? t('actions.save') : t('actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -150,9 +156,11 @@ export function CustomersScreen() {
           />
         </FormField>
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

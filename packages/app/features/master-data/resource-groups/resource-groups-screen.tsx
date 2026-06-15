@@ -15,6 +15,7 @@ import {
 } from '@perduraflow/ui'
 import { Plus } from '@tamagui/lucide-icons'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import {
   useResourceGroups,
@@ -28,6 +29,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Resource groups admin screen — interchangeable groupings; members multi-select (MD14). */
 export function ResourceGroupsScreen() {
   const { t } = useTranslation(['masterData', 'admin'])
+  const canConfigure = useCanConfigure()
   const { data: groups = [], isLoading } = useResourceGroups()
   const { data: resources = [] } = useResources()
   const { data: plants = [] } = usePlants()
@@ -91,9 +93,11 @@ export function ResourceGroupsScreen() {
         title={t('resourceGroups.title')}
         subtitle={t('resourceGroups.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('admin:actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<ResourceGroupDto>
@@ -136,6 +140,7 @@ export function ResourceGroupsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('admin:actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -144,6 +149,7 @@ export function ResourceGroupsScreen() {
             >
               {editingId ? t('admin:actions.save') : t('admin:actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -160,9 +166,11 @@ export function ResourceGroupsScreen() {
           />
         </FormField>
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('admin:actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>

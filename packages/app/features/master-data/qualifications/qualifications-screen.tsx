@@ -3,12 +3,14 @@
 import { useMemo } from 'react'
 import { PageHeader, QualificationMatrix } from '@perduraflow/ui'
 import { useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { useCertifications, useOperators, useSetOperatorQualification } from '../../../hooks/useMasterData'
 import { AdminShell } from '../../shell/admin-shell'
 
 /** Qualifications matrix — operators × certifications, toggling operator_qualification (MD15, FS6). */
 export function QualificationsScreen() {
   const { t } = useTranslation(['masterData', 'admin'])
+  const canConfigure = useCanConfigure()
   const { data: operators = [] } = useOperators()
   const { data: certs = [] } = useCertifications()
   const setQual = useSetOperatorQualification()
@@ -30,6 +32,7 @@ export function QualificationsScreen() {
         cols={cols}
         rowHeader={t('qualifications.operator')}
         emptyText={t('qualifications.empty')}
+        readOnly={!canConfigure}
         isOn={(operatorId, certId) => held.get(operatorId)?.has(certId) ?? false}
         onToggle={(operatorId, certId, next) =>
           setQual.mutate({ operatorId, body: { certificationId: certId, qualified: next } })

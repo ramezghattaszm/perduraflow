@@ -14,6 +14,7 @@ import {
   StatusPill,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
+import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, usePrograms, useProgramMutations } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
@@ -23,6 +24,7 @@ import { AdminShell } from '../../shell/admin-shell'
 /** Programs admin screen — customer/vehicle programs with firm-fence override (5.7/D23). */
 export function ProgramsScreen() {
   const { t } = useTranslation('admin')
+  const canConfigure = useCanConfigure()
   const { data: programs = [], isLoading } = usePrograms()
   const { data: customers = [] } = useCustomers()
   const { create, update } = useProgramMutations()
@@ -96,9 +98,11 @@ export function ProgramsScreen() {
         title={t('programs.title')}
         subtitle={t('programs.subtitle')}
         actions={
+          canConfigure ? (
           <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
             {t('actions.new')}
           </AppButton>
+          ) : undefined
         }
       />
       <DataTable<ProgramDto>
@@ -142,6 +146,7 @@ export function ProgramsScreen() {
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
               {t('actions.cancel')}
             </AppButton>
+            {canConfigure ? (
             <AppButton
               variant="primary"
               size="$3"
@@ -150,6 +155,7 @@ export function ProgramsScreen() {
             >
               {editingId ? t('actions.save') : t('actions.create')}
             </AppButton>
+            ) : null}
           </>
         }
       >
@@ -171,9 +177,11 @@ export function ProgramsScreen() {
           />
         </FormField>
         {editingId ? (
+          canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
             {t('actions.deactivate')}
           </AppButton>
+          ) : null
         ) : null}
       </Popup>
     </AdminShell>
