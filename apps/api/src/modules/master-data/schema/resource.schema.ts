@@ -20,6 +20,11 @@ export const resource = masterDataSchema.table(
     calendarId: text('calendar_id').notNull(),
     rate: doublePrecision('rate'),
     rateUom: text('rate_uom'),
+    // Tier-B cost rates (phase 3, masterdata.read 1.2) — Master-Data-owned reference
+    // data; the cost/unit calculation lives in scheduling (api-spec §12.8).
+    runCostPerHour: doublePrecision('run_cost_per_hour'),
+    setupCost: doublePrecision('setup_cost'),
+    overheadPerUnit: doublePrecision('overhead_per_unit'),
     status: text('status').$type<MasterDataStatus>().notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

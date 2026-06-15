@@ -51,6 +51,10 @@ export interface GanttBar {
   runMin: number
   atRisk: boolean
   changeover: boolean
+  /** Learned (ml_adjusted) cycle/setup → distinct `$ml` fill + a confidence bar (phase 3, FS13). */
+  ml?: boolean
+  /** 0–1 learned confidence; renders a thin fill bar inside an `ml` bar. */
+  confidence?: number | null
 }
 
 /** Props for {@link ScheduleGantt}. */
@@ -65,6 +69,8 @@ export interface ScheduleGanttProps {
    * the gantt presentational — the caller supplies labels/i18n.
    */
   barDetail?: (bar: GanttBar) => ReactNode
+  /** Notified when a bar is pinned (selected) or unpinned (null) — drives a side panel. */
+  onBarSelect?: (barId: string | null) => void
   emptyText?: string
 }
 
@@ -94,7 +100,7 @@ const DISPLAY_MIN_HOURS = 14
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, onBarSelect, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
   const [active, setActive] = useState<ActivePopover | null>(null)
@@ -104,10 +110,15 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
   const showHover = (bar: GanttBar, anchor: BarAnchor) => setActive((cur) => (cur?.pinned ? cur : { bar, anchor, pinned: false }))
   const hideHover = () => setActive((cur) => (cur && !cur.pinned ? null : cur))
   const togglePin = (bar: GanttBar, anchor: BarAnchor) =>
-    setActive((cur) => (cur?.pinned && cur.bar.id === bar.id ? null : { bar, anchor, pinned: true }))
+    setActive((cur) => {
+      const next = cur?.pinned && cur.bar.id === bar.id ? null : { bar, anchor, pinned: true }
+      onBarSelect?.(next ? bar.id : null)
+      return next
+    })
   const c = {
     bar: theme.primary?.val ?? '#3f6fd6',
     barTop: theme.primaryLight?.val ?? '#5b8def',
+    ml: theme.ml?.val ?? '#7c5cff',
     accent: theme.primaryLight?.val ?? '#5b8def',
     danger: theme.danger?.val ?? '#f87171',
     axisBg: theme.surfaceRaised?.val ?? '#1A2030',
@@ -201,10 +212,17 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
                       <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} />
                     </ClipPath>
                   </Defs>
-                  <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill={c.bar} />
+                  <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill={b.ml ? c.ml : c.bar} />
                   <G clipPath={`url(#${cid})`}>
                     {setupW > 0 ? <Rect x={x} y={y} width={setupW} height={BAR_H} fill="#000000" opacity={0.28} /> : null}
-                    <Rect x={x} y={y} width={w} height={3} fill={c.barTop} />
+                    <Rect x={x} y={y} width={w} height={3} fill={b.ml ? '#ffffff' : c.barTop} opacity={b.ml ? 0.5 : 1} />
+                    {/* confidence bar (ml only): a settled fill, the convergence read */}
+                    {b.ml && b.confidence != null ? (
+                      <>
+                        <Rect x={x + 6} y={y + BAR_H - 5} width={Math.max(w - 12, 0)} height={2} fill="#ffffff" opacity={0.25} />
+                        <Rect x={x + 6} y={y + BAR_H - 5} width={Math.max((w - 12) * b.confidence, 0)} height={2} fill="#ffffff" opacity={0.8} />
+                      </>
+                    ) : null}
                   </G>
                   {b.atRisk ? <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill="none" stroke={c.danger} strokeWidth={2} /> : null}
                   {b.changeover ? <Rect x={x - 2} y={y - 4} width={3} height={BAR_H + 8} rx={1.5} fill={c.accent} opacity={0.85} /> : null}

@@ -27,5 +27,13 @@ export const QUERY_KEYS = {
     version: (id: string) => ['scheduling', 'version', id] as const,
     demand: (plantId: string) => ['scheduling', 'demand', plantId] as const,
     resources: (plantId: string) => ['scheduling', 'resources', plantId] as const,
+    variance: (versionId: string) => ['scheduling', 'variance', versionId] as const,
+    scorecard: (plantId: string, versionId: string) => ['scheduling', 'scorecard', plantId, versionId] as const,
+  },
+  learning: {
+    parameters: () => ['learning', 'parameters'] as const,
+  },
+  workforce: {
+    coverage: (plantId: string) => ['workforce', 'coverage', plantId] as const,
   },
 }

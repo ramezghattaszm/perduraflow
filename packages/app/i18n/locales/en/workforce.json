@@ -1,0 +1,29 @@
+{
+  "title": "Workforce coverage",
+  "subtitle": "Operator skills & certification coverage for the next shift.",
+  "plant": "Plant",
+  "operator": "Operator",
+  "matrix": { "title": "Skill & certification coverage" },
+  "legend": {
+    "qualified": "Qualified",
+    "notQualified": "Not qualified",
+    "gap": "Cert gap",
+    "certRequired": "* requires certification"
+  },
+  "readiness": {
+    "title": "Next-shift readiness",
+    "effective": "effective coverage",
+    "gaps_one": "{{count}} certification gap",
+    "gaps_other": "{{count}} certification gaps"
+  },
+  "proposal": {
+    "heading": "Re-balance proposed",
+    "gap": "{{station}} has no certified operator next shift.",
+    "action": "→ Call in {{operator}} on overtime",
+    "detail": "certified · within OT rules · service protected",
+    "confirm": "Approve OT call-in",
+    "confirmed": "OT call-in confirmed",
+    "none": "Full coverage — no gaps next shift."
+  },
+  "empty": "No operators for this plant."
+}

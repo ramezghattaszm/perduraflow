@@ -7,6 +7,7 @@ import {
   Cpu,
   Factory,
   FolderKanban,
+  Gauge,
   Grid3x3,
   HardHat,
   Handshake,
@@ -15,6 +16,7 @@ import {
   Network,
   Package,
   ShieldCheck,
+  UserCheck,
   Users,
   Workflow,
 } from '@tamagui/lucide-icons'
@@ -49,7 +51,11 @@ export const OPERATIONAL_NAV: NavConfigSection[] = [
   {
     id: 'scheduling',
     sectionLabelKey: 'nav.sections.scheduling',
-    items: [{ id: 'board', labelKey: 'nav.board', path: '/scheduling/board', icon: CalendarClock }],
+    items: [
+      { id: 'board', labelKey: 'nav.board', path: '/scheduling/board', icon: CalendarClock },
+      { id: 'scorecard', labelKey: 'nav.scorecard', path: '/scorecard', icon: Gauge },
+      { id: 'workforce', labelKey: 'nav.workforce', path: '/workforce', icon: UserCheck },
+    ],
   },
 ]
 

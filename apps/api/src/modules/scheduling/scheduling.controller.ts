@@ -37,4 +37,23 @@ export class SchedulingController {
   listResources(@CurrentUser() user: JwtPayload, @Query('plantId') plantId: string) {
     return this.scheduling.listResources(user.tenantId, plantId)
   }
+
+  /** `GET /scheduling/variance?versionId=` — performance variance (board strip + Scorecard). */
+  @Get('variance')
+  variance(@CurrentUser() user: JwtPayload, @Query('versionId') versionId: string) {
+    return this.scheduling.variance(user.tenantId, versionId)
+  }
+
+  /**
+   * `GET /scheduling/scorecard?plantId=&versionId=` — View 2 metrics for a specific
+   * version (its own actuals). `versionId` optional → defaults to latest committed.
+   */
+  @Get('scorecard')
+  scorecard(
+    @CurrentUser() user: JwtPayload,
+    @Query('plantId') plantId: string,
+    @Query('versionId') versionId?: string,
+  ) {
+    return this.scheduling.scorecard(user.tenantId, plantId, versionId)
+  }
 }

@@ -1,0 +1,30 @@
+{
+  "title": "Service–Cost Scorecard",
+  "subtitle": "Plant health — service, cost and equipment effectiveness.",
+  "plant": "Plant",
+  "version": "Version",
+  "kpi": {
+    "otif": "On-time-in-full",
+    "otifCaption": "service level",
+    "costPerUnit": "Cost / unit",
+    "costCaption": "Tier-B, from seeded rates",
+    "oee": "OEE",
+    "oeeCaption": "availability · performance · quality"
+  },
+  "oee": {
+    "title": "OEE breakdown — where the loss is",
+    "availability": "Availability",
+    "performance": "Performance",
+    "quality": "Quality"
+  },
+  "baseline": {
+    "title": "Service vs cost — baseline → optimized",
+    "seam": "vs manual baseline — Phase 5"
+  },
+  "atRisk": {
+    "title": "At-risk orders — service exposure",
+    "empty": "No at-risk orders."
+  },
+  "empty": "No committed schedule yet — commit a version to see its scorecard.",
+  "costNa": "n/a"
+}

@@ -310,3 +310,111 @@ re-solve, empty/infeasible copy); extend `errors.json` with api-spec §11.6 code
 | FS9 | **Gantt rendering approach** (explicitly *not* the virtualized canvas; **iPad/native is first-class**). | **`react-native-svg`** (CONFIRMED) — already installed (15.12.1), Next transpiles/aliases it, so the **same `<Svg>` JSX renders web AND native/iPad, no platform split, no new dep**; theme colours from tokens. **Scroll decision: horizontal scroll + pinned resource-label column** (GANTT-FIX §"scroll vs fit") — bars stay at a readable scale; reuses the DataTable scroll pattern. Bars are time-positioned/duration-sized with setup/changeover/at-risk encoding; source/confidence in legend + press tooltip. The deferred virtualized canvas (SKIP-40) supersedes it behind the same data. | **Confirmed + BUILT** (react-native-svg; scroll + pinned labels) |
 | FS10 | **Board context selection.** How does the planner pick what to view? | **Plant selector → version selector**; default to the first plant + its newest `committed` version (or newest `draft` if none committed). **Re-solve** → new `draft`, auto-selected; **Commit** (on a draft) → `committed`, supersedes prior (AS11). | **Confirmed** (draft-then-commit) |
 | FS11 | **Source/confidence rendering while empty (SKIP-04).** | Always render a **source chip** (`std`) on every bar; render a **confidence** badge only when non-null (null now → omitted). Phase 3's closed loop flips values with **zero board change**. | **Confirmed** |
+
+---
+
+# Phase 3 — Closed loop on the board + two demo views (BUILT — gates green; browser verification with user)
+
+> **STATUS: BUILT** (board variance strip + learned-param panel + `$ml` bar + wear toast; Scorecard +
+> Workforce views; dev-only drift control; nav + i18n; both-theme stories). `bun run check` +
+> `next build` + expo tsc green. FS12–FS15 implemented as proposed. Draft deltas for
+> `docs/CLAUDE-CODE-BRIEF-PHASE-3.md` §4 step 1 / §3a. Designs:
+> `docs/perduraflow-six-views.html` (Views 2 & 3) + `docs/perduraflow-gantt-mockup.html` (board) — **build to
+> them; sample numbers are representative, never literals (no-hardcoding invariant)**. Phase 3 adds **new
+> components on the existing board**, **two of the six views**, and **one demo-only control** — no invented
+> screens. API side: api-spec §12. **Nothing implemented yet.**
+
+## 18. Phase-3 nav & routes
+
+The board stays where it is (`scheduling/board`); Phase 3 lights up the **operational nav** with the two
+role-tailored views (VIEW-PLAN — these *are* the operational app, RBAC-gated by role):
+
+```
+(app|main)/
+  scheduling/board               ← existing board + NEW variance strip + learned-param panel + ml bars
+  scorecard                      ← View 2 · Service–Cost Scorecard (plant manager)  NEW
+  workforce                      ← View 3 · Workforce coverage (supervisor)          NEW
+```
+
+`nav.ts`: add **Scorecard** and **Workforce** under the operational `Scheduling`/Operations sections
+(icons e.g. `Gauge`, `Users`). Both wired into **`apps/next` and `apps/expo`** (web + native, DoD). The
+**simulator drift control is NOT in nav** (FS15) — a dev/staging-only surface. Views 1/4/5 stay deferred
+(phases 4–5).
+
+## 19. Board additions (existing screen — new components, no restructure)
+
+- **Bars `std`→`ml` + confidence (behavior change, proof #1).** The Phase-2 source chip flips `std`→`ml`
+  from `setup_source`/`cycle_source`; the confidence badge (already conditional) now renders because
+  `*_confidence` is non-null. **An `ml` bar gets a distinct fill** (`$ml` deep-violet `#7c5cff`, per the
+  gallery) — not tag-only (FS13). No board restructure; the tooltip carries learned value + std (struck) +
+  confidence + sample basis.
+- **Variance strip (NEW `VarianceStrip`, board-adjacent).** Chips from `GET /scheduling/variance`: affected
+  resource **"N% behind plan"**, throughput attainment, churn, learned-param count. The affected lane label
+  also carries a small **"behind"** chip. All computed (no literals).
+- **Learned-parameter detail panel (NEW `LearnedParamPanel`).** On bar select: the learned value as **one
+  settled step** — `std` struck-through → `learned`, a **two-point track (not a time-series)**, rising
+  confidence, sample basis (`n`, window mean), and the **triggering signal** (tool-wear). This is the
+  convergence beat **and** the structured "why" (Phase-5 narration forward-hook). **Decision FS12:** a
+  click-to-open **panel** (not inline-on-bar) — keeps the bar clean, gives room for the std→learned track +
+  basis, and is the natural home for the later narration line.
+- **Tool-wear flag** → the existing notification bell / toast (SKIP-23) from `learning.drift.detected`. No new
+  screen.
+
+## 20. View 2 · Service–Cost Scorecard (`features/scorecard/`) — plant manager
+
+The **full performance screen** (build to gallery View 2), all phase-3-computable from
+`GET /scheduling/scorecard`:
+- **KPI tile row** (NEW `KpiTile` + `KpiTileRow`): OTIF, Cost/unit (Tier-B), OEE — value + caption.
+- **OEE breakdown bars** (NEW `MetricBars`): Availability · Performance · Quality with %.
+- **At-risk orders list** (reuse `DataTable`): order/customer + reason + status pill (from scheduling).
+- **Baseline-comparison arm is a Phase-5 seam (D57): leave it as a named, visibly-disabled placeholder
+  ("vs manual baseline — phase 5"), DO NOT fake it.** The board's variance strip is this screen's operational
+  summary (both exist).
+
+## 21. View 3 · Workforce coverage (`features/workforce/`) — supervisor
+
+Build to gallery View 3, from `GET /workforce/coverage`:
+- **Coverage grid: reuse `QualificationMatrix` (BUILT phase 1), re-skinned** to coverage/readiness — cells
+  Qualified / Not-qualified / **Cert-gap**, an **OUT** marker on absent operators, `*` on cert-required
+  stations. (Add a `tone`/legend variant to the existing component; no new grid.)
+- **Next-shift readiness %** (NEW small stat) + "N certification gap(s)".
+- **Re-balance / OT call-in proposal** (NEW `CoverageProposal`): the cert-gap → **named** qualified operator
+  **OT call-in**, a **human-confirmed proposal** (D54: `POST /workforce/proposals/:id/confirm`) — labor-aware,
+  **not rostering** (D43). Approve = ConfigureGuard-gated.
+
+## 22. Demo-only control — simulator drift trigger (FS15)
+
+A **clearly-separated dev/staging surface** (e.g. a `/dev/simulator` route shown only when a `demo`/dev flag
+is set, or a Storybook-style control) — **never in operational or admin nav**. Picks a committed version +
+optional drift `{resource, magnitude, ramp}` → `POST /dev/scheduling/simulate`. It is staging scaffolding for
+the demo, cleanly removable; the loop it drives is the real mechanism.
+
+## 23. New `packages/ui` components (variant-driven, both-theme stories — UI §0.2/§16)
+
+| Component | Purpose | Notes |
+|---|---|---|
+| `KpiTile` / `KpiTileRow` | KPI value + caption + delta arrow | Pure presentational; values passed in (no fetch, no literals) |
+| `MetricBars` | Labelled horizontal % bars (OEE A·P·Q; reusable) | Token colours; controlled `items=[{label,pct}]` |
+| `VarianceStrip` | Board-adjacent variance chips | Controlled; `$danger` for behind-plan |
+| `LearnedParamPanel` | std→learned **two-point** step + confidence + basis + wear signal | **Not** a chart; the convergence render (FS12); narration slot reserved |
+| `CoverageProposal` | Cert-gap → named-operator OT confirmed proposal | Approve action via prop callback (ConfigureGuard upstream) |
+| `QualificationMatrix` *(extend)* | add coverage/readiness skin (Qualified/Not/Cert-gap tones, OUT, `*`) | Re-skin the BUILT component; no new grid |
+
+`ScheduleGantt` gains an **`ml` bar fill** (token `$ml`) — a colour branch, not a restructure (FS13). (The
+GANTT-FIX **horizon Day/Week** addendum is a **View-1/cockpit** concern, phases 4–5; note it as a `horizon`
+prop seam, build Day-only now unless RG wants Week this phase — FS14.)
+
+## 24. i18n
+
+Add **`scorecard`** + **`workforce`** namespaces (KPI labels, OEE, at-risk, coverage, readiness, proposal
+copy); extend the **`scheduling`** namespace (variance strip, `ml` source, learned-param panel, wear-flag
+toast); extend `errors.json` with api-spec §12.11 codes. **No hardcoded user-facing strings.**
+
+## 25. Open phase-3 UI decisions (brief §5 — see also api-spec AS13–AS18)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| FS12 | **Convergence render** — detail panel vs inline-on-bar (brief §3a / VIEW-PLAN open #3). | **Click-to-open `LearnedParamPanel`** showing std→learned as a **two-point settled step** (struck std → learned), confidence, sample basis, wear signal. Keeps the bar uncluttered, fits the "why" + the Phase-5 narration slot. Inline-on-bar rejected (no room; risks implying live motion). | **Proposed** (panel) |
+| FS13 | **`ml` bar colour** — distinct colour vs tag-only (VIEW-PLAN open #4). | **Distinct fill** `$ml` (deep violet `#7c5cff`, gallery) + the `ml` tag — a learned op reads differently at a glance; still a bar (encoding parity with at-risk's border-not-fill rule preserved since source≠risk). RG aesthetic call. | **Proposed** (distinct `$ml`) |
+| FS14 | **Gantt horizon Day/Week this phase?** (GANTT-FIX addendum). | **Day-only now**; add `horizon` as a prop **seam** only. Week aggregation is a **View-1 cockpit** feature (phases 4–5); building it now is out of phase-3 scope. | **Proposed** (seam only) |
+| FS15 | **Where does the drift trigger live?** | **Dev/staging-only surface** behind a demo flag (`/dev/simulator`), **never** in operational/admin nav; clearly removable demo scaffolding. | **Proposed** |

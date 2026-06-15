@@ -1,15 +1,17 @@
 'use client'
 
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import type { GanttBar } from '@perduraflow/ui'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import type { GanttBar, VarianceChip } from '@perduraflow/ui'
 import {
   AppButton,
   AppSelect,
   FormField,
+  LearnedParamPanel,
   P,
   PageHeader,
   ScheduleGantt,
   StatusPill,
+  VarianceStrip,
   XStack,
   YStack,
 } from '@perduraflow/ui'
@@ -24,7 +26,12 @@ import {
   useScheduleVersions,
   useSolveSchedule,
 } from '../../../hooks/useScheduling'
+import { useLearnedParameters, useVariance } from '../../../hooks/useLearning'
+import { useToast } from '../../../hooks/useToast'
 import { AdminShell } from '../../shell/admin-shell'
+
+/** Cycle deviation (learned vs std) at/above which a tool-wear flag is shown (mirrors RULE.STEP_BAND). */
+const WEAR_PCT = 0.05
 
 /**
  * Board body (shell-agnostic) — selectors, run strip, Gantt. Rendered inside the
@@ -47,8 +54,13 @@ export function BoardContent() {
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
+  const { data: variance } = useVariance(versionId ?? undefined)
+  const { data: learned = [] } = useLearnedParameters()
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
+  const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
+  const { showToast } = useToast()
+  const wearShown = useRef<Set<string>>(new Set())
 
   // default/repair version selection: newest committed, else newest
   useEffect(() => {
@@ -89,25 +101,79 @@ export function BoardContent() {
     return ids
   }, [detail, partColour])
 
-  const bars: GanttBar[] = (detail?.operations ?? []).map((o) => ({
-    id: o.id,
-    resourceId: o.resourceId,
-    demandLineId: o.demandLineId,
-    label: partNo.get(o.partId) ?? o.partId.slice(0, 6),
-    sourceTag: t(`source.${o.setupSource}`),
-    startMs: new Date(o.plannedStart).getTime(),
-    endMs: new Date(o.plannedEnd).getTime(),
-    setupMin: o.setupTime,
-    runMin: o.cycleTime * o.plannedQty,
-    atRisk: o.atRisk,
-    changeover: changeoverIds.has(o.id),
-  }))
+  const bars: GanttBar[] = (detail?.operations ?? []).map((o) => {
+    const ml = o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted'
+    return {
+      id: o.id,
+      resourceId: o.resourceId,
+      demandLineId: o.demandLineId,
+      label: partNo.get(o.partId) ?? o.partId.slice(0, 6),
+      sourceTag: t(`source.${o.cycleSource}`),
+      startMs: new Date(o.plannedStart).getTime(),
+      endMs: new Date(o.plannedEnd).getTime(),
+      setupMin: o.setupTime,
+      runMin: o.cycleTime * o.plannedQty,
+      atRisk: o.atRisk,
+      changeover: changeoverIds.has(o.id),
+      ml,
+      confidence: o.cycleConfidence ?? o.setupConfidence,
+    }
+  })
   const ganttResources = resources.map((r) => ({
     id: r.id,
     label: r.name,
     subLabel: t(`masterData:resources.types.${r.resourceType}`),
   }))
   const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
+
+  // Learned cycle overlays keyed by (resource, op) — the LearnedParamPanel source.
+  const learnedCycleByKey = useMemo(
+    () => new Map(learned.filter((l) => l.param === 'cycle').map((l) => [`${l.resourceId}:${l.routingOperationId}`, l])),
+    [learned],
+  )
+  const opById = useMemo(() => new Map((detail?.operations ?? []).map((o) => [o.id, o])), [detail])
+
+  // Variance strip chips (all computed from the version's actuals — no literals).
+  const varianceChips: VarianceChip[] = useMemo(() => {
+    if (!variance) return []
+    const behind = [...variance.resources].sort((a, b) => b.behindPlanPct - a.behindPlanPct)[0]
+    const churnTone = variance.churn == null ? 'ok' : variance.churn < 0.34 ? 'warn' : 'bad'
+    const churnLabel =
+      variance.churn == null
+        ? t('variance.churnNone')
+        : variance.churn < 0.34
+          ? t('variance.churnLow')
+          : variance.churn < 0.67
+            ? t('variance.churnMed')
+            : t('variance.churnHigh')
+    return [
+      ...(behind && behind.behindPlanPct > 0.005
+        ? [{ label: behind.resourceName, value: t('variance.behindPlan', { pct: Math.round(behind.behindPlanPct * 100) }), tone: 'bad' as const }]
+        : []),
+      { label: t('variance.throughput'), value: `${Math.round(variance.throughputAttainment * 100)}%`, tone: variance.throughputAttainment >= 0.95 ? 'ok' : 'warn' },
+      { label: t('variance.churn'), value: churnLabel, tone: churnTone },
+      { label: t('variance.learnedParams'), value: t('variance.learnedCount', { count: variance.learnedParamCount, total: variance.opCount }), tone: 'ok' },
+    ]
+  }, [variance, t])
+
+  // D56 tool-wear flag → toast (once per resource/op while crossed).
+  useEffect(() => {
+    for (const l of learned) {
+      if (l.param !== 'cycle' || l.status !== 'held' || l.learnedValue == null) continue
+      const dev = l.stdBaseline > 0 ? (l.learnedValue - l.stdBaseline) / l.stdBaseline : 0
+      const key = `${l.resourceId}:${l.routingOperationId}`
+      if (dev >= WEAR_PCT && !wearShown.current.has(key)) {
+        wearShown.current.add(key)
+        showToast(t('wear.body', { resource: resourceName.get(l.resourceId) ?? l.resourceId, pct: `+${Math.round(dev * 100)}` }), {
+          title: t('wear.title'),
+          type: 'warning',
+        })
+      }
+    }
+  }, [learned, resourceName, showToast, t])
+
+  const selectedOp = selectedBarId ? opById.get(selectedBarId) : undefined
+  const selectedLearned = selectedOp ? learnedCycleByKey.get(`${selectedOp.resourceId}:${selectedOp.routingOperationId}`) : undefined
 
   const actionError = solve.error ?? commit.error
   const errorMsg = actionError ? translateError(getApiErrorCode(actionError)) : undefined
@@ -168,6 +234,8 @@ export function BoardContent() {
         </XStack>
       ) : null}
 
+      {variance && varianceChips.length > 0 ? <VarianceStrip chips={varianceChips} /> : null}
+
       {detail ? <GanttLegend /> : null}
 
       {versions.length === 0 ? (
@@ -198,8 +266,30 @@ export function BoardContent() {
               ) : null}
             </YStack>
           )}
+          onBarSelect={setSelectedBarId}
           emptyText={t('board.noResources')}
         />
+      ) : null}
+
+      {selectedLearned && selectedLearned.learnedValue != null && selectedOp ? (
+        <YStack maxWidth={420}>
+          <LearnedParamPanel
+            title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
+            subtitle={`op ${selectedOp.opSeq}`}
+            metricLabel={t('learned.cycle')}
+            standardText={`${selectedLearned.stdBaseline}m`}
+            learnedText={`${selectedLearned.learnedValue.toFixed(2)}m`}
+            deltaText={`${selectedLearned.learnedValue >= selectedLearned.stdBaseline ? '+' : ''}${Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)}%`}
+            confidence={selectedLearned.confidence ?? 0}
+            basisText={t('learned.basis', { count: selectedLearned.sampleCount })}
+            settledText={t('learned.settled')}
+            trigger={
+              (selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline >= WEAR_PCT
+                ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resourceName.get(selectedOp.resourceId) ?? '' }) }
+                : undefined
+            }
+          />
+        </YStack>
       ) : null}
     </>
   )

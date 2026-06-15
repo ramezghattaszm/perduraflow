@@ -38,6 +38,11 @@ export * from './SidebarNav'
 export * from './OperationsEditor'
 export * from './QualificationMatrix'
 export * from './ScheduleGantt'
+export * from './KpiTile'
+export * from './MetricBars'
+export * from './VarianceStrip'
+export * from './LearnedParamPanel'
+export * from './CoverageProposal'
 
 // type augmentation for tamagui custom config
 import type { Conf } from '@perduraflow/config'

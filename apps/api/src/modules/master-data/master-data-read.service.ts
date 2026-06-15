@@ -112,4 +112,10 @@ export class MasterDataReadService implements MasterDataReadContract {
     if (!row) return null
     return toOperatorDto(row, await this.repo.certificationIdsForOperator(id))
   }
+
+  /** All operators with their held certification ids (1.2 — workforce coverage view). */
+  async listOperators(tenantId: string): Promise<OperatorDto[]> {
+    const rows = await this.repo.listOperators(tenantId)
+    return Promise.all(rows.map(async (r) => toOperatorDto(r, await this.repo.certificationIdsForOperator(r.id))))
+  }
 }

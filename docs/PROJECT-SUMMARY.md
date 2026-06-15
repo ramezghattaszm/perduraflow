@@ -22,7 +22,22 @@
 > five boundary/determinism proofs pass (negative lint, no cross-schema FK, genuine re-bind,
 > source/confidence fields wired, identical re-runs); board + re-solve + commit + infeasibility
 > browser/API-verified. Spec deltas api-spec §11 + frontend-spec §13–§17 (AS9–AS12 / FS9–FS11
-> confirmed). Not yet committed.
+> confirmed). **Committed + pushed** (`4873456`); subsequent UI/board/keyboard/Android polish + the
+> shell revision (operational/admin split, native shell, RBAC gating) committed on top (`27a00de`).
+>
+> **Phase 3 (execution actuals + the closed loop — learn-and-reflect): BUILT — gates green; browser
+> verification with user pending.** Governed by **A18**. **Backend** (api-spec §12): sibling
+> **`learning`** module (`learning` schema `execution_actual` append-only + `learned_parameter` overlay;
+> the **damped snap-on-gate** rule + guardrails), the demo **simulator** fixture in `scheduling`
+> (emits 4.3 actuals on the EventBus; learning consumes), SKIP-04 source/confidence **live** (zero
+> schema/board change), **per-version** performance variance + OEE + Tier-B cost/unit, D56 tool-wear
+> flag, `learning.read 1.0` + `masterdata.read 1.2`. Migration `0005` applied; clean reseed.
+> **Verified via the real query path** — five proofs (SKIP-04 live, damped convergence, determinism,
+> A18 guardrail reject, per-version isolation) + cost sanity. **UI** (frontend-spec §18–§25): board
+> variance strip + learned-param settled-step panel + `$ml` bar + wear toast; **Scorecard** + **Workforce
+> coverage** views; dev-only drift control; nav + i18n + both-theme stories. `bun run check` +
+> `next build` + expo tsc green. AS13–AS18 / FS12–FS15 implemented as proposed. **Remaining:** browser
+> verification on web + native (incl. per-version reselect) — user-driven per the brief DoD.
 
 ---
 

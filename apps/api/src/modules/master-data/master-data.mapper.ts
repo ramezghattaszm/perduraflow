@@ -39,6 +39,9 @@ export const toResourceDto = (r: Resource): ResourceDto => ({
   calendarId: r.calendarId,
   rate: r.rate,
   rateUom: r.rateUom,
+  runCostPerHour: r.runCostPerHour,
+  setupCost: r.setupCost,
+  overheadPerUnit: r.overheadPerUnit,
   status: r.status,
 })
 
@@ -86,6 +89,7 @@ export const toOperatorDto = (o: Operator, certificationIds: string[]): Operator
   name: o.name,
   homePlantId: o.homePlantId,
   laborRate: o.laborRate,
+  available: o.available,
   certificationIds,
   isActive: o.isActive,
 })

@@ -34,5 +34,44 @@
   "status": { "draft": "Draft", "committed": "Committed", "superseded": "Superseded" },
   "runStatus": { "success": "Success", "infeasible": "Infeasible", "failed": "Failed" },
   "atRisk": "At risk",
-  "source": { "standard": "std", "ml_adjusted": "ML" }
+  "source": { "standard": "std", "ml_adjusted": "ml" },
+  "variance": {
+    "behindPlan": "{{pct}}% behind plan",
+    "behind": "behind",
+    "onPlan": "on plan",
+    "throughput": "Throughput attainment",
+    "churn": "Schedule churn",
+    "churnLow": "low",
+    "churnMed": "medium",
+    "churnHigh": "high",
+    "churnNone": "—",
+    "learnedParams": "Learned params",
+    "learnedCount": "{{count}} of {{total}} ops"
+  },
+  "learned": {
+    "cycle": "Learned cycle time",
+    "setup": "Learned setup time",
+    "basis": "Learned from {{count}} actuals.",
+    "settled": "settled — holding steady",
+    "selectHint": "Select a learned (ml) bar to see how it converged.",
+    "none": "No learned values yet — run the simulator to feed actuals."
+  },
+  "wear": {
+    "title": "Tool-wear flagged",
+    "body": "{{resource}} — cycle drift {{pct}}% sustained past threshold.",
+    "trigger": "Tool-wear signal",
+    "triggerBody": "Cycle drift on {{resource}} crossed threshold — flagged. Schedule re-sequenced to protect downstream from starvation."
+  },
+  "simulator": {
+    "title": "Execution simulator",
+    "subtitle": "Demo fixture — emits seeded execution actuals into the closed loop. Not part of the product.",
+    "version": "Committed version",
+    "cycles": "Cycles per op",
+    "drift": "Tool-wear drift",
+    "driftResource": "Drift resource",
+    "magnitude": "Magnitude (e.g. 0.08 = +8%)",
+    "run": "Run simulator",
+    "emitted": "{{count}} actuals emitted.",
+    "needCommitted": "Select a committed version to simulate."
+  }
 }

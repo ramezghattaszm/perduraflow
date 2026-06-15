@@ -44,3 +44,21 @@ export const Empty: Story = {
     </YStack>
   ),
 }
+
+/** Learned (ml) bars — distinct $ml fill + a confidence bar (phase 3). */
+export const Learned: Story = {
+  render: () => (
+    <YStack padding="$4">
+      <ScheduleGantt
+        resources={[{ id: 'press', label: 'Press Line A', subLabel: 'Stamping' }]}
+        horizonStartMs={origin}
+        horizonEndMs={end}
+        bars={[
+          { id: '1', resourceId: 'press', label: 'FG-1001', sourceTag: 'ml', startMs: origin, endMs: origin + 95 * m, setupMin: 20, runMin: 75, atRisk: false, changeover: false, ml: true, confidence: 0.82 },
+          { id: '2', resourceId: 'press', label: 'FG-1003', sourceTag: 'ml', startMs: origin + 100 * m, endMs: origin + 190 * m, setupMin: 30, runMin: 76, atRisk: false, changeover: true, ml: true, confidence: 0.86 },
+          { id: '3', resourceId: 'press', label: 'FG-1002', sourceTag: 'std', startMs: origin + 200 * m, endMs: origin + 325 * m, setupMin: 30, runMin: 95, atRisk: false, changeover: true },
+        ]}
+      />
+    </YStack>
+  ),
+}

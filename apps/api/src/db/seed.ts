@@ -172,13 +172,15 @@ async function main(): Promise<void> {
         .values({ tenantId, partNo: 'CMP-2001', description: 'Reinforcement bracket', partType: 'component', uom: 'EA', material: 'Steel', gauge: '2.0mm' })
 
       // resources (referencing the seeded plant + calendar via text id, no FK)
+      // cost rates (Tier-B, masterdata.read 1.2) — seeded engineering reference data;
+      // scheduling computes cost/unit from these (no hardcoding in the UI).
       const [press] = await db
         .insert(resource)
-        .values({ tenantId, name: 'Press Line A', resourceType: 'line', plantId: p1.id, calendarId: cal.id, rate: 12, rateUom: 'strokes/min' })
+        .values({ tenantId, name: 'Press Line A', resourceType: 'line', plantId: p1.id, calendarId: cal.id, rate: 12, rateUom: 'strokes/min', runCostPerHour: 120, setupCost: 80, overheadPerUnit: 0.5 })
         .returning()
       const [weld] = await db
         .insert(resource)
-        .values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: p1.id, calendarId: cal.id })
+        .values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: p1.id, calendarId: cal.id, runCostPerHour: 95, setupCost: 60, overheadPerUnit: 0.4 })
         .returning()
 
       // resource group + members
@@ -206,15 +208,18 @@ async function main(): Promise<void> {
       const [torque] = await db.insert(certification).values({ tenantId, code: 'TORQUE', name: 'Torque-critical', description: 'Torque-critical fastening' }).returning()
       const [cmm] = await db.insert(certification).values({ tenantId, code: 'CMM', name: 'CMM inspection' }).returning()
 
-      // operators (externally-sourced stubs) + qualifications
-      const [ana] = await db.insert(operator).values({ tenantId, name: 'Ana Reyes', homePlantId: p1.id, laborRate: 26 }).returning()
-      const [bruno] = await db.insert(operator).values({ tenantId, name: 'Bruno Cruz', homePlantId: p1.id, laborRate: 24.5 }).returning()
+      // operators (externally-sourced stubs) + qualifications + next-shift presence.
+      // Demo coverage (View 3): the only LEAK-qualified operator (Jorge) is OUT next
+      // shift → leak-test cert gap → OT call-in proposal (D54, human-confirmed).
+      const [ana] = await db.insert(operator).values({ tenantId, name: 'Ana Reyes', homePlantId: p1.id, laborRate: 26, available: true }).returning()
+      const [bruno] = await db.insert(operator).values({ tenantId, name: 'Bruno Cruz', homePlantId: p1.id, laborRate: 24.5, available: true }).returning()
+      const [jorge] = await db.insert(operator).values({ tenantId, name: 'Jorge Morales', homePlantId: p1.id, laborRate: 27.5, available: false }).returning()
       await db.insert(operatorQualification).values([
-        { tenantId, operatorId: ana!.id, certificationId: leak!.id },
         { tenantId, operatorId: ana!.id, certificationId: torque!.id },
         { tenantId, operatorId: bruno!.id, certificationId: cmm!.id },
+        { tenantId, operatorId: jorge!.id, certificationId: leak!.id },
       ])
-      console.log('  ✓ sample master data: 2 parts, 2 resources, 1 group, 1 routing (2 ops), 3 certs, 2 operators')
+      console.log('  ✓ sample master data: 2 parts, 2 resources, 1 group, 1 routing (2 ops), 3 certs, 3 operators')
     }
   }
 

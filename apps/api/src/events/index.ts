@@ -24,6 +24,11 @@ export const EVENTS = {
   // scheduling module (phase 2)
   SCHEDULING_RUN_COMPLETED: 'scheduling.run.completed',
   SCHEDULING_VERSION_COMMITTED: 'scheduling.version.committed',
+  // learning module + closed loop (phase 3)
+  EXECUTION_ACTUAL_RECORDED: 'execution.actual.recorded',
+  LEARNING_PARAMETER_UPDATED: 'learning.parameter.updated',
+  LEARNING_DRIFT_DETECTED: 'learning.drift.detected',
+  LEARNING_ANOMALY_FLAGGED: 'learning.anomaly.flagged',
 } as const
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS]

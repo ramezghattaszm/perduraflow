@@ -16,6 +16,7 @@ export default {
     './src/modules/master-data/schema/index.ts',
     './src/modules/binding/schema/index.ts',
     './src/modules/scheduling/schema/index.ts',
+    './src/modules/learning/schema/index.ts',
   ],
   out: './drizzle/migrations',
   dialect: 'postgresql',

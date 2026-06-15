@@ -7,7 +7,14 @@ import { P } from './typography'
 export interface MatrixAxis {
   id: string
   label: string
+  /** Row (operator): absent this shift → an OUT pill (coverage skin, View 3). */
+  out?: boolean
+  /** Column (station/cert): requires certification → a `*` marker (coverage skin). */
+  marked?: boolean
 }
+
+/** Tri-state cell for the coverage skin (View 3): qualified / not / cert-gap. */
+export type MatrixCell = 'on' | 'off' | 'gap'
 
 /** Props for {@link QualificationMatrix}. */
 export interface QualificationMatrixProps {
@@ -21,6 +28,12 @@ export interface QualificationMatrixProps {
   emptyText: string
   /** When true, cells render the current state but cannot be toggled (RBAC view-only). */
   readOnly?: boolean
+  /**
+   * Coverage skin (View 3): when provided, renders a read-only tri-state grid
+   * (qualified / not-qualified / cert-gap) instead of the editable checkbox, and
+   * shows OUT pills (`row.out`) + `*` markers (`col.marked`). Overrides `isOn`.
+   */
+  cellState?: (rowId: string, colId: string) => MatrixCell
 }
 
 const ROW_LABEL_WIDTH = 200
@@ -44,10 +57,12 @@ export function QualificationMatrix({
   rowHeader,
   emptyText,
   readOnly = false,
+  cellState,
 }: QualificationMatrixProps) {
   if (rows.length === 0 || cols.length === 0) {
     return <EmptyState title={emptyText} />
   }
+  const coverage = Boolean(cellState)
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} width="100%">
       <YStack borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden">
@@ -62,6 +77,7 @@ export function QualificationMatrix({
             <XStack key={c.id} width={CELL_WIDTH} paddingVertical="$3" paddingHorizontal="$2" justifyContent="center">
               <P size={6} weight="b" color="$textSecondary" style={{ textAlign: 'center' }}>
                 {c.label}
+                {c.marked ? <P size={6} weight="b" color="$warning"> *</P> : null}
               </P>
             </XStack>
           ))}
@@ -69,33 +85,42 @@ export function QualificationMatrix({
         {/* operator rows */}
         {rows.map((r) => (
           <XStack key={r.id} borderTopWidth={1} borderTopColor="$borderColor" backgroundColor="$surface">
-            <XStack width={ROW_LABEL_WIDTH} paddingVertical="$3" paddingHorizontal="$4" alignItems="center">
-              <P size={4} color="$textPrimary">
+            <XStack width={ROW_LABEL_WIDTH} paddingVertical="$3" paddingHorizontal="$4" alignItems="center" gap="$2">
+              <P size={4} color={r.out ? '$textSecondary' : '$textPrimary'}>
                 {r.label}
               </P>
+              {r.out ? (
+                <XStack borderWidth={1} borderColor="$borderColor" borderRadius="$2" paddingHorizontal="$1.5">
+                  <P size={8} weight="b" color="$textSecondary">
+                    OUT
+                  </P>
+                </XStack>
+              ) : null}
             </XStack>
             {cols.map((c) => {
-              const on = isOn(r.id, c.id)
+              const state: MatrixCell = cellState ? cellState(r.id, c.id) : isOn(r.id, c.id) ? 'on' : 'off'
+              const fill = state === 'on' ? '$primary' : state === 'gap' ? '$dangerSoft' : 'transparent'
+              const border = state === 'on' ? '$primary' : state === 'gap' ? '$danger' : '$borderColor'
               return (
                 <XStack key={c.id} width={CELL_WIDTH} paddingVertical="$2" justifyContent="center" alignItems="center">
                   <XStack
-                    onPress={readOnly ? undefined : () => onToggle(r.id, c.id, !on)}
+                    onPress={readOnly || coverage ? undefined : () => onToggle(r.id, c.id, state !== 'on')}
                     width={28}
                     height={28}
                     borderRadius="$3"
                     borderWidth={1}
-                    cursor={readOnly ? 'default' : 'pointer'}
+                    cursor={readOnly || coverage ? 'default' : 'pointer'}
                     alignItems="center"
                     justifyContent="center"
-                    backgroundColor={on ? '$primary' : 'transparent'}
-                    borderColor={on ? '$primary' : '$borderColor'}
-                    hoverStyle={readOnly ? undefined : { borderColor: '$primary' }}
-                    pressStyle={readOnly ? undefined : { opacity: 0.7 }}
+                    backgroundColor={fill}
+                    borderColor={border}
+                    hoverStyle={readOnly || coverage ? undefined : { borderColor: '$primary' }}
+                    pressStyle={readOnly || coverage ? undefined : { opacity: 0.7 }}
                     role="checkbox"
-                    aria-checked={on}
+                    aria-checked={state === 'on'}
                     aria-label={`${r.label} — ${c.label}`}
                   >
-                    {on ? <Check size={18} color="$surface" /> : null}
+                    {state === 'on' ? <Check size={18} color="$surface" /> : null}
                   </XStack>
                 </XStack>
               )

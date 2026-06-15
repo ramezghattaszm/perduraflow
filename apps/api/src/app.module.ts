@@ -9,6 +9,7 @@ import { BindingModule } from './modules/binding/binding.module'
 import { BindingResolver } from './modules/binding/binding.resolver'
 import { EmailModule } from './modules/email/email.module'
 import { EventBusModule } from './modules/eventbus/eventbus.module'
+import { LearningModule } from './modules/learning/learning.module'
 import { MasterDataModule } from './modules/master-data/master-data.module'
 import { MASTERDATA_READ } from './modules/master-data/master-data-read.service'
 import { NotifierModule } from './modules/notifier/notifier.module'
@@ -54,6 +55,7 @@ const BINDING_COUNTERPARTS: Provider = {
     OrgModule,
     AuthModule,
     MasterDataModule,
+    LearningModule,
     SchedulingModule,
   ],
   providers: [BINDING_COUNTERPARTS],

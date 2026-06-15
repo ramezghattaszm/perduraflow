@@ -15,10 +15,12 @@ import { z } from 'zod'
  * no BOM (SKIP-45), single base UoM no conversion, no tooling/asset domain, the
  * changeover matrix + sequencing rules stay scheduling-owned (SKIP-48).
  */
-// `1.1` (phase 2, additive MINOR — api-spec §11.3): adds `listResources` and
-// `getPrimaryRoutingForPart` for the scheduling consumer. Every `1.0` consumer
-// keeps compiling; bindings pin major `1` so this floats in (A12).
-export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.1' } as const
+// `1.2` (phase 3, additive MINOR — api-spec §12.9): adds Tier-B **cost rates** to
+// `ResourceDto` (`runCostPerHour`, `setupCost`, `overheadPerUnit`) — Master-Data-
+// owned reference data; the cost *calculation* lives in scheduling. `1.1` added
+// `listResources` / `getPrimaryRoutingForPart`. Every prior consumer keeps
+// compiling; bindings pin major `1` so this floats in (A12).
+export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.2' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -69,6 +71,10 @@ export interface ResourceDto {
   /** Nominal throughput rate (MD5.5; per-op std times are the scheduling baseline). */
   rate: number | null
   rateUom: string | null
+  /** Tier-B cost rates (1.2) — Master-Data-owned; scheduling computes cost/unit from these. */
+  runCostPerHour: number | null
+  setupCost: number | null
+  overheadPerUnit: number | null
   status: MasterDataStatus
 }
 
@@ -121,6 +127,8 @@ export interface OperatorDto {
   homePlantId: string
   /** Optional labor rate behind the D57 labor-cost KPI (MD15). */
   laborRate: number | null
+  /** Present next shift (workforce coverage; `false` = OUT). Seeded/D35 (1.2). */
+  available: boolean
   /** Certifications this operator holds (operator_qualification join, MD15). */
   certificationIds: string[]
   isActive: boolean
@@ -154,6 +162,8 @@ export interface MasterDataReadContract {
   getPrimaryRoutingForPart(tenantId: string, partId: string): Promise<RoutingDto | null>
   listCertifications(tenantId: string): Promise<CertificationDto[]>
   getOperator(tenantId: string, id: string): Promise<OperatorDto | null>
+  /** All operators (with held cert ids) — workforce coverage view (added in `1.2`). */
+  listOperators(tenantId: string): Promise<OperatorDto[]>
 }
 
 // --- admin CRUD request schemas (master-data screens) ------------------------

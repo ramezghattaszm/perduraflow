@@ -614,3 +614,208 @@ cross-module **write** (O8); the run only *reads* master-data through the resolv
 | AS10 | **Resource assignment within a group.** An op targets a resource *group*; which member runs it? | The **least-loaded** eligible active member — earliest current free-time; tie-break lowest `resource_id` (CONFIRMED). Spreads load across interchangeable members; deterministic. | **Confirmed** (least-loaded) |
 | AS11 | **`schedule_version` lifecycle.** How does re-solve relate to versions? | **Draft-then-commit** (CONFIRMED by review): each `solve` → a new `optimizer_run` + a new `schedule_version` in status **`draft`** (passing the D4 hard gates; an `infeasible` run produces no version). A planner **Commit** action (`POST …/versions/:id/commit`) promotes `draft → committed` and supersedes the plant's current `committed` (`supersedes_version_id` set) — at most one `committed` per plant, drafts/superseded retained. The commit step is the seam the Phase-3 **approval policy** (SKIP-46) will gate; no approval routing yet. | **Confirmed** (draft-then-commit) |
 | AS12 | **Binding store.** Where does the per-tenant binding config live? | A seeded kernel **`binding.contract_binding`** table `(tenant_id, contract_id, major, mode)` — D42-governed config, seeded `(tenant, 'masterdata.read', '1', 'platform_module')`. Makes per-tenant binding real + re-bind = a row change (proof #3 concrete). (Alternative: a code-level default map, no table — lighter but less faithful to "bindings are tenant config" A8 §6.3.) | **Confirmed** (binding table) |
+
+---
+
+# Phase 3 — Execution actuals + closed-loop learning (BUILT — gates green; browser verification with user)
+
+> **STATUS: BUILT & API-verified** (migration `0005`; `learning` module + damped rule + simulator;
+> `bun run check` + `next build` + expo tsc green; five proofs + per-version isolation verified via the
+> real query path). AS13–AS18 implemented as proposed. Draft deltas for
+> `docs/CLAUDE-CODE-BRIEF-PHASE-3.md` §4 step 1. **A18 governs**
+> (reproducible · explainable · bounded; Tier-1 fully-autonomous-but-damped). Source refs: scheduling
+> spec §4.3 (actuals) / §4.4 (committed schedule) / §4.5 (deviation), D3/D5/D7/D41/D54/D56/D57, platform
+> A14 (ML = platform capability) / A18 (trust envelope) / A19 (narration hook). All §0 override rules
+> (O1–O8) + §2 schema rules carry forward unchanged. **Nothing implemented yet.**
+
+## 12. Phase-3 modules & ownership
+
+| Module | Postgres schema | Kind | Owns / changes |
+|---|---|---|---|
+| `learning` *(new — platform ML capability, A14)* | `learning` | capability module | `execution_actual` (4.3, append-only), `learned_parameter` (D7 overlay). Runs the **damped learning rule** + guardrails; publishes `learning.read 1.0`; emits drift/wear + learned-update events |
+| `scheduling` *(edit)* | `scheduling` | domain | **Consumes `learning.read`** at solve → overlays learned cycle/setup (`*_source = ml_adjusted`, `*_confidence` set); computes **performance variance** (4.4↔4.3) + **Tier-B cost/unit**. Hosts the **demo simulator** fixture (SKIP-51). No schema change to `scheduled_operation` (SKIP-04 fields already exist — proof #1) |
+| `master-data` *(edit)* | `master_data` | domain | **`masterdata.read 1.1 → 1.2`** (additive): expose **cost rates** (resource run/ setup cost, overhead) for the Tier-B calc; cost *rates* stay Master-Data-owned, the *calculation* lives in scheduling |
+
+**Module-placement ruling (brief §3 "scheduling vs sibling") — see AS13.** Actuals + learning live in a
+**sibling `learning` module**, not in `scheduling` — A14 makes parameter learning a **platform capability**
+(NMA + the Phase-4 predictor reuse it), and the boundary rules want a scoped schema with no cross-module
+`schema/` reach. Scheduling consumes learned values **only** through the published `learning.read` contract
+(like a kernel read capability; A14 — not a per-tenant binding, learning is not a swappable domain
+counterpart). The **simulator** is a clearly-separated demo fixture **in `scheduling`** (it already owns the
+committed schedule, so it needs no contract to read it) that emits 4.3-shaped actuals onto the **EventBus**;
+`learning` subscribes and persists them. Scheduling→learning is **event-only** (O8: no cross-module write),
+the real closed-loop shape (A4 actuals stream / D5 replay), and the simulator is cleanly swappable for a real
+MES connector behind the same actuals event (SKIP-51).
+
+### 12.1 `learning` table sketches (O2/§2.4 rules: ULID PK, `tenant_id` + index, `created_at`)
+
+> **No migration touches `scheduling.scheduled_operation`** — its `setup_source`/`cycle_source`/
+> `*_confidence` exist from Phase-2 `0004` (SKIP-04). Phase 3 adds a `learning` schema only. Migration `0005`.
+
+**learning.execution_actual** (§4.3, **append-only — D5/D57 retain forever**, no soft-delete: actuals are
+immutable history) — `tenant_id`, `actual_event_id` (text, business ref, unique-within-tenant),
+`schedule_version_id` (text → `scheduling`, no FK), `scheduled_operation_id` (text → `scheduling`, no FK —
+the `schedule_job_id` link, 4.3), `resource_id` (text → `masterdata.read`), `routing_operation_id` (text →
+`masterdata.read`), `part_id` (text → `masterdata.read`), `actual_start` / `actual_end` (timestamptz),
+`actual_setup_time` (decimal, nullable), `actual_cycle_time` (decimal, nullable), `good_qty` (decimal),
+`scrap_qty` (decimal, default 0), `downtime_minutes` (decimal, default 0), `downtime_reason` (text,
+nullable), `source` (enum `simulator|manual`, default `simulator` — SKIP-51 provenance), `seq` (int — the
+deterministic emission order within a run, so windowed learning is order-stable, D2). **Append-only**: never
+updated/deleted (Phase-5 measured baseline D57 + replay D5 read this tail).
+
+**learning.learned_parameter** (D7 overlay — the **structured** learned record; A18 provenance) — `tenant_id`,
+`resource_id` (text), `routing_operation_id` (text), `param` (enum `cycle|setup`), `std_baseline` (decimal —
+the master-data standard at adoption, retained alongside; D7), `learned_value` (decimal, nullable — the
+current settled step; null = not yet adopted, scheduler uses standard), `source` (enum `standard|ml_adjusted`
+— mirrors the board's tag), `confidence` (decimal 0–1, nullable), `sample_count` (int), `window_size` (int),
+`window_mean` (decimal) / `window_stddev` (decimal — the basis behind the value, explainability A18/A19),
+`status` (enum `learning|held|rejected` — `rejected` = breached a guardrail, kept standard, flagged),
+`last_stepped_at` (timestamptz, nullable — when it last took a decisive step; **not** per-actual),
+`updated_at`. **Unique** `(tenant_id, resource_id, routing_operation_id, param)` — one settled record per
+parameter, **not** a time series (convergence-not-motion; the *actuals* are the series, this is the held
+step). Structured value+source+confidence+basis = the Phase-4-predictor-readable / Phase-5-narratable shape
+(forward-hooks).
+
+### 12.2 Actuals ingestion + the simulator (SKIP-51)
+
+- **Ingestion** (`learning`): subscribes to `execution.actual.recorded` (EventBus) and **appends** an
+  `execution_actual` row (idempotent on `actual_event_id`); each append re-runs the damped rule (§12.3) for
+  the affected `(resource, routing_operation, param)`. A direct `POST /learning/actuals` (manual entry,
+  `source=manual`) exists for completeness but the demo path is the event.
+- **Simulator** (`scheduling`, demo fixture — dev/staging only, **never in operational/admin nav**): reads a
+  **committed** `schedule_version`'s `scheduled_operation`s (own module) and, in deterministic `seq` order,
+  emits one 4.3 actual per op. Default model: `actual = planned × (1 + ε)`, `ε` from a **seeded PRNG**
+  (seed = `versionId : seq`, small bounded noise ±~3%) → reproducible (D2). `good_qty`/`scrap_qty` from a
+  seeded yield; `downtime_minutes` from a seeded availability draw. See AS15 for the **drift trigger**.
+
+### 12.3 The damped learning rule (the load-bearing decision — AS14)
+
+Per `(tenant, resource_id, routing_operation_id, param)` over the **ordered** actuals series (by `seq`):
+
+- `n` = sample count; `μ_w`, `σ_w` = mean/stddev of the **trailing window** `W = WINDOW (8)` (or all if fewer).
+- **Confidence** `c = clamp(n / N_TRUST, 0,1) · (1 − clamp((σ_w/μ_w) / CV_MAX, 0,1))` — rises with samples,
+  penalised by dispersion. Constants `N_TRUST=8`, `CV_MAX=0.5` (documented D48 defaults; per-tenant
+  configurable later D42). Deterministic from the series → reproducible (D2/A18).
+- **State machine with hysteresis (the damping — "decisive step, then hold"):**
+  - `status=learning`, `learned_value=null` → scheduler uses **standard**.
+  - **Adopt (one decisive step):** when `n ≥ MIN_SAMPLES (5)` **and** `c ≥ CONF_ADOPT (0.6)` **and**
+    `|μ_w − std|/std ≥ STEP_BAND (0.05)` → set `learned_value = μ_w`, `source=ml_adjusted`, `status=held`,
+    stamp `last_stepped_at`. (Standard → learned in **one** move, not a crawl.)
+  - **Hold (convergence, not motion):** once `held`, further actuals **do not move** `learned_value` unless a
+    **new sustained material drift** clears `|μ_w − learned_value|/learned_value ≥ RESTEP_BAND (0.08)` across
+    the full window → then one **re-step** to the new `μ_w` (a new settled value). Small fluctuations inside
+    the band never move it; `confidence` keeps rising with `n` while the value holds.
+- **Why snap-on-gate, not EWMA:** an EWMA "slow factor" still produces a **visibly moving** number every
+  actual — it fights the storyboard ("the board shows the step, not the stream"). The damping lives in the
+  **gate** (min-samples + confidence + sustained-band), so the displayed value is a *settled step*. EWMA is the
+  considered-and-rejected alternative (AS14).
+- **Determinism (D2/proof #3):** identical actuals (same seed) → identical `learned_value`, `confidence`,
+  `status`, and therefore identical re-solved schedule. All thresholds are documented constants.
+
+### 12.4 Guardrail bounds (A18 *bounded* — AS16, proof #4)
+
+A learned value passes these **before the scheduler may use it**:
+
+- **Max deviation:** `|learned_value − std|/std ≤ MAX_DEV (0.5)`. Breach → **do not adopt**, keep `standard`,
+  set `status=rejected`, emit `learning.anomaly.flagged` (notification) — *rejected, not silently committed*
+  (the demonstrable bound).
+- **Confidence-to-use:** the scheduler overlays a learned value only when `status=held` **and**
+  `confidence ≥ CONF_USE (0.6)`; otherwise it uses `standard` (a recorded-but-untrusted value never reaches a
+  committed schedule).
+- **Positivity / sanity:** `learned_value > 0` and within absolute sane limits.
+- **Near-horizon stability (D44 seam):** learned re-steps apply on the **next solve** (a new `draft`), never
+  retroactively to an in-execution/committed op — the Phase-2 draft-then-commit split already enforces this;
+  full stability-window protection is SKIP-49.
+
+### 12.5 Learned values into the schedule (SKIP-04 goes live — behavior-only, proof #1)
+
+At solve, for each placed op the sequencer calls `learning.read.getLearnedParameter(tenant, resourceId,
+routingOperationId, param)`:
+- returns a `held`, guardrail-passing value → use it for `setup_time`/`cycle_time`; set
+  `setup_source`/`cycle_source = ml_adjusted` and `*_confidence`. The higher learned cycle on the drifted
+  resource lengthens its ops → the greedy **re-sequences to avoid starvation** (the demo beat).
+- returns null / not-yet-trusted → keep `standard` (today's behavior).
+
+**No schema change, no board restructure** — only the values written into the already-existing
+`scheduled_operation` fields change. Show the diff is behavior-only (proof #1).
+
+### 12.6 Performance variance (deterministic, no ML — AS17)
+
+Computed in `scheduling` from `scheduled_operation` (4.4) ↔ `execution_actual` (4.3), per resource/line over
+the version window (all **derived from rows**, no literals):
+- **Throughput attainment** = Σ actual `good_qty` / Σ planned `planned_qty`.
+- **Behind-plan %** = `1 − attainment` (the "Line A running N% behind" chip).
+- **Schedule adherence** = ops started within tolerance of `planned_start` / total ops.
+- **Churn metric (D57)** = ops whose `(resource, sequence_position, planned_start)` changed beyond a
+  threshold between the prior committed version and the new one / total ops.
+- **OEE A·P·Q** (Scorecard): Availability = runtime/(runtime+downtime); Performance = (std_cycle×good_qty)/
+  runtime; Quality = good_qty/(good_qty+scrap_qty); OEE = A·P·Q. **In scope:** Scorecard breakdown + blended
+  OEE. **Deferred (note):** a standalone per-shift OEE trend dashboard (not demo-critical).
+
+### 12.7 Tool-wear flag (D56)
+
+The same drift the learning rule acts on: when a `cycle` parameter's `learned_value` is adopted/re-stepped
+**above** `std` by ≥ `WEAR_THRESHOLD (configurable; default = STEP_BAND)` and sustained, `learning` emits a
+typed **`learning.drift.detected`** event `{resourceId, routingOperationId, deviationPct, confidence}` to the
+notification surface (SKIP-23, bell/toast). **A signal only** — not maintenance scheduling (SKIP-15). It is a
+byproduct of learning the true cycle, not separate machinery (D56).
+
+### 12.8 Tier-B cost model (cost/unit — AS18)
+
+- **Rates are Master-Data-owned** (seeded engineering reference; `masterdata.read 1.2` exposes them):
+  resource `run_cost_per_hour`, `setup_cost`, plant/tenant `overhead_per_unit`; labor from existing
+  `operator.labor_rate` (MD15). The **calculation lives in scheduling** (it costs the schedule it produces).
+- **Cost/unit** (per op, then aggregated) = `(setup_cost + run_cost_per_hour × runtimeHours +
+  laborComponent + overhead_per_unit × good_qty) / good_qty`. Computed from **seeded rows**, never typed
+  (no-hardcoding proof: change a rate row → cost/unit changes).
+- **Tier-B only as far as the views need** (Scorecard cost/unit). **Tier C stays a deferred additive seam**
+  (`margin = price − cost`) — *not built* (VIEW-PLAN; SKIP-13).
+
+### 12.9 `masterdata.read 1.1 → 1.2` + `learning.read 1.0` (contracts)
+
+- **`masterdata.read 1.2`** (additive MINOR, A12): add cost-rate fields to the resource DTO (`runCostPerHour`,
+  `setupCost`) + a tenant/plant `overheadPerUnit` lookup; existing consumers unaffected; binding pins major 1.
+- **`learning.read 1.0`** (new published contract, consumed directly by scheduling — A14 platform capability,
+  **not** a binding): `getLearnedParameter(tenant, resourceId, routingOperationId, param) →
+  { value, source, confidence, sampleCount, windowMean, status } | null`;
+  `listLearnedParameters(tenant, plantId?)` (board/variance panel). Structured (forward-hook: Phase-4
+  predictor extends it; Phase-5 narration verbalises it).
+
+### 12.10 Endpoints
+
+Reads (`JwtAuthGuard`, tenant-scoped): `GET /learning/parameters?plantId=` (learned overlays for the
+board/panel), `GET /scheduling/variance?versionId=` (performance variance strip + Scorecard),
+`GET /scheduling/scorecard?plantId=&versionId=` (OTIF/OEE/cost-per-unit/at-risk — **per-version**:
+`versionId` optional, defaults to the plant's latest committed; each version reports its **own**
+actuals, the Phase-5 plan-comparison substrate), `GET /workforce/coverage?plantId=&shift=`
+(operator×station coverage + readiness + cert-gap, via `masterdata.read`). Writes
+(`JwtAuthGuard + ConfigureGuard`): `POST /workforce/proposals/:id/confirm` (D54 OT call-in confirmed
+proposal — human-disposed). **Demo/dev-only** (staging-gated, not in nav):
+`POST /dev/scheduling/simulate { scheduleVersionId, drift?: { resourceId, param, magnitude, rampOverEvents } }`
+(SKIP-51 simulator + AS15 drift trigger).
+
+### 12.11 Error codes (add to §6 `ERROR_CODES` + `errors.json`)
+
+```
+ACTUAL_ALREADY_RECORDED,        // idempotent re-ingest of an actual_event_id
+LEARNED_VALUE_REJECTED,         // guardrail breach (surfaced for proof #4 / anomaly view)
+SCHEDULE_VERSION_NOT_COMMITTED, // simulator requires a committed version
+COVERAGE_NOT_FOUND, WORKFORCE_PROPOSAL_NOT_FOUND
+```
+
+### 12.12 EventBus (O5) — Phase-3 events
+
+`execution.actual.recorded` (simulator→learning), `learning.parameter.updated` (a decisive step/re-step),
+`learning.drift.detected` (D56 wear flag → notifications), `learning.anomaly.flagged` (guardrail reject).
+All through the coordinator; no cross-module **write** (O8) — scheduling only *reads* `learning.read`.
+
+### 12.13 Open phase-3 API decisions (brief §5 — see also frontend-spec FS12–FS15)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| AS13 | **Module placement** — actuals/learning in `scheduling` or a sibling? | **Sibling `learning` module** (A14 platform capability; NMA + Phase-4 predictor reuse; scoped schema, no cross-module reach). Scheduling consumes `learning.read` directly; the **simulator is a demo fixture in `scheduling`** emitting actuals on the EventBus; learning persists + learns. Alternative (all in `scheduling`) rejected: couples a reusable capability to one domain + makes Phase-4/NMA reuse a refactor. | **Proposed** |
+| AS14 | **The damped update rule** (load-bearing). | **Windowed snap-on-gate with hysteresis hold** (§12.3): trailing-window mean, adopt in **one decisive step** once min-samples + confidence + step-band clear, then **hold** until a new sustained material drift clears the re-step band. Confidence rises with samples. Deterministic constants. **EWMA rejected** (visible per-actual motion fights "convergence not motion"). | **Proposed** (decisive-step-then-hold) |
+| AS15 | **Simulator drift control.** | **Seeded PRNG** (`versionId:seq`) → default ±~3% noise; **drift trigger** = dev/staging endpoint `{resourceId, param, magnitude (~0.08), rampOverEvents}` ramps the chosen resource's cycle to `+magnitude` over N events (Collision-2). Deterministic, demo-fixture, never in nav; swappable for a real connector (same actuals event). | **Proposed** |
+| AS16 | **Guardrail bounds.** | **Max-deviation 50% → reject + flag** (`status=rejected`, anomaly event, keep standard); **confidence-to-use ≥ 0.6 + status=held** before the scheduler overlays; positivity; re-steps apply next-solve not retroactively (D44 seam). Show a breach rejected (proof #4). | **Proposed** |
+| AS17 | **Performance-variance scope + OEE cut.** | Compute attainment / behind-plan% / adherence / **churn (D57)** + **OEE A·P·Q**; surface on the **board variance strip** (operational summary) **and** the **Scorecard** (full screen). **Deferred:** standalone per-shift OEE trend dashboard (not demo-critical). | **Proposed** |
+| AS18 | **Tier-B cost placement.** | **Rates Master-Data-owned** (`masterdata.read 1.2`: resource run/setup cost, overhead; labor from MD15), **calculation in `scheduling`**; cost/unit from seeded rows only. Tier-C (`margin=price−cost`) deferred additive seam, not built. | **Proposed** |

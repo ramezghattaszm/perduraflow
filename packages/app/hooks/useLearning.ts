@@ -1,0 +1,70 @@
+import { useMutation, useQuery } from '@tanstack/react-query'
+import type {
+  LearnedParameterDto,
+  PerformanceVarianceDto,
+  ScorecardDto,
+  SimulateActualsRequest,
+  WorkforceCoverageDto,
+} from '@perduraflow/contracts'
+import { apiClient } from '../lib/axios'
+import { queryClient } from '../lib/query-client'
+import { QUERY_KEYS } from '../lib/query-keys'
+
+const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
+const post = <T, B>(url: string, body: B) => apiClient.post<T>(url, body).then((r) => r.data)
+
+/** All learned parameter overlays for the tenant (board panel + ml bars + wear flag). */
+export function useLearnedParameters() {
+  return useQuery({
+    queryKey: QUERY_KEYS.learning.parameters(),
+    queryFn: () => get<LearnedParameterDto[]>('/learning/parameters'),
+  })
+}
+
+/** Performance variance for a version (board strip + Scorecard summary). */
+export function useVariance(versionId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.variance(versionId ?? ''),
+    queryFn: () => get<PerformanceVarianceDto>(`/scheduling/variance?versionId=${versionId}`),
+    enabled: Boolean(versionId),
+  })
+}
+
+/** Per-version Service–Cost Scorecard (View 2). `versionId` omitted → latest committed. */
+export function useScorecard(plantId: string | undefined, versionId?: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.scorecard(plantId ?? '', versionId ?? ''),
+    queryFn: () =>
+      get<ScorecardDto>(`/scheduling/scorecard?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}`),
+    enabled: Boolean(plantId),
+  })
+}
+
+/** Workforce coverage grid + readiness + cert-gap proposals (View 3). */
+export function useCoverage(plantId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.workforce.coverage(plantId ?? ''),
+    queryFn: () => get<WorkforceCoverageDto>(`/workforce/coverage?plantId=${plantId}`),
+    enabled: Boolean(plantId),
+  })
+}
+
+/** Confirm a cert-gap OT call-in proposal (D54, human-disposed). */
+export function useConfirmCoverageProposal(plantId: string | undefined) {
+  return useMutation({
+    mutationFn: (proposalId: string) => post<{ confirmed: boolean }, undefined>(`/workforce/proposals/${proposalId}/confirm`, undefined),
+    onSuccess: () => {
+      if (plantId) void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workforce.coverage(plantId) })
+    },
+  })
+}
+
+/** Demo-only simulator (SKIP-51): emit seeded actuals (+ optional drift) for a committed version. */
+export function useSimulateActuals() {
+  return useMutation({
+    mutationFn: (req: SimulateActualsRequest) => post<{ emitted: number }, SimulateActualsRequest>('/dev/scheduling/simulate', req),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.parameters() })
+    },
+  })
+}

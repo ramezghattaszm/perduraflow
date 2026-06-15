@@ -1,18 +1,31 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common'
 import {
   MASTERDATA_READ_CONTRACT,
+  type AtRiskOrderDto,
+  type CoverageAxisDto,
+  type CoverageCell,
+  type CoverageProposalDto,
+  type LearnedParameterDto,
+  type LearningReadContract,
   type MasterDataReadContract,
+  type OeeDto,
+  type OperatorDto,
   type OrgPriority,
   type OrgReadContract,
   type PartDto,
+  type PerformanceVarianceDto,
   type ResourceDto,
+  type ResourceVarianceDto,
   type ScheduleVersionDetailDto,
   type ScheduleVersionDto,
+  type ScorecardDto,
+  type WorkforceCoverageDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { EVENTS } from '../../events'
 import { BindingResolver } from '../binding/binding.resolver'
 import { EventBus } from '../eventbus/event-bus'
+import { LEARNING_READ } from '../learning/learning-read.service'
 import { ORG_READ } from '../org/org-read.service'
 import {
   toDemandInputDto,
@@ -21,9 +34,11 @@ import {
   toScheduleVersionDto,
 } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
-import { sequence, type SequencerItem } from './sequencer'
+import { sequence, type EffectiveTimes, type ResolveEffective, type SequencerItem } from './sequencer'
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
+/** Confidence a held learned value must clear before the scheduler overlays it (A18 bounded). */
+const LEARNED_CONF_USE = 0.6
 
 /**
  * Scheduling domain service (phase 2). **Consumes master-data ONLY through the
@@ -38,6 +53,7 @@ export class SchedulingService {
     private readonly repo: SchedulingRepository,
     private readonly bindings: BindingResolver,
     @Inject(ORG_READ) private readonly org: OrgReadContract,
+    @Inject(LEARNING_READ) private readonly learning: LearningReadContract,
     private readonly events: EventBus,
   ) {}
 
@@ -155,7 +171,12 @@ export class SchedulingService {
       throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, infeasibleReason, ERROR_CODES.SCHEDULE_INFEASIBLE)
     }
 
-    const result = sequence(items)
+    // Overlay learned values (SKIP-04 goes live, api-spec §12.5): precompute the
+    // held, guardrail-passing learned cycle/setup per (op, eligible resource), then
+    // the sequencer prefers them — the longer learned cycle on a drifted resource
+    // re-sequences to avoid starvation. Std where no trusted learned value exists.
+    const resolveEffective = await this.buildLearnedOverlay(tenantId, items)
+    const result = sequence(items, resolveEffective)
     const run = await this.repo.createRun({
       tenantId,
       plantId,
@@ -188,6 +209,10 @@ export class SchedulingService {
         plannedQty: p.qty,
         setupTime: p.setupTime,
         cycleTime: p.cycleTime,
+        setupSource: p.setupSource,
+        cycleSource: p.cycleSource,
+        setupConfidence: p.setupConfidence,
+        cycleConfidence: p.cycleConfidence,
         atRisk: p.atRisk,
         atRiskReason: p.atRiskReason,
       })),
@@ -246,7 +271,266 @@ export class SchedulingService {
     cache.set(key, rank)
     return rank
   }
+
+  /**
+   * Precompute the learned overlay (api-spec §12.5): per `(op, eligible resource)`,
+   * fetch the held learned cycle/setup from `learning.read` and return a pure
+   * resolver the deterministic sequencer calls. Only `held` values clearing
+   * `LEARNED_CONF_USE` are used (A18 bounded); otherwise the std baseline.
+   */
+  private async buildLearnedOverlay(tenantId: string, items: SequencerItem[]): Promise<ResolveEffective> {
+    const usable = (p: LearnedParameterDto | null): p is LearnedParameterDto =>
+      !!p && p.status === 'held' && p.learnedValue != null && (p.confidence ?? 0) >= LEARNED_CONF_USE
+    const learned = new Map<string, { cycle: LearnedParameterDto | null; setup: LearnedParameterDto | null }>()
+    const pairs = new Set<string>()
+    for (const it of items) for (const rid of it.eligibleResourceIds) pairs.add(`${rid}::${it.routingOperationId}`)
+    for (const key of pairs) {
+      const [rid, opId] = key.split('::') as [string, string]
+      learned.set(key, {
+        cycle: await this.learning.getLearnedParameter(tenantId, rid, opId, 'cycle'),
+        setup: await this.learning.getLearnedParameter(tenantId, rid, opId, 'setup'),
+      })
+    }
+    return (routingOperationId, resourceId, stdSetup, stdCycle): EffectiveTimes => {
+      const rec = learned.get(`${resourceId}::${routingOperationId}`)
+      const c = rec?.cycle ?? null
+      const s = rec?.setup ?? null
+      return {
+        setupTime: usable(s) ? s.learnedValue! : stdSetup,
+        cycleTime: usable(c) ? c.learnedValue! : stdCycle,
+        setupSource: usable(s) ? 'ml_adjusted' : 'standard',
+        cycleSource: usable(c) ? 'ml_adjusted' : 'standard',
+        setupConfidence: usable(s) ? s.confidence : null,
+        cycleConfidence: usable(c) ? c.confidence : null,
+      }
+    }
+  }
+
+  // --- phase 3 reads: performance variance / scorecard / workforce ------------
+  /**
+   * Planned-vs-actual variance for a version (4.4↔4.3) — deterministic, no ML.
+   * Throughput attainment, behind-plan %, adherence, sequence churn vs the prior
+   * version, and the learned-overlay count. All computed from rows (no literals).
+   * @throws AppException SCHEDULE_VERSION_NOT_FOUND
+   */
+  async variance(tenantId: string, versionId: string): Promise<PerformanceVarianceDto> {
+    const version = await this.repo.findVersion(tenantId, versionId)
+    if (!version) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
+    }
+    const ops = await this.repo.operationsForVersion(versionId)
+    const actuals = await this.learning.listActualsForVersion(tenantId, versionId)
+    const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
+    const md = await this.resolveMasterData(tenantId)
+    const nameById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+
+    const byResource = new Map<string, typeof ops>()
+    for (const op of ops) {
+      const list = byResource.get(op.resourceId) ?? []
+      list.push(op)
+      byResource.set(op.resourceId, list)
+    }
+    const resources: ResourceVarianceDto[] = [...byResource.entries()]
+      .map(([resourceId, list]) => {
+        const planned = list.reduce((s, o) => s + o.plannedQty, 0)
+        const good = list.reduce((s, o) => s + (actualByOp.get(o.id)?.goodQty ?? 0), 0)
+        const withActual = list.filter((o) => actualByOp.has(o.id))
+        const onTime = withActual.filter((o) => {
+          const a = actualByOp.get(o.id)!
+          return Math.abs(new Date(a.actualStart).getTime() - o.plannedStart.getTime()) <= ADHERENCE_TOLERANCE_MIN * 60_000
+        }).length
+        const attainment = planned > 0 && withActual.length > 0 ? good / planned : 1
+        return {
+          resourceId,
+          resourceName: nameById.get(resourceId) ?? resourceId,
+          throughputAttainment: attainment,
+          behindPlanPct: Math.max(0, 1 - attainment),
+          scheduleAdherence: withActual.length > 0 ? onTime / withActual.length : 1,
+        }
+      })
+      .sort((a, b) => a.resourceName.localeCompare(b.resourceName))
+
+    const totalPlanned = ops.reduce((s, o) => s + o.plannedQty, 0)
+    const totalGood = ops.reduce((s, o) => s + (actualByOp.get(o.id)?.goodQty ?? 0), 0)
+    const learnedParamCount = ops.filter(
+      (o) => o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted',
+    ).length
+
+    // Churn vs the prior version this one supersedes (or the plant's other committed).
+    const priorId =
+      version.supersedesVersionId ??
+      (await this.repo.findCommittedVersion(tenantId, version.plantId).then((v) => (v && v.id !== versionId ? v.id : null)))
+    let churn: number | null = null
+    if (priorId) {
+      const prior = await this.repo.operationsForVersion(priorId)
+      const priorByKey = new Map(prior.map((o) => [`${o.demandLineId}:${o.routingOperationId}`, o]))
+      const changed = ops.filter((o) => {
+        const p = priorByKey.get(`${o.demandLineId}:${o.routingOperationId}`)
+        if (!p) return true
+        return (
+          p.resourceId !== o.resourceId ||
+          p.sequencePosition !== o.sequencePosition ||
+          p.plannedStart.getTime() !== o.plannedStart.getTime()
+        )
+      }).length
+      churn = ops.length > 0 ? changed / ops.length : 0
+    }
+
+    return {
+      scheduleVersionId: versionId,
+      resources,
+      throughputAttainment: totalPlanned > 0 && totalGood > 0 ? totalGood / totalPlanned : 1,
+      churn,
+      learnedParamCount,
+      opCount: ops.length,
+    }
+  }
+
+  /**
+   * View 2 · Service–Cost Scorecard — phase-3 metrics for **one schedule version**
+   * (its OWN actuals, not the plant's latest): OTIF, OEE (A·P·Q), Tier-B cost/unit,
+   * throughput attainment, at-risk orders. `versionId` makes it per-version — the
+   * Phase-5 baseline/plan-comparison substrate; reselecting an earlier version
+   * shows its own numbers. Defaults to the plant's latest committed (else newest).
+   * Baseline-comparison arm is Phase 5. @throws AppException SCHEDULE_VERSION_NOT_FOUND
+   */
+  async scorecard(tenantId: string, plantId: string, versionId?: string): Promise<ScorecardDto> {
+    const version = versionId
+      ? await this.repo.findVersion(tenantId, versionId)
+      : ((await this.repo.findCommittedVersion(tenantId, plantId)) ??
+        (await this.repo.listVersions(tenantId, plantId))[0])
+    if (versionId && !version) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
+    }
+    const resolvedPlant = version?.plantId ?? plantId
+    const empty: ScorecardDto = {
+      plantId: resolvedPlant,
+      scheduleVersionId: null,
+      otif: 1,
+      costPerUnit: null,
+      oee: { availability: 0, performance: 0, quality: 0, oee: 0 },
+      throughputAttainment: 1,
+      atRisk: [],
+    }
+    if (!version) return empty
+
+    const ops = await this.repo.operationsForVersion(version.id)
+    if (ops.length === 0) return { ...empty, scheduleVersionId: version.id }
+    const actuals = await this.learning.listActualsForVersion(tenantId, version.id)
+    const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
+    const md = await this.resolveMasterData(tenantId)
+    const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
+    const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
+
+    const otif = ops.filter((o) => !o.atRisk).length / ops.length
+
+    let runtime = 0
+    let downtime = 0
+    let idealRun = 0
+    let good = 0
+    let scrap = 0
+    let planned = 0
+    let cost = 0
+    let costedGood = 0
+    for (const o of ops) {
+      planned += o.plannedQty
+      const a = actualByOp.get(o.id)
+      const g = a?.goodQty ?? 0
+      good += g
+      scrap += a?.scrapQty ?? 0
+      const runMin = a ? (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000 : o.setupTime + o.cycleTime * o.plannedQty
+      runtime += runMin
+      downtime += a?.downtimeMinutes ?? 0
+      idealRun += o.cycleTime * g
+      const res = resourceById.get(o.resourceId)
+      if (res && (res.runCostPerHour != null || res.setupCost != null || res.overheadPerUnit != null) && g > 0) {
+        // Tier-B op cost = changeover economics (setupCost, separate from machine time)
+        // + machine time over the occupied window (runMin, incl. setup; actual when known
+        // → drift raises cost) + per-unit overhead. cost/unit = Σcost / Σgood.
+        cost += (res.setupCost ?? 0) + (res.runCostPerHour ?? 0) * (runMin / 60) + (res.overheadPerUnit ?? 0) * g
+        costedGood += g
+      }
+    }
+    const availability = runtime + downtime > 0 ? runtime / (runtime + downtime) : 0
+    const performance = runtime > 0 ? Math.min(1, idealRun / runtime) : 0
+    const quality = good + scrap > 0 ? good / (good + scrap) : 0
+    const oee: OeeDto = { availability, performance, quality, oee: availability * performance * quality }
+
+    const atRisk: AtRiskOrderDto[] = ops
+      .filter((o) => o.atRisk)
+      .map((o) => ({
+        demandLineId: o.demandLineId,
+        label: `${partNoById.get(o.partId) ?? o.partId} · op ${o.opSeq}`,
+        reason: o.atRiskReason ?? 'at risk',
+      }))
+
+    return {
+      plantId: resolvedPlant,
+      scheduleVersionId: version.id,
+      otif,
+      costPerUnit: costedGood > 0 ? cost / costedGood : null,
+      oee,
+      throughputAttainment: planned > 0 && good > 0 ? good / planned : 1,
+      atRisk,
+    }
+  }
+
+  /**
+   * View 3 · Workforce coverage — operator×station (certification) grid with
+   * next-shift readiness and a cert-gap → named-operator OT **confirmed proposal**
+   * (D54; labor-aware, not rostering). Computed from master-data operators/certs/
+   * qualifications + seeded `available` presence.
+   */
+  async coverage(tenantId: string, plantId: string): Promise<WorkforceCoverageDto> {
+    const md = await this.resolveMasterData(tenantId)
+    const operators = (await md.listOperators(tenantId)).filter((o) => o.isActive && o.homePlantId === plantId)
+    const certs = (await md.listCertifications(tenantId)).filter((c) => c.isActive)
+
+    const operatorAxis: CoverageAxisDto[] = operators.map((o) => ({ id: o.id, label: o.name, out: !o.available }))
+    const stationAxis: CoverageAxisDto[] = certs.map((c) => ({ id: c.id, label: c.code, certRequired: true }))
+    const holds = (op: OperatorDto, certId: string) => op.certificationIds.includes(certId)
+    const covered = (certId: string) => operators.some((op) => op.available && holds(op, certId))
+
+    const cells: CoverageCell[][] = operators.map((op) =>
+      certs.map((c): CoverageCell => {
+        if (holds(op, c.id)) return 'qualified'
+        // an uncovered station highlights the present non-qualified cells as the gap
+        if (!covered(c.id) && op.available) return 'gap'
+        return 'not_qualified'
+      }),
+    )
+
+    const gapStations = certs.filter((c) => !covered(c.id))
+    const proposals: CoverageProposalDto[] = gapStations
+      .map((c): CoverageProposalDto | null => {
+        const fill = operators.find((op) => holds(op, c.id)) // a qualified operator to call in (incl. OUT → OT)
+        if (!fill) return null
+        return {
+          id: c.id,
+          station: c.name,
+          operatorName: fill.name,
+          reason: 'No certified operator present next shift',
+          status: 'proposed',
+        }
+      })
+      .filter((p): p is CoverageProposalDto => p != null)
+
+    const readinessPct = certs.length > 0 ? (certs.length - gapStations.length) / certs.length : 1
+
+    return {
+      plantId,
+      operators: operatorAxis,
+      stations: stationAxis,
+      cells,
+      readinessPct,
+      certGapCount: gapStations.length,
+      proposals,
+    }
+  }
 }
+
+/** Adherence window: an op "on plan" if it started within this of planned (variance). */
+const ADHERENCE_TOLERANCE_MIN = 15
 
 /** The part's attribute value that the op's changeover key points at (AS6). */
 function changeoverValueFor(part: PartDto, key: string | null): string | null {

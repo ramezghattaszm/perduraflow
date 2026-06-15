@@ -63,3 +63,19 @@ Implement scroll-with-pinned-labels unless you have a reason not to; note the ch
 - Renders identically on `apps/next` and `apps/expo`; story added/updated (both themes).
 - Horizontal scroll with a pinned resource-label column (or the chosen alternative), noted in the frontend-spec.
 - No change to API, schema, contract, sequencer, or the data returned — verify the same `GET /scheduling/versions/:id` payload now renders correctly.
+
+---
+
+## Addendum — horizon mode (Day / Week) + range + plant selector
+
+`ScheduleGantt` takes a **`horizon` prop (`day | week`)** — one component, two renderings (not two Gantts). The cockpit (View 1) defaults to **Day** and toggles to **Week**.
+
+- **Day (default — what exists):** axis = **hours** (e.g. 06:00–18:00); bars = **individual operations** at real `planned_start`/duration, with setup/changeover/at-risk encoding. This is the board already built/fixed.
+- **Week:** axis = **day columns** (Mon–Fri, with dates); each resource row shows **aggregate load per day** (utilization/load bar or heat per day cell) — **not** every operation across the week (that's the unreadable chip-soup case). Tapping a day drills into the Day view for that date. Week's per-day load is **computed from the same `scheduled_operation` rows** the day view uses — same data, aggregated; no separate dataset.
+
+**Header controls (cockpit):**
+- **Horizon toggle** — Day / Week segmented control. `NEW`.
+- **Range** — the explicit span with prev/next stepping: "Mon Jun 15" (day) or "Jun 15–19" (week). Always state the range; never an ambiguous "this week" with no dates. `NEW`.
+- **Plant selector** — **reuse the phase-2 board's plant chip-selector (already built)**; do not rebuild.
+
+**No-hardcoding (applies here too):** day bars, week aggregates, and the range all derive from seeded `scheduled_operation` / `schedule_version` rows through the real endpoint — no fixture values in the component. Replacing the seed with real data changes rows only, not the component.

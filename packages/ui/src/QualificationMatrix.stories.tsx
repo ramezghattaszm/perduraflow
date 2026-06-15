@@ -45,3 +45,33 @@ function Demo() {
 }
 
 export const Default: Story = { render: () => <Demo /> }
+
+/** Coverage skin (View 3): read-only tri-state + OUT pills + `*` markers. */
+export const Coverage: Story = {
+  render: () => {
+    const held: Record<string, string[]> = { o1: ['c2'], o2: ['c3'], o3: [] }
+    const present: Record<string, boolean> = { o1: true, o2: true, o3: false }
+    const covered = (cid: string) => Object.keys(held).some((o) => present[o] && held[o]!.includes(cid))
+    return (
+      <YStack padding="$4">
+        <QualificationMatrix
+          rows={[
+            { id: 'o1', label: 'Ana Reyes' },
+            { id: 'o2', label: 'Bruno Cruz' },
+            { id: 'o3', label: 'Jorge Morales', out: true },
+          ]}
+          cols={[
+            { id: 'c1', label: 'LEAK', marked: true },
+            { id: 'c2', label: 'TORQUE', marked: true },
+            { id: 'c3', label: 'CMM' },
+          ]}
+          rowHeader="Operator"
+          emptyText="No operators."
+          isOn={() => false}
+          onToggle={() => {}}
+          cellState={(r, c) => (held[r]?.includes(c) ? 'on' : !covered(c) && present[r] ? 'gap' : 'off')}
+        />
+      </YStack>
+    )
+  },
+}

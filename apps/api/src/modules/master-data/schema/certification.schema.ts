@@ -38,6 +38,9 @@ export const operator = masterDataSchema.table(
     name: text('name').notNull(),
     homePlantId: text('home_plant_id').notNull(),
     laborRate: doublePrecision('labor_rate'),
+    // Next-shift presence for the workforce coverage view (seeded/D35; phase 3).
+    // `false` = OUT this shift (distinct from `is_active` soft-delete).
+    available: boolean('available').notNull().default(true),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

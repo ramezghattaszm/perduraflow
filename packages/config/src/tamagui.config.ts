@@ -58,6 +58,16 @@ const palette = {
   blackA45: 'rgba(0,0,0,0.45)',
   primarySoftLight: 'rgba(45,91,227,0.10)', // selected nav/active row tint
   primarySoftDark: 'rgba(91,141,239,0.14)',
+  // ML / learned-value accent (phase 3, FS13) — a distinct violet so a learned op
+  // reads differently at a glance from a standard (primary-blue) one.
+  mlLight: '#6d4ae0',
+  mlDark: '#7c5cff',
+  mlSoftLight: 'rgba(109,74,224,0.12)',
+  mlSoftDark: 'rgba(124,92,255,0.16)',
+  dangerSoftLight: 'rgba(220,38,38,0.12)', // cert-gap cell / behind-plan tint
+  dangerSoftDark: 'rgba(248,113,113,0.16)',
+  warningSoftLight: 'rgba(217,119,6,0.14)', // tool-wear / caution tint
+  warningSoftDark: 'rgba(245,180,84,0.16)',
   hoverFillLight: 'rgba(0,0,0,0.045)', // row / nav-item / icon-button hover
   hoverFillDark: 'rgba(255,255,255,0.05)',
 } as const
@@ -84,6 +94,10 @@ const lightColors = {
   surfaceRaised: palette.surfaceRaisedLight,
   primarySoft: palette.primarySoftLight,
   hoverFill: palette.hoverFillLight,
+  ml: palette.mlLight,
+  mlSoft: palette.mlSoftLight,
+  dangerSoft: palette.dangerSoftLight,
+  warningSoft: palette.warningSoftLight,
 } as const
 
 const darkColors = {
@@ -107,6 +121,10 @@ const darkColors = {
   surfaceRaised: palette.surfaceRaisedDark,
   primarySoft: palette.primarySoftDark,
   hoverFill: palette.hoverFillDark,
+  ml: palette.mlDark,
+  mlSoft: palette.mlSoftDark,
+  dangerSoft: palette.dangerSoftDark,
+  warningSoft: palette.warningSoftDark,
 } as const
 
 export const config = createTamagui({

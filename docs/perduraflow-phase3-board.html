@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PerduraFlow — Phase 3 board (learned values)</title>
+<style>
+  :root{
+    --bg:#080B14; --surface:#131926; --raised:#1A2030; --line:#232C3D;
+    --ink:#E6E8EB; --dim:#9AA3B2; --faint:#5e6776;
+    --accent:#5b8def; --accent-bright:#79a4ff; --accent-soft:rgba(91,141,239,.14);
+    --green:#36d07f; --green-ink:#06200f; --danger:#f87171; --amber:#f5b454;
+    --bar:#3f6fd6; --bar-top:#5b8def; --ml:#7c5cff; --ml-top:#9b82ff; --ml-soft:rgba(124,92,255,.16);
+    font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070c;color:var(--ink);padding:24px 22px 60px}
+  .wrap{max-width:1200px;margin:0 auto}
+  h1{font-size:26px;font-weight:600;margin:0 0 3px}
+  .sub{color:var(--dim);font-size:13.5px;margin:0 0 18px}
+
+  /* variance strip (board-adjacent, NEW) */
+  .variance{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}
+  .vchip{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);
+    border-radius:10px;padding:9px 13px;font-size:13px}
+  .vchip .lbl{color:var(--dim)}
+  .vchip .val{font-weight:600}
+  .vchip.warn{border-color:rgba(245,180,84,.4)} .vchip.warn .val{color:var(--amber)}
+  .vchip.bad{border-color:rgba(248,113,113,.4)} .vchip.bad .val{color:var(--danger)}
+  .vchip .dot{width:8px;height:8px;border-radius:50%}
+  .vchip.warn .dot{background:var(--amber)} .vchip.bad .dot{background:var(--danger)} .vchip.ok .dot{background:var(--green)}
+
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  /* gantt */
+  .gantt{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+  .grow{display:grid;grid-template-columns:168px 1fr}
+  .corner{background:var(--raised);border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+    padding:10px 14px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  .axis{position:relative;height:34px;background:var(--raised);border-bottom:1px solid var(--line)}
+  .tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--line)}
+  .tick span{position:absolute;top:9px;left:6px;font-size:11px;color:var(--faint)}
+  .rlabel{display:flex;flex-direction:column;justify-content:center;padding:0 14px;border-right:1px solid var(--line);
+    border-bottom:1px solid var(--line);min-height:66px}
+  .rlabel .rn{font-size:14px;font-weight:500}
+  .rlabel .rmeta{display:flex;align-items:center;gap:6px;margin-top:4px}
+  .behind{font-size:11px;font-weight:600;color:var(--amber);background:rgba(245,180,84,.13);border-radius:5px;padding:2px 7px}
+  .lane{position:relative;border-bottom:1px solid var(--line);min-height:66px}
+  .gridline{position:absolute;top:0;bottom:0;border-left:1px solid rgba(255,255,255,.04)}
+  .bar{position:absolute;top:14px;height:40px;border-radius:6px;background:var(--bar);border-top:3px solid var(--bar-top);
+    display:flex;align-items:center;padding:0 9px;overflow:hidden;cursor:pointer;box-shadow:0 1px 0 rgba(0,0,0,.3)}
+  .bar.ml{background:var(--ml);border-top-color:var(--ml-top)}
+  .bar.sel{outline:2px solid var(--accent-bright);outline-offset:1px}
+  .bar.risk{box-shadow:inset 0 0 0 2px var(--danger),0 1px 0 rgba(0,0,0,.3)}
+  .bar .nm{font-size:12px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .tag{font-size:10px;opacity:.8;margin-left:5px;white-space:nowrap}
+  .bar .conf{position:absolute;bottom:3px;left:9px;right:9px;height:2px;border-radius:2px;background:rgba(255,255,255,.22)}
+  .bar .conf i{display:block;height:100%;border-radius:2px;background:rgba(255,255,255,.75)}
+  .setup{position:absolute;left:0;top:0;bottom:0;background:repeating-linear-gradient(45deg,rgba(0,0,0,.28),rgba(0,0,0,.28) 4px,transparent 4px,transparent 8px)}
+  .chg{position:absolute;top:10px;height:48px;width:3px;border-radius:2px;background:var(--accent);opacity:.8}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:12px 2px 0;font-size:11.5px;color:var(--dim)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:20px;height:11px;border-radius:3px}
+  .sw.std{background:var(--bar)} .sw.ml{background:var(--ml)} .sw.risk{background:var(--bar);box-shadow:inset 0 0 0 2px var(--danger)}
+
+  /* detail panel (NEW component) */
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .ph{padding:14px 16px;border-bottom:1px solid var(--line)}
+  .ph .t{font-size:14.5px;font-weight:600}
+  .ph .s{font-size:12px;color:var(--dim);margin-top:2px}
+  .pbody{padding:16px}
+  .sect{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:600;margin:0 0 10px}
+  /* the convergence: one settled step, not motion */
+  .step{display:flex;align-items:center;gap:11px;margin-bottom:12px}
+  .step .from{color:var(--dim);font-size:13px;text-decoration:line-through;text-decoration-color:var(--faint)}
+  .step .arr{color:var(--ml-top)}
+  .step .to{font-size:18px;font-weight:600}
+  .step .delta{font-size:12px;font-weight:600;color:var(--amber);background:rgba(245,180,84,.13);border-radius:5px;padding:2px 7px}
+  .track{position:relative;height:6px;background:var(--raised);border-radius:3px;margin:4px 0 14px}
+  .track .mk{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;border:2px solid var(--surface)}
+  .track .mk.s{background:var(--faint);left:18%}
+  .track .mk.l{background:var(--ml-top);left:72%}
+  .conf-row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .conf-bar{flex:1;height:6px;background:var(--raised);border-radius:3px;overflow:hidden}
+  .conf-bar i{display:block;height:100%;width:86%;background:var(--ml-top);border-radius:3px}
+  .conf-row .pct{font-size:13px;font-weight:600}
+  .muted{font-size:12px;color:var(--dim);line-height:1.5}
+  .trigger{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:11px;background:var(--raised);border-radius:9px}
+  .trigger .ic{width:26px;height:26px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;background:rgba(245,180,84,.16);color:var(--amber)}
+  .trigger .ic svg{width:15px;height:15px}
+  .trigger p{margin:0;font-size:12.5px;line-height:1.45}
+  .trigger .tt{font-weight:600;display:block;margin-bottom:1px}
+  .settled{font-size:11px;color:var(--green);display:inline-flex;align-items:center;gap:5px;margin-top:2px}
+  .settled::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green)}
+
+  /* tool-wear toast */
+  .toast{position:fixed;top:18px;right:18px;width:300px;background:#0f141d;border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:11px;padding:13px 15px;display:flex;gap:11px;box-shadow:0 18px 40px -18px rgba(0,0,0,.7)}
+  .toast .ic{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;background:rgba(245,180,84,.16);color:var(--amber)}
+  .toast .ic svg{width:16px;height:16px}
+  .toast b{font-size:13px} .toast p{margin:3px 0 0;font-size:12px;color:var(--dim);line-height:1.4}
+  .hint{margin-top:14px;font-size:12px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Schedule board</h1>
+  <p class="sub">Saltillo Stamping · committed · learning from execution actuals</p>
+
+  <!-- board-adjacent variance strip (NEW) -->
+  <div class="variance">
+    <div class="vchip bad"><span class="dot"></span><span class="lbl">Press Line A</span><span class="val">6% behind plan</span></div>
+    <div class="vchip ok"><span class="dot"></span><span class="lbl">Throughput attainment</span><span class="val">94%</span></div>
+    <div class="vchip warn"><span class="dot"></span><span class="lbl">Schedule churn</span><span class="val">low</span></div>
+    <div class="vchip ok"><span class="dot"></span><span class="lbl">Learned params</span><span class="val">7 of 11 ops</span></div>
+  </div>
+
+  <div class="layout">
+    <!-- GANTT -->
+    <div>
+      <div class="gantt">
+        <div class="grow" id="grid"><div class="corner">Resource</div><div class="axis" id="axis"></div></div>
+      </div>
+      <div class="legend">
+        <span><span class="sw std"></span>std — standard time</span>
+        <span><span class="sw ml"></span>ml — learned (confidence bar)</span>
+        <span><span class="sw risk"></span>at-risk (late)</span>
+        <span><span class="chg" style="position:static;height:11px"></span>changeover</span>
+      </div>
+    </div>
+
+    <!-- DETAIL PANEL (NEW) -->
+    <div class="panel">
+      <div class="ph">
+        <div class="t">FG-1003 · Press Line A</div>
+        <div class="s">Op 30 · stamping · 09:10–10:36</div>
+      </div>
+      <div class="pbody">
+        <p class="sect">Learned cycle time</p>
+        <div class="step">
+          <span class="from">70m</span><span class="arr">→</span><span class="to">76m</span><span class="delta">+8%</span>
+        </div>
+        <div class="track"><span class="mk s" title="standard"></span><span class="mk l" title="learned"></span></div>
+        <div class="conf-row"><div class="conf-bar"><i></i></div><span class="pct">86%</span></div>
+        <p class="muted">Learned from 12 actuals over the last 3h. <span class="settled">settled — holding steady</span></p>
+
+        <div class="trigger">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+          <p><span class="tt">Tool-wear signal</span>Cycle drift on Press Line A crossed threshold — flagged to maintenance. Schedule re-sequenced to protect downstream Weld Cell 2 from starvation.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="hint">Variance strip = board-adjacent (no separate dashboard). Bars carry <code>std</code>/<code>ml</code> + a confidence bar. The panel shows learning as <b>one settled step</b> (standard → learned) with rising confidence and the triggering signal — convergence, not a live-updating number.</p>
+</div>
+
+<div class="toast">
+  <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+  <div><b>Tool-wear flagged</b><p>Press Line A — cycle drift sustained past threshold.</p></div>
+</div>
+
+<script>
+  const H0=6*60,H1=18*60,span=H1-H0,PX=70,trackW=(span/60)*PX;
+  const axis=document.getElementById('axis'),grid=document.getElementById('grid');
+  axis.style.width=trackW+'px';
+  for(let m=H0;m<=H1;m+=120){const x=((m-H0)/span)*trackW;const t=document.createElement('div');t.className='tick';t.style.left=x+'px';const s=document.createElement('span');s.textContent=String(m/60).padStart(2,'0')+':00';t.appendChild(s);axis.appendChild(t);}
+  const mx=m=>((m-H0)/span)*trackW;
+  const rows=[
+    {name:'Press Line A',behind:'+6% behind',ops:[
+      {p:'FG-1001',s:6*60,setup:20,run:70,src:'ml',conf:.82},
+      {p:'FG-1001',s:6*60+95,setup:0,run:62,src:'ml',conf:.8},
+      {p:'FG-1003',s:6*60+170,setup:30,run:76,src:'ml',conf:.86,chg:true,sel:true},
+      {p:'FG-1002',s:6*60+290,setup:30,run:95,src:'std',chg:true},
+    ]},
+    {name:'Weld Cell 2',behind:null,ops:[
+      {p:'FG-1001',s:6*60+25,setup:15,run:55,src:'ml',conf:.78},
+      {p:'FG-1002',s:6*60+120,setup:25,run:88,src:'ml',conf:.81,chg:true},
+      {p:'FG-1003',s:6*60+255,setup:25,run:120,src:'std',chg:true,risk:true},
+    ]},
+  ];
+  rows.forEach(r=>{
+    const lab=document.createElement('div');lab.className='rlabel';
+    lab.innerHTML='<div class="rn">'+r.name+'</div>'+(r.behind?'<div class="rmeta"><span class="behind">'+r.behind+'</span></div>':'<div class="rmeta"><span class="muted" style="font-size:11px">on plan</span></div>');
+    grid.appendChild(lab);
+    const lane=document.createElement('div');lane.className='lane';lane.style.width=trackW+'px';
+    for(let m=H0+120;m<H1;m+=120){const g=document.createElement('div');g.className='gridline';g.style.left=mx(m)+'px';lane.appendChild(g);}
+    r.ops.forEach(o=>{
+      const x=mx(o.s),w=((o.setup+o.run)/span)*trackW;
+      const bar=document.createElement('div');bar.className='bar '+(o.src==='ml'?'ml ':'')+(o.risk?'risk ':'')+(o.sel?'sel':'');
+      bar.style.left=x+'px';bar.style.width=w+'px';
+      if(o.setup){const su=document.createElement('div');su.className='setup';su.style.width=(o.setup/(o.setup+o.run)*100)+'%';bar.appendChild(su);}
+      const nm=document.createElement('span');nm.className='nm';nm.textContent=w>78?o.p:'';
+      const tag=document.createElement('span');tag.className='tag';tag.textContent=w>120?('· '+o.src):'';
+      nm.appendChild(tag);bar.appendChild(nm);
+      if(o.src==='ml'){const c=document.createElement('div');c.className='conf';const i=document.createElement('i');i.style.width=Math.round(o.conf*100)+'%';c.appendChild(i);bar.appendChild(c);}
+      lane.appendChild(bar);
+      if(o.chg){const c=document.createElement('div');c.className='chg';c.style.left=(x-2)+'px';lane.appendChild(c);}
+    });
+    grid.appendChild(lane);
+  });
+</script>
+</body>
+</html>

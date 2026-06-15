@@ -41,6 +41,27 @@ export interface SequencerItem {
   eligibleResourceIds: string[]
 }
 
+/** Source flag for a planning time (D7/SKIP-04): master-data baseline or ML overlay. */
+export type TimeSource = 'standard' | 'ml_adjusted'
+
+/** The effective times for an op on a specific resource (the learned overlay, phase 3). */
+export interface EffectiveTimes {
+  setupTime: number
+  cycleTime: number
+  setupSource: TimeSource
+  cycleSource: TimeSource
+  setupConfidence: number | null
+  cycleConfidence: number | null
+}
+
+/**
+ * Resolve the effective times for `(routingOperationId, resourceId)` — the
+ * learning overlay (api-spec §12.5). Returns the held learned value where present
+ * and trusted, else the std baseline. **Pure** (precomputed by the service) so the
+ * sequencer stays deterministic.
+ */
+export type ResolveEffective = (routingOperationId: string, resourceId: string, stdSetup: number, stdCycle: number) => EffectiveTimes
+
 /** A placed operation (epoch-ms times; the service maps to rows). */
 export interface Placement {
   demandLineId: string
@@ -54,6 +75,10 @@ export interface Placement {
   qty: number
   setupTime: number
   cycleTime: number
+  setupSource: TimeSource
+  cycleSource: TimeSource
+  setupConfidence: number | null
+  cycleConfidence: number | null
   atRisk: boolean
   atRiskReason: string | null
 }
@@ -82,7 +107,16 @@ function startOfDayUtc(ms: number): number {
  * least one eligible resource (the service performs the feasibility hard gate
  * before calling this).
  */
-export function sequence(items: SequencerItem[]): SequencerResult {
+export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffective): SequencerResult {
+  const effectiveFor = (item: SequencerItem, resourceId: string): EffectiveTimes =>
+    resolveEffective?.(item.routingOperationId, resourceId, item.setupTime, item.cycleTime) ?? {
+      setupTime: item.setupTime,
+      cycleTime: item.cycleTime,
+      setupSource: 'standard',
+      cycleSource: 'standard',
+      setupConfidence: null,
+      cycleConfidence: null,
+    }
   if (items.length === 0) {
     const now0 = 0
     return { placements: [], horizonStartMs: now0, horizonEndMs: now0 }
@@ -139,8 +173,9 @@ export function sequence(items: SequencerItem[]): SequencerResult {
 
     const item = bestItem
     const st = stateFor(bestRes)
+    const eff = effectiveFor(item, bestRes)
     const startMs = Math.max(st.freeMs, origin)
-    const durMs = (item.setupTime + item.cycleTime * item.qty) * MS_PER_MINUTE
+    const durMs = (eff.setupTime + eff.cycleTime * item.qty) * MS_PER_MINUTE
     const endMs = startMs + durMs
     st.freeMs = endMs
     st.currentAttr = item.changeoverValue
@@ -156,8 +191,12 @@ export function sequence(items: SequencerItem[]): SequencerResult {
       plannedStartMs: startMs,
       plannedEndMs: endMs,
       qty: item.qty,
-      setupTime: item.setupTime,
-      cycleTime: item.cycleTime,
+      setupTime: eff.setupTime,
+      cycleTime: eff.cycleTime,
+      setupSource: eff.setupSource,
+      cycleSource: eff.cycleSource,
+      setupConfidence: eff.setupConfidence,
+      cycleConfidence: eff.cycleConfidence,
       atRisk,
       atRiskReason: atRisk ? 'late' : null,
     })
