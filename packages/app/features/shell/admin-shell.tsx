@@ -29,6 +29,9 @@ const FULL_HEIGHT = Platform.OS === 'web' ? '100dvh' : '100%'
 export interface AppShellProps {
   activeId: string
   maxWidth?: MaxWidth
+  /** Screen title shown in the TopBar on `small` (the in-body H1 is dropped there).
+   *  Defaults to the active nav item's label (PHASE-3-POLISH item 1). */
+  title?: string
   children: ReactNode
 }
 
@@ -41,7 +44,7 @@ export interface AppShellProps {
  * (TopBar below the notch, drawers clear the home indicator). Collapse is a
  * per-user server-side preference. `AdminShell` is the alias every screen uses.
  */
-export function AppShell({ activeId, maxWidth = 'fullscreen', children }: AppShellProps) {
+export function AppShell({ activeId, maxWidth = 'fullscreen', title, children }: AppShellProps) {
   const router = useRouter()
   const { t } = useTranslation('admin')
   const user = useCurrentUser()
@@ -77,6 +80,8 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', children }: AppShe
   const activeItem = activeSection?.items.find((it) => it.id === activeId)
   const breadcrumb =
     activeSection && activeItem ? [t(activeSection.sectionLabelKey), t(activeItem.labelKey)] : undefined
+  // Small-screen TopBar title: explicit `title` else the active nav item's label.
+  const topTitle = title ?? (activeItem ? t(activeItem.labelKey) : undefined)
 
   const brandName = user?.tenantName ?? ''
   const renderBrand = (c: boolean) => (
@@ -104,7 +109,7 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', children }: AppShe
     <YStack flex={1} backgroundColor="$background" position="relative" style={{ height: FULL_HEIGHT, overflow: 'hidden' }}>
       {isSmall ? (
         <>
-          <TopBar isSmall collapsed={false} insetTop={insets.top} onToggleCollapse={() => {}} onOpenDrawer={() => setNavOpen(true)} />
+          <TopBar isSmall collapsed={false} insetTop={insets.top} title={topTitle} onToggleCollapse={() => {}} onOpenDrawer={() => setNavOpen(true)} />
           {/* Lift the page above the on-screen keyboard so focused inputs near the
               bottom stay reachable (native; no-op on web). */}
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -291,14 +296,16 @@ function PoweredBy({ collapsed, label }: { collapsed: boolean; label: string }) 
 export function AdminShell({
   activeId,
   maxWidth = 'fullscreen',
+  title,
   children,
 }: {
   activeId: string
   maxWidth?: MaxWidth
+  title?: string
   children: ReactNode
 }) {
   return (
-    <AppShell activeId={activeId} maxWidth={maxWidth}>
+    <AppShell activeId={activeId} maxWidth={maxWidth} title={title}>
       {children}
     </AppShell>
   )

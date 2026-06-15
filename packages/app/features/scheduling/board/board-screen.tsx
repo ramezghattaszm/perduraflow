@@ -5,8 +5,7 @@ import { TriangleAlert } from '@tamagui/lucide-icons'
 import type { GanttBar, VarianceChip } from '@perduraflow/ui'
 import {
   AppButton,
-  AppSelect,
-  FormField,
+  ContextSelectors,
   LearnedParamPanel,
   P,
   PageHeader,
@@ -227,18 +226,12 @@ export function BoardContent() {
         }
       />
 
-      <XStack gap="$4" flexWrap="wrap">
-        <YStack width={240}>
-          <FormField label={t('board.plant')}>
-            <AppSelect options={plantOptions} value={plantId} onChange={setPlant} placeholder={t('board.plant')} />
-          </FormField>
-        </YStack>
-        <YStack width={360}>
-          <FormField label={t('board.version')}>
-            <AppSelect options={versionOptions} value={versionId} onChange={setVersionId} placeholder={t('board.version')} />
-          </FormField>
-        </YStack>
-      </XStack>
+      <ContextSelectors
+        selectors={[
+          { label: t('board.plant'), value: plantId, options: plantOptions, onChange: setPlant, width: 240 },
+          { label: t('board.version'), value: versionId, options: versionOptions, onChange: setVersionId, width: 360 },
+        ]}
+      />
 
       {errorMsg ? (
         <P size={4} color="$danger">
@@ -412,8 +405,9 @@ function GanttLegend() {
 
 /** Web board screen — the board body inside the desktop `AdminShell` chrome. */
 export function BoardScreen() {
+  const { t } = useTranslation('scheduling')
   return (
-    <AdminShell activeId="board">
+    <AdminShell activeId="board" title={t('board.title')}>
       <BoardContent />
     </AdminShell>
   )

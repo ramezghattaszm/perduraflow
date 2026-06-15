@@ -3,13 +3,12 @@
 import { useMemo, useState } from 'react'
 import type { ColorTokens, MatrixCell } from '@perduraflow/ui'
 import {
+  ContextSelectors,
   CoverageProposal,
-  FormField,
   H,
   P,
   PageHeader,
   QualificationMatrix,
-  AppSelect,
   XStack,
   YStack,
 } from '@perduraflow/ui'
@@ -46,11 +45,7 @@ export function WorkforceContent() {
   return (
     <>
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
-      <YStack width={240}>
-        <FormField label={t('plant')}>
-          <AppSelect options={plantOptions} value={plantId} onChange={setPlant} placeholder={t('plant')} />
-        </FormField>
-      </YStack>
+      <ContextSelectors selectors={[{ label: t('plant'), value: plantId, options: plantOptions, onChange: setPlant, width: 240 }]} />
 
       {!cov ? null : (
         <XStack gap="$4" flexWrap="wrap" alignItems="flex-start">
@@ -142,8 +137,9 @@ function Legend({ tone, label, outline }: { tone: ColorTokens; label: string; ou
 
 /** Web Workforce screen — body inside the desktop `AdminShell` chrome. */
 export function WorkforceScreen() {
+  const { t } = useTranslation('workforce')
   return (
-    <AdminShell activeId="workforce">
+    <AdminShell activeId="workforce" title={t('title')}>
       <WorkforceContent />
     </AdminShell>
   )

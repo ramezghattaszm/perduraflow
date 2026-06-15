@@ -1,5 +1,5 @@
 import { Check } from '@tamagui/lucide-icons'
-import { ScrollView, XStack, YStack } from 'tamagui'
+import { ScrollView, useMedia, XStack, YStack } from 'tamagui'
 import { EmptyState } from './EmptyState'
 import { P } from './typography'
 
@@ -63,18 +63,24 @@ export function QualificationMatrix({
     return <EmptyState title={emptyText} />
   }
   const coverage = Boolean(cellState)
+  // Responsive density on small (PHASE-3-POLISH item 1): pin-and-shrink — narrower
+  // first column, cells, and checkbox so the wide matrix stays usable on a phone.
+  const small = Boolean(useMedia()['max-md'])
+  const rowLabelW = small ? 124 : ROW_LABEL_WIDTH
+  const cellW = small ? 60 : CELL_WIDTH
+  const box = small ? 22 : 28
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} width="100%">
       <YStack borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden">
         {/* header row */}
         <XStack backgroundColor="$background">
-          <XStack width={ROW_LABEL_WIDTH} paddingVertical="$3" paddingHorizontal="$4">
+          <XStack width={rowLabelW} paddingVertical="$3" paddingHorizontal="$4">
             <P size={6} weight="b" color="$textSecondary">
               {rowHeader.toUpperCase()}
             </P>
           </XStack>
           {cols.map((c) => (
-            <XStack key={c.id} width={CELL_WIDTH} paddingVertical="$3" paddingHorizontal="$2" justifyContent="center">
+            <XStack key={c.id} width={cellW} paddingVertical="$3" paddingHorizontal="$2" justifyContent="center">
               <P size={6} weight="b" color="$textSecondary" style={{ textAlign: 'center' }}>
                 {c.label}
                 {c.marked ? <P size={6} weight="b" color="$warning"> *</P> : null}
@@ -85,7 +91,7 @@ export function QualificationMatrix({
         {/* operator rows */}
         {rows.map((r) => (
           <XStack key={r.id} borderTopWidth={1} borderTopColor="$borderColor" backgroundColor="$surface">
-            <XStack width={ROW_LABEL_WIDTH} paddingVertical="$3" paddingHorizontal="$4" alignItems="center" gap="$2">
+            <XStack width={rowLabelW} paddingVertical="$3" paddingHorizontal="$4" alignItems="center" gap="$2">
               <P size={4} color={r.out ? '$textSecondary' : '$textPrimary'}>
                 {r.label}
               </P>
@@ -112,11 +118,11 @@ export function QualificationMatrix({
                     : 'transparent'
               const border = unavailable ? '$borderColor' : state === 'on' ? '$primary' : state === 'gap' ? '$danger' : '$borderColor'
               return (
-                <XStack key={c.id} width={CELL_WIDTH} paddingVertical="$2" justifyContent="center" alignItems="center">
+                <XStack key={c.id} width={cellW} paddingVertical="$2" justifyContent="center" alignItems="center">
                   <XStack
                     onPress={readOnly || coverage ? undefined : () => onToggle(r.id, c.id, state !== 'on')}
-                    width={28}
-                    height={28}
+                    width={box}
+                    height={box}
                     borderRadius="$3"
                     borderWidth={1}
                     opacity={unavailable ? 0.4 : 1}

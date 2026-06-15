@@ -30,5 +30,10 @@
     "empty": "No at-risk orders."
   },
   "empty": "No committed schedule yet — commit a version to see its scorecard.",
-  "costNa": "n/a"
+  "costNa": "n/a",
+  "vsPrev": "vs prev",
+  "scope": {
+    "label": "Scope",
+    "plant": "Plant"
+  }
 }

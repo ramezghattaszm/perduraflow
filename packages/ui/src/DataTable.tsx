@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react'
-import { ScrollView, Spinner, XStack, YStack } from 'tamagui'
+import { ScrollView, Spinner, useMedia, XStack, YStack } from 'tamagui'
 import { EmptyState } from './EmptyState'
 import { P } from './typography'
 
@@ -64,6 +64,7 @@ export function DataTable<T extends { id: string }>({
   emptyTitle = 'Nothing here yet',
   emptyMessage,
   minRowWidth = 720,
+  stackOnSmall = false,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -73,7 +74,11 @@ export function DataTable<T extends { id: string }>({
   emptyMessage?: string
   /** Min table width before the row scrolls horizontally on small screens (UI shell spec §7). */
   minRowWidth?: number
+  /** Narrow tables (few columns): on `small`, stack each row as a card (vertical
+   *  scroll only, no horizontal scroll) — PHASE-3-POLISH item 1 "tables by width". */
+  stackOnSmall?: boolean
 }) {
+  const small = Boolean(useMedia()['max-md'])
   const [sort, setSort] = useState<SortState>(null)
 
   const sortedRows = useMemo(() => {
@@ -117,6 +122,49 @@ export function DataTable<T extends { id: string }>({
   }
   if (rows.length === 0) {
     return <EmptyState title={emptyTitle} subtitle={emptyMessage} />
+  }
+
+  // Narrow-table card mode on `small`: each row → a labelled card, vertical only
+  // (a horizontal-scrolling 2-column table reads as broken). PHASE-3-POLISH item 1.
+  if (stackOnSmall && small) {
+    return (
+      <YStack gap="$2">
+        {sortedRows.map((row) => (
+          <YStack
+            key={row.id}
+            backgroundColor="$background"
+            borderWidth={1}
+            borderColor="$borderColor"
+            borderRadius="$4"
+            padding="$3"
+            gap="$2"
+            cursor={onRowPress ? 'pointer' : undefined}
+            pressStyle={onRowPress ? { opacity: 0.8 } : undefined}
+            onPress={onRowPress ? () => onRowPress(row) : undefined}
+          >
+            {columns.map((c) => {
+              const content: ReactNode = c.render
+                ? c.render(row)
+                : String((row as Record<string, unknown>)[c.key] ?? '—')
+              return (
+                <XStack key={c.key} justifyContent="space-between" gap="$3" alignItems="center">
+                  <P size={7} weight="b" color="$textSecondary">
+                    {c.label.toUpperCase()}
+                  </P>
+                  {typeof content === 'string' || typeof content === 'number' ? (
+                    <P size={4} color="$textPrimary" style={{ textAlign: 'right' }}>
+                      {content}
+                    </P>
+                  ) : (
+                    content
+                  )}
+                </XStack>
+              )
+            })}
+          </YStack>
+        ))}
+      </YStack>
+    )
   }
 
   return (

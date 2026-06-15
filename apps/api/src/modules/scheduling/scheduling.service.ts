@@ -388,42 +388,21 @@ export class SchedulingService {
     }
   }
 
-  /**
-   * View 2 · Service–Cost Scorecard — phase-3 metrics for **one schedule version**
-   * (its OWN actuals, not the plant's latest): OTIF, OEE (A·P·Q), Tier-B cost/unit,
-   * throughput attainment, at-risk orders. `versionId` makes it per-version — the
-   * Phase-5 baseline/plan-comparison substrate; reselecting an earlier version
-   * shows its own numbers. Defaults to the plant's latest committed (else newest).
-   * Baseline-comparison arm is Phase 5. @throws AppException SCHEDULE_VERSION_NOT_FOUND
-   */
-  async scorecard(tenantId: string, plantId: string, versionId?: string): Promise<ScorecardDto> {
-    const version = versionId
-      ? await this.repo.findVersion(tenantId, versionId)
-      : ((await this.repo.findCommittedVersion(tenantId, plantId)) ??
-        (await this.repo.listVersions(tenantId, plantId))[0])
-    if (versionId && !version) {
-      throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
-    }
-    const resolvedPlant = version?.plantId ?? plantId
-    const empty: ScorecardDto = {
-      plantId: resolvedPlant,
-      scheduleVersionId: null,
-      otif: 1,
-      costPerUnit: null,
-      oee: null,
-      throughputAttainment: null,
-      atRisk: [],
-    }
-    if (!version) return empty
-
-    const ops = await this.repo.operationsForVersion(version.id)
-    if (ops.length === 0) return { ...empty, scheduleVersionId: version.id }
-    const actuals = await this.learning.listActualsForVersion(tenantId, version.id)
+  /** Compute one version's metrics, optionally scoped to a single resource/line. */
+  private async versionMetrics(
+    tenantId: string,
+    versionId: string,
+    resourceId: string | undefined,
+    resourceById: Map<string, ResourceDto>,
+    partNoById: Map<string, string>,
+  ): Promise<{ otif: number; costPerUnit: number | null; oee: OeeDto | null; throughputAttainment: number | null; atRisk: AtRiskOrderDto[] }> {
+    let ops = await this.repo.operationsForVersion(versionId)
+    if (resourceId) ops = ops.filter((o) => o.resourceId === resourceId)
+    if (ops.length === 0) return { otif: 1, costPerUnit: null, oee: null, throughputAttainment: null, atRisk: [] }
+    let actuals = await this.learning.listActualsForVersion(tenantId, versionId)
+    if (resourceId) actuals = actuals.filter((a) => a.resourceId === resourceId)
     const hasActuals = actuals.length > 0
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
-    const md = await this.resolveMasterData(tenantId)
-    const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
-    const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
 
     // OTIF is plan-based (the schedule's on-time fraction) — valid without actuals.
     const otif = ops.filter((o) => !o.atRisk).length / ops.length
@@ -448,14 +427,13 @@ export class SchedulingService {
       idealRun += o.cycleTime * g
       const res = resourceById.get(o.resourceId)
       if (res && (res.runCostPerHour != null || res.setupCost != null || res.overheadPerUnit != null) && g > 0) {
-        // Tier-B op cost = changeover economics (setupCost, separate from machine time)
-        // + machine time over the occupied window (runMin, incl. setup; actual when known
-        // → drift raises cost) + per-unit overhead. cost/unit = Σcost / Σgood.
+        // Tier-B op cost = changeover economics (setupCost) + machine time (runMin, incl.
+        // setup; actual when known → drift raises cost) + overhead. cost/unit = Σcost / Σgood.
         cost += (res.setupCost ?? 0) + (res.runCostPerHour ?? 0) * (runMin / 60) + (res.overheadPerUnit ?? 0) * g
         costedGood += g
       }
     }
-    // OEE needs actuals — null (not 0%) when none, so the UI reads "no actuals yet".
+    // OEE/throughput/cost need actuals — null (not 0%/100%) when none (no data ≠ value).
     let oee: OeeDto | null = null
     if (hasActuals) {
       const availability = runtime + downtime > 0 ? runtime / (runtime + downtime) : 0
@@ -463,7 +441,6 @@ export class SchedulingService {
       const quality = good + scrap > 0 ? good / (good + scrap) : 0
       oee = { availability, performance, quality, oee: availability * performance * quality }
     }
-
     const atRisk: AtRiskOrderDto[] = ops
       .filter((o) => o.atRisk)
       .map((o) => ({
@@ -471,16 +448,64 @@ export class SchedulingService {
         label: `${partNoById.get(o.partId) ?? o.partId} · ${o.demandLineId}`,
         detail: `op ${o.opSeq} · ${resourceById.get(o.resourceId)?.name ?? o.resourceId}`,
         reason: o.atRiskReason ?? 'at risk',
+        resourceId: o.resourceId,
       }))
-
     return {
-      plantId: resolvedPlant,
-      scheduleVersionId: version.id,
       otif,
       costPerUnit: costedGood > 0 ? cost / costedGood : null,
       oee,
       throughputAttainment: hasActuals && planned > 0 ? good / planned : null,
       atRisk,
+    }
+  }
+
+  /**
+   * View 2 · Service–Cost Scorecard — phase-3 metrics for **one schedule version**
+   * (its OWN actuals), optionally **drilled to one line** (`resourceId`). Returns a
+   * `previous` snapshot = the prior **committed** version this one supersedes, for
+   * version-over-version ↑/↓ (NOT the manual baseline — that stays the Phase-5 stub;
+   * the UI renders "—" when a previous metric is null, never a delta-from-null).
+   * @throws AppException SCHEDULE_VERSION_NOT_FOUND
+   */
+  async scorecard(tenantId: string, plantId: string, versionId?: string, resourceId?: string): Promise<ScorecardDto> {
+    const version = versionId
+      ? await this.repo.findVersion(tenantId, versionId)
+      : ((await this.repo.findCommittedVersion(tenantId, plantId)) ??
+        (await this.repo.listVersions(tenantId, plantId))[0])
+    if (versionId && !version) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
+    }
+    const resolvedPlant = version?.plantId ?? plantId
+    if (!version) {
+      return { plantId: resolvedPlant, scheduleVersionId: null, resourceId: resourceId ?? null, previous: null, otif: 1, costPerUnit: null, oee: null, throughputAttainment: null, atRisk: [] }
+    }
+    const md = await this.resolveMasterData(tenantId)
+    const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
+    const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
+
+    const cur = await this.versionMetrics(tenantId, version.id, resourceId, resourceById, partNoById)
+    // Previous = the prior committed version this one supersedes (committed-to-committed).
+    const prevVersion = version.supersedesVersionId
+      ? await this.repo.findVersion(tenantId, version.supersedesVersionId)
+      : null
+    const previous = prevVersion
+      ? await this.versionMetrics(tenantId, prevVersion.id, resourceId, resourceById, partNoById).then((m) => ({
+          otif: m.otif,
+          costPerUnit: m.costPerUnit,
+          oee: m.oee,
+        }))
+      : null
+
+    return {
+      plantId: resolvedPlant,
+      scheduleVersionId: version.id,
+      resourceId: resourceId ?? null,
+      previous,
+      otif: cur.otif,
+      costPerUnit: cur.costPerUnit,
+      oee: cur.oee,
+      throughputAttainment: cur.throughputAttainment,
+      atRisk: cur.atRisk,
     }
   }
 
@@ -493,7 +518,11 @@ export class SchedulingService {
   async coverage(tenantId: string, plantId: string): Promise<WorkforceCoverageDto> {
     const md = await this.resolveMasterData(tenantId)
     const operators = (await md.listOperators(tenantId)).filter((o) => o.isActive && o.homePlantId === plantId)
-    const certs = (await md.listCertifications(tenantId)).filter((c) => c.isActive)
+    // Stations relevant to THIS plant = certs at least one of its operators holds
+    // (a stamping plant doesn't surface leak-test/weld it never staffs — that would
+    // be a false gap). No plant↔cert table yet → operator possession is the proxy.
+    const relevantCertIds = new Set(operators.flatMap((o) => o.certificationIds))
+    const certs = (await md.listCertifications(tenantId)).filter((c) => c.isActive && relevantCertIds.has(c.id))
 
     const operatorAxis: CoverageAxisDto[] = operators.map((o) => ({ id: o.id, label: o.name, out: !o.available }))
     const stationAxis: CoverageAxisDto[] = certs.map((c) => ({ id: c.id, label: c.code, certRequired: true }))

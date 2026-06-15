@@ -30,12 +30,17 @@ export function useVariance(versionId: string | undefined) {
   })
 }
 
-/** Per-version Service–Cost Scorecard (View 2). `versionId` omitted → latest committed. */
-export function useScorecard(plantId: string | undefined, versionId?: string) {
+/**
+ * Per-version Service–Cost Scorecard (View 2). `versionId` omitted → latest committed;
+ * `resourceId` drills to one line (plant-level when omitted).
+ */
+export function useScorecard(plantId: string | undefined, versionId?: string, resourceId?: string) {
   return useQuery({
-    queryKey: QUERY_KEYS.scheduling.scorecard(plantId ?? '', versionId ?? ''),
+    queryKey: [...QUERY_KEYS.scheduling.scorecard(plantId ?? '', versionId ?? ''), resourceId ?? ''],
     queryFn: () =>
-      get<ScorecardDto>(`/scheduling/scorecard?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}`),
+      get<ScorecardDto>(
+        `/scheduling/scorecard?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}${resourceId ? `&resourceId=${resourceId}` : ''}`,
+      ),
     enabled: Boolean(plantId),
   })
 }

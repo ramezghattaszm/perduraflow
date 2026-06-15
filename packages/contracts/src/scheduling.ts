@@ -151,12 +151,25 @@ export interface AtRiskOrderDto {
   detail: string
   /** The reason tag from the schedule (e.g. "late") — rendered as a badge. */
   reason: string
+  /** The op's resource — clicking the row drills the Scorecard to this line. */
+  resourceId: string
+}
+
+/** A prior-version metric snapshot for version-over-version deltas (NOT the manual baseline). */
+export interface ScorecardPreviousDto {
+  otif: number
+  costPerUnit: number | null
+  oee: OeeDto | null
 }
 
 /** View 2 · Service–Cost Scorecard (plant manager) — phase-3-computable metrics. */
 export interface ScorecardDto {
   plantId: string
   scheduleVersionId: string | null
+  /** When set, metrics are scoped to one resource/line (drill-down); null = plant-level. */
+  resourceId?: string | null
+  /** Prior **committed** version's metrics for version-over-version ↑/↓ (null if none). */
+  previous: ScorecardPreviousDto | null
   /** On-time-in-full (service). */
   otif: number
   /** Tier-B cost per unit (computed from seeded Master-Data rates); null when no actuals. */

@@ -53,7 +53,8 @@ export class SchedulingController {
     @CurrentUser() user: JwtPayload,
     @Query('plantId') plantId: string,
     @Query('versionId') versionId?: string,
+    @Query('resourceId') resourceId?: string,
   ) {
-    return this.scheduling.scorecard(user.tenantId, plantId, versionId)
+    return this.scheduling.scorecard(user.tenantId, plantId, versionId, resourceId)
   }
 }

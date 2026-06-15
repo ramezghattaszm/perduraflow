@@ -32,6 +32,8 @@ export interface TopBarProps {
   insetTop?: number
   /** Utility breadcrumb segments, e.g. ["Administration", "Plants"]. */
   breadcrumb?: string[]
+  /** Screen title shown next to the menu on `small` (the in-body H1 is dropped there). */
+  title?: string
 }
 
 /**
@@ -41,7 +43,7 @@ export interface TopBarProps {
  * a time; clicking the scrim closes both. Never duplicates the page title — that
  * stays in the body PageHeader.
  */
-export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onOpenAdmin, insetTop = 0, breadcrumb }: TopBarProps) {
+export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onOpenAdmin, insetTop = 0, breadcrumb, title }: TopBarProps) {
   const { t } = useTranslation('admin')
   const router = useRouter()
   const user = useCurrentUser()
@@ -70,7 +72,14 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onO
       borderBottomColor="$borderColor"
     >
       {isSmall ? (
-        <IconButton icon={Menu} label={t('shell.openMenu')} onPress={onOpenDrawer} color="$textPrimary" />
+        <>
+          <IconButton icon={Menu} label={t('shell.openMenu')} onPress={onOpenDrawer} color="$textPrimary" />
+          {title ? (
+            <P size={3} weight="b" color="$textPrimary" numberOfLines={1} flex={1}>
+              {title}
+            </P>
+          ) : null}
+        </>
       ) : (
         <IconButton
           icon={PanelLeft}

@@ -103,8 +103,9 @@ export function SimulatorContent() {
 
 /** Web dev simulator screen. */
 export function SimulatorScreen() {
+  const { t } = useTranslation('scheduling')
   return (
-    <AdminShell activeId="dev-simulator">
+    <AdminShell activeId="dev-simulator" title={t('simulator.title')}>
       <SimulatorContent />
     </AdminShell>
   )
