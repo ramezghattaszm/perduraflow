@@ -29,6 +29,8 @@ export interface GanttResource {
   id: string
   label: string
   subLabel?: string
+  /** Calm settled signal under the lane name, e.g. "11% behind plan" (BOARD-SIGNALS item 2). */
+  behind?: string
 }
 
 /**
@@ -161,11 +163,17 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
           </P>
         </XStack>
         {resources.map((r) => (
-          <YStack key={r.id} height={LANE_H} justifyContent="center" paddingHorizontal="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
+          <YStack key={r.id} height={LANE_H} justifyContent="center" paddingHorizontal="$3" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
             <P size={4} weight="m" numberOfLines={1}>
               {r.label}
             </P>
-            {r.subLabel ? (
+            {r.behind ? (
+              <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
+                <P size={8} weight="b" color="$danger" numberOfLines={1}>
+                  {r.behind}
+                </P>
+              </XStack>
+            ) : r.subLabel ? (
               <P size={7} color="$textSecondary" numberOfLines={1}>
                 {r.subLabel}
               </P>

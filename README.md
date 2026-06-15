@@ -125,8 +125,8 @@ Client → API URLs (only needed when you boot the clients):
 ### 5. Run
 
 ```bash
-bun --filter @perduraflow/api dev      # API   (Node)        → http://localhost:3000/api/v1
-bun web                           # web   (Next.js)     → http://localhost:3001
+bun --filter @perduraflow/api dev      # API   (Node)        → http://localhost:3010/api/v1
+bun web                           # web   (Next.js)     → http://localhost:3011
 bun native                        # native dev server (Metro) → open on a simulator/device
 ```
 
@@ -302,10 +302,45 @@ bun run db:setup
 bun --filter @perduraflow/api db:generate     # generate a migration after a schema change
 bun --filter @perduraflow/api db:migrate
 bun --filter @perduraflow/api db:seed
+bun run demo:reset                        # reset to the deterministic baseline demo state (see below)
 
 # quality
 bun run typecheck                         # repo-wide (turbo)
 ```
+
+### Demo reset
+
+```bash
+bun run demo:reset
+```
+
+One-step reset to the **deterministic baseline demo state**. Run it before (or between)
+demos to get a clean, identical starting point every time.
+
+- **Wipes** all learned values, execution actuals, and schedule versions (including
+  post-drift / committed ones) by truncating every app-schema table — migrations/schema
+  are untouched (data only).
+- **Restores** the seed: same tenant, plants, parts, customer/program + demand lines,
+  operators, certifications, and cost rates every run.
+- **Rebuilds** the committed baseline schedule through the **real engine** (solve +
+  commit via the API — no logic duplicated), so the board opens with **all operations
+  `std`**, **0 learned parameters**, and **no variance** (no actuals yet).
+- **Idempotent** (run any number of times → identical clean state) and **deterministic**
+  (the sequencer is reproducible, D2).
+
+Post-reset confirmation (printed by the command):
+
+```
+• active demand lines  : 8
+• committed versions   : 1
+• scheduled operations : 11 (ml_adjusted = 0, learned = 0 of 11)
+• execution actuals    : 0
+• variance             : none (no actuals)
+```
+
+> **Requires the API running** (it builds the baseline via the real engine). If the API
+> is down, the data baseline is still restored and the schedule appears on the planner's
+> first **Re-solve**. Demo creds: `admin@perduraflow.test` / `Password123`.
 
 ---
 

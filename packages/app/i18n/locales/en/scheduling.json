@@ -8,6 +8,9 @@
     "commit": "Commit",
     "empty": "Nothing scheduled yet — Re-solve to generate a draft.",
     "noResources": "No resources for this plant.",
+    "stale": {
+      "banner": "Plan stale — actuals have drifted past threshold. Re-solve to apply the learned values."
+    },
     "noVersions": "No schedule versions yet.",
     "run": {
       "status": "Run",
@@ -50,9 +53,13 @@
   },
   "learned": {
     "cycle": "Learned cycle time",
+    "cycleStd": "Cycle time",
     "setup": "Learned setup time",
+    "setupRow": "Setup",
     "basis": "Learned from {{count}} actuals.",
     "settled": "settled — holding steady",
+    "noAdjustment": "Running on standard times — not enough actuals to adopt a learned value.",
+    "accruing": "Running on standard times — {{count}} actuals so far, not enough to adopt a learned value yet.",
     "selectHint": "Select a learned (ml) bar to see how it converged.",
     "none": "No learned values yet — run the simulator to feed actuals."
   },

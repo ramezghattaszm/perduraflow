@@ -2,14 +2,9 @@ import { TriangleAlert } from '@tamagui/lucide-icons'
 import { XStack, YStack } from 'tamagui'
 import { P } from './typography'
 
-/** Props for {@link LearnedParamPanel}. */
-export interface LearnedParamPanelProps {
-  title: string
-  subtitle?: string
-  /** Section label, e.g. "Learned cycle time". */
-  metricLabel: string
-  /** Pre-formatted standard + learned values (e.g. "70m", "76m"). */
-  standardText: string
+/** The learned (ml) settled-step detail — present only when a value has been adopted. */
+export interface LearnedStep {
+  /** Pre-formatted learned value (e.g. "76m"). */
   learnedText: string
   /** Signed delta badge text, e.g. "+8%". */
   deltaText: string
@@ -19,36 +14,50 @@ export interface LearnedParamPanelProps {
   basisText: string
   /** "settled — holding steady" copy (convergence beat). */
   settledText: string
-  /** Optional tool-wear trigger: { title, body } → the amber signal box (D56). */
+  /** Optional tool-wear trigger → the amber signal box (D56). */
   trigger?: { title: string; body: string }
 }
 
+/** Props for {@link LearnedParamPanel}. */
+export interface LearnedParamPanelProps {
+  title: string
+  subtitle?: string
+  /** Section label, e.g. "Learned cycle time" (learned) or "Cycle time" (standard). */
+  metricLabel: string
+  /** The standard baseline value text (always shown — struck-through in the learned state). */
+  standardText: string
+  /** Source badge text — e.g. "ml" or "std". */
+  sourceText: string
+  /** Learned state: present → render the std→learned settled step; absent → standard state. */
+  learned?: LearnedStep
+  /** Standard state: the "no learned adjustment yet" explanation. */
+  standardNote?: string
+  /** Standard state: an optional secondary row, e.g. { label: "Setup", value: "30m" }. */
+  secondary?: { label: string; value: string }
+}
+
 /**
- * LearnedParamPanel — the **convergence render** (phase 3, FS12): a learned value
- * shown as ONE settled step (standard struck-through → learned, a two-point track —
- * NOT a time series), rising confidence, the sample basis, and the triggering
- * signal (tool-wear). Click-to-open from a board bar. Presentational; the values
- * are computed upstream (learning.read). This is also the structured "why" the
+ * LearnedParamPanel — the per-operation detail opened by selecting **any** board
+ * bar (no dead clicks). Two states:
+ * - **learned (ml):** the convergence render (FS12) — standard struck-through →
+ *   learned, a two-point track (NOT a time series), rising confidence, the sample
+ *   basis, and the tool-wear trigger (D56).
+ * - **standard (std):** the operation's standard time(s) with `source = standard`
+ *   and an explicit "no learned adjustment yet" note (not enough actuals to adopt).
+ * Presentational; values are computed upstream. Also the structured "why" the
  * Phase-5 narration surface will verbalise.
- *
- * @example
- * <LearnedParamPanel title="FG-1003 · Press Line A" metricLabel="Learned cycle time"
- *   standardText="70m" learnedText="76m" deltaText="+8%" confidence={0.86}
- *   basisText="Learned from 12 actuals." settledText="settled — holding steady" />
  */
 export function LearnedParamPanel({
   title,
   subtitle,
   metricLabel,
   standardText,
-  learnedText,
-  deltaText,
-  confidence,
-  basisText,
-  settledText,
-  trigger,
+  sourceText,
+  learned,
+  standardNote,
+  secondary,
 }: LearnedParamPanelProps) {
-  const pct = Math.round(Math.max(0, Math.min(1, confidence)) * 100)
+  const isLearned = Boolean(learned)
   return (
     <YStack backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
       <YStack padding="$4" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
@@ -62,58 +71,93 @@ export function LearnedParamPanel({
         ) : null}
       </YStack>
       <YStack padding="$4" gap="$3">
-        <P size={8} weight="b" color="$textSecondary">
-          {metricLabel.toUpperCase()}
-        </P>
-        {/* the settled step: standard → learned (one move, not motion) */}
-        <XStack alignItems="center" gap="$3">
-          <P size={4} color="$textSecondary" style={{ textDecorationLine: 'line-through' }}>
-            {standardText}
+        <XStack alignItems="center" justifyContent="space-between" gap="$2">
+          <P size={8} weight="b" color="$textSecondary">
+            {metricLabel.toUpperCase()}
           </P>
-          <P size={3} color="$ml">
-            →
-          </P>
-          <P size={2} weight="b" color="$textPrimary">
-            {learnedText}
-          </P>
-          <XStack backgroundColor="$mlSoft" borderRadius="$3" paddingHorizontal="$2" paddingVertical="$0.5">
-            <P size={6} weight="b" color="$ml">
-              {deltaText}
+          <XStack
+            backgroundColor={isLearned ? '$mlSoft' : '$surfaceRaised'}
+            borderRadius="$3"
+            paddingHorizontal="$2"
+            paddingVertical="$0.5"
+          >
+            <P size={8} weight="b" color={isLearned ? '$ml' : '$textSecondary'}>
+              {sourceText}
             </P>
           </XStack>
         </XStack>
-        {/* two-point track: standard mark → learned mark */}
-        <XStack height={6} borderRadius={999} backgroundColor="$surfaceRaised" position="relative">
-          <YStack position="absolute" left="18%" top={-3} width={12} height={12} borderRadius={999} backgroundColor="$textSecondary" />
-          <YStack position="absolute" left="72%" top={-3} width={12} height={12} borderRadius={999} backgroundColor="$ml" />
-        </XStack>
-        {/* confidence */}
-        <XStack alignItems="center" gap="$3">
-          <XStack flex={1} height={6} borderRadius="$2" backgroundColor="$surfaceRaised" overflow="hidden">
-            <YStack width={`${pct}%`} backgroundColor="$ml" />
-          </XStack>
-          <P size={5} weight="b">
-            {pct}%
-          </P>
-        </XStack>
-        <P size={6} color="$textSecondary">
-          {basisText} {settledText}
-        </P>
-        {trigger ? (
-          <XStack gap="$3" alignItems="flex-start" backgroundColor="$surfaceRaised" borderRadius="$4" padding="$3">
-            <YStack width={26} height={26} borderRadius="$3" backgroundColor="$warningSoft" alignItems="center" justifyContent="center">
-              <TriangleAlert size={15} color="$warning" />
-            </YStack>
-            <YStack flex={1} gap="$0.5">
-              <P size={6} weight="b" color="$textPrimary">
-                {trigger.title}
+
+        {learned ? (
+          <>
+            {/* the settled step: standard → learned (one move, not motion) */}
+            <XStack alignItems="center" gap="$3">
+              <P size={4} color="$textSecondary" style={{ textDecorationLine: 'line-through' }}>
+                {standardText}
               </P>
+              <P size={3} color="$ml">
+                →
+              </P>
+              <P size={2} weight="b" color="$textPrimary">
+                {learned.learnedText}
+              </P>
+              <XStack backgroundColor="$mlSoft" borderRadius="$3" paddingHorizontal="$2" paddingVertical="$0.5">
+                <P size={6} weight="b" color="$ml">
+                  {learned.deltaText}
+                </P>
+              </XStack>
+            </XStack>
+            {/* two-point track: standard mark → learned mark */}
+            <XStack height={6} borderRadius={999} backgroundColor="$surfaceRaised" position="relative">
+              <YStack position="absolute" left="18%" top={-3} width={12} height={12} borderRadius={999} backgroundColor="$textSecondary" />
+              <YStack position="absolute" left="72%" top={-3} width={12} height={12} borderRadius={999} backgroundColor="$ml" />
+            </XStack>
+            <XStack alignItems="center" gap="$3">
+              <XStack flex={1} height={6} borderRadius="$2" backgroundColor="$surfaceRaised" overflow="hidden">
+                <YStack width={`${Math.round(Math.max(0, Math.min(1, learned.confidence)) * 100)}%`} backgroundColor="$ml" />
+              </XStack>
+              <P size={5} weight="b">
+                {Math.round(Math.max(0, Math.min(1, learned.confidence)) * 100)}%
+              </P>
+            </XStack>
+            <P size={6} color="$textSecondary">
+              {learned.basisText} {learned.settledText}
+            </P>
+            {learned.trigger ? (
+              <XStack gap="$3" alignItems="flex-start" backgroundColor="$surfaceRaised" borderRadius="$4" padding="$3">
+                <YStack width={26} height={26} borderRadius="$3" backgroundColor="$warningSoft" alignItems="center" justifyContent="center">
+                  <TriangleAlert size={15} color="$warning" />
+                </YStack>
+                <YStack flex={1} gap="$0.5">
+                  <P size={6} weight="b" color="$textPrimary">
+                    {learned.trigger.title}
+                  </P>
+                  <P size={6} color="$textSecondary">
+                    {learned.trigger.body}
+                  </P>
+                </YStack>
+              </XStack>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {/* standard state: the operation's standard time(s), no adjustment yet */}
+            <XStack alignItems="baseline" gap="$3">
+              <P size={2} weight="b" color="$textPrimary">
+                {standardText}
+              </P>
+              {secondary ? (
+                <P size={5} color="$textSecondary">
+                  {secondary.label} {secondary.value}
+                </P>
+              ) : null}
+            </XStack>
+            {standardNote ? (
               <P size={6} color="$textSecondary">
-                {trigger.body}
+                {standardNote}
               </P>
-            </YStack>
-          </XStack>
-        ) : null}
+            ) : null}
+          </>
+        )}
       </YStack>
     </YStack>
   )

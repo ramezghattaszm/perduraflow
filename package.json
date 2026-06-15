@@ -26,6 +26,7 @@
     "db:generate": "bun --filter @perduraflow/api db:generate",
     "db:migrate": "bun --filter @perduraflow/api db:migrate",
     "db:seed": "bun --filter @perduraflow/api db:seed",
+    "demo:reset": "bun --filter @perduraflow/api demo:reset",
     "prepare": "husky"
   },
   "patchedDependencies": {

@@ -48,7 +48,12 @@ const SEED_TIERS = [
   { name: 'Plant manager', rank: 3 },
 ] as const
 
-async function main(): Promise<void> {
+/**
+ * Seed the deterministic baseline (idempotent). Exported so `demo:reset`
+ * (reset.ts) can re-run it after truncating; the CLI entry below runs it for
+ * `db:seed`.
+ */
+export async function seed(): Promise<void> {
   const pool = new Pool({ connectionString: env.DATABASE_URL })
   const db = drizzle(pool)
 
@@ -297,7 +302,11 @@ async function main(): Promise<void> {
   await pool.end()
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+// CLI entry (`tsx src/db/seed.ts` / `db:seed`) — runs only when invoked directly,
+// so importing `seed` from reset.ts doesn't auto-run it.
+if (/seed\.ts$/.test(process.argv[1] ?? '')) {
+  seed().catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
+}

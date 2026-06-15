@@ -50,7 +50,7 @@ export const Learned: Story = {
   render: () => (
     <YStack padding="$4">
       <ScheduleGantt
-        resources={[{ id: 'press', label: 'Press Line A', subLabel: 'Stamping' }]}
+        resources={[{ id: 'press', label: 'Press Line A', subLabel: 'Stamping', behind: '8% behind plan' }]}
         horizonStartMs={origin}
         horizonEndMs={end}
         bars={[

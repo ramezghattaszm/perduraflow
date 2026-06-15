@@ -38,6 +38,13 @@
 > coverage** views; dev-only drift control; nav + i18n + both-theme stories. `bun run check` +
 > `next build` + expo tsc green. AS13–AS18 / FS12–FS15 implemented as proposed. **Remaining:** browser
 > verification on web + native (incl. per-version reselect) — user-driven per the brief DoD.
+>
+> **Demo reset:** `bun run demo:reset` (apps/api `src/db/reset.ts`) restores the deterministic baseline
+> in one step — truncates all app-schema tables (wipes learned values, actuals, schedule versions),
+> re-seeds, and rebuilds the committed baseline via the real engine (solve+commit through the API).
+> **Idempotent + deterministic**; post-reset the board opens with all ops `std`, 0 of 11 learned, no
+> variance (8 demand lines, 1 committed version, 0 actuals). Requires the API running; docs in README
+> §"Demo reset". Dev ports: **API 3010 / web 3011** (changed from 3000/3001).
 
 ---
 

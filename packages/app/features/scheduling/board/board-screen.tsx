@@ -1,6 +1,7 @@
 'use client'
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { TriangleAlert } from '@tamagui/lucide-icons'
 import type { GanttBar, VarianceChip } from '@perduraflow/ui'
 import {
   AppButton,
@@ -33,6 +34,8 @@ import { AdminShell } from '../../shell/admin-shell'
 
 /** Cycle deviation (learned vs std) at/above which a tool-wear flag is shown (mirrors RULE.STEP_BAND). */
 const WEAR_PCT = 0.05
+/** Behind-plan fraction at/above which a calm lane chip appears (BOARD-SIGNALS item 2). */
+const BEHIND_PCT = 0.05
 
 /**
  * Board body (shell-agnostic) — selectors, run strip, Gantt. Rendered inside the
@@ -115,10 +118,19 @@ export function BoardContent() {
       confidence: o.cycleConfidence ?? o.setupConfidence,
     }
   })
+  // Per-resource behind-plan chip (BOARD-SIGNALS item 2): the variance is about the
+  // resource, so it lives on the lane. Threshold-gated + settled; per the selected
+  // version's actuals (a clean version → none).
+  const behindByResource = new Map(
+    (variance?.resources ?? [])
+      .filter((r) => r.behindPlanPct >= BEHIND_PCT)
+      .map((r) => [r.resourceId, t('variance.behindPlan', { pct: Math.round(r.behindPlanPct * 100) })]),
+  )
   const ganttResources = resources.map((r) => ({
     id: r.id,
     label: r.name,
     subLabel: t(`masterData:resources.types.${r.resourceType}`),
+    behind: behindByResource.get(r.id),
   }))
   const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
 
@@ -175,6 +187,17 @@ export function BoardContent() {
   const errorMsg = actionError ? translateError(getApiErrorCode(actionError)) : undefined
   const selectedVersion = versions.find((v) => v.id === versionId)
 
+  // Stale-plan signal (BOARD-SIGNALS item 1): the COMMITTED plan no longer reflects
+  // reality — a held learned value exists for an op the committed version still runs
+  // on `standard`. Settled (held values don't flicker), per-version, computed. Human
+  // re-solves (no auto-re-solve, A18/D26). No toast — a calm persistent state.
+  const planStale =
+    selectedVersion?.status === 'committed' &&
+    (detail?.operations ?? []).some((op) => {
+      const l = learnedCycleByKey.get(`${op.resourceId}:${op.routingOperationId}`)
+      return !!l && l.status === 'held' && l.learnedValue != null && op.cycleSource === 'standard'
+    })
+
   const onSolve = () => {
     if (!plantId) return
     solve.mutate(plantId, { onSuccess: (v) => setVersionId(v.id) })
@@ -192,7 +215,13 @@ export function BoardContent() {
                 {t('board.commit')}
               </AppButton>
             ) : null}
-            <AppButton variant="ghost" size="$3" loading={solve.isPending} onPress={onSolve}>
+            <AppButton
+              variant={planStale ? 'primary' : 'ghost'}
+              size="$3"
+              icon={planStale ? TriangleAlert : undefined}
+              loading={solve.isPending}
+              onPress={onSolve}
+            >
               {t('board.resolve')}
             </AppButton>
           </XStack>
@@ -216,6 +245,24 @@ export function BoardContent() {
         <P size={4} color="$danger">
           {errorMsg}
         </P>
+      ) : null}
+
+      {planStale ? (
+        <XStack
+          alignItems="center"
+          gap="$2"
+          backgroundColor="$warningSoft"
+          borderColor="$warning"
+          borderWidth={1}
+          borderRadius="$4"
+          paddingHorizontal="$3"
+          paddingVertical="$2.5"
+        >
+          <TriangleAlert size={16} color="$warning" />
+          <P size={5} color="$textPrimary">
+            {t('board.stale.banner')}
+          </P>
+        </XStack>
       ) : null}
 
       {detail ? (
@@ -267,24 +314,42 @@ export function BoardContent() {
         />
       ) : null}
 
-      {selectedLearned && selectedLearned.learnedValue != null && selectedOp ? (
+      {selectedOp ? (
         <YStack maxWidth={420}>
-          <LearnedParamPanel
-            title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
-            subtitle={`op ${selectedOp.opSeq}`}
-            metricLabel={t('learned.cycle')}
-            standardText={`${selectedLearned.stdBaseline}m`}
-            learnedText={`${selectedLearned.learnedValue.toFixed(2)}m`}
-            deltaText={`${selectedLearned.learnedValue >= selectedLearned.stdBaseline ? '+' : ''}${Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)}%`}
-            confidence={selectedLearned.confidence ?? 0}
-            basisText={t('learned.basis', { count: selectedLearned.sampleCount })}
-            settledText={t('learned.settled')}
-            trigger={
-              (selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline >= WEAR_PCT
-                ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resourceName.get(selectedOp.resourceId) ?? '' }) }
-                : undefined
-            }
-          />
+          {selectedLearned && selectedLearned.status === 'held' && selectedLearned.learnedValue != null ? (
+            <LearnedParamPanel
+              title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
+              subtitle={`op ${selectedOp.opSeq}`}
+              metricLabel={t('learned.cycle')}
+              sourceText={t('source.ml_adjusted')}
+              standardText={`${selectedLearned.stdBaseline}m`}
+              learned={{
+                learnedText: `${selectedLearned.learnedValue.toFixed(2)}m`,
+                deltaText: `${selectedLearned.learnedValue >= selectedLearned.stdBaseline ? '+' : ''}${Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)}%`,
+                confidence: selectedLearned.confidence ?? 0,
+                basisText: t('learned.basis', { count: selectedLearned.sampleCount }),
+                settledText: t('learned.settled'),
+                trigger:
+                  (selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline >= WEAR_PCT
+                    ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resourceName.get(selectedOp.resourceId) ?? '' }) }
+                    : undefined,
+              }}
+            />
+          ) : (
+            <LearnedParamPanel
+              title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
+              subtitle={`op ${selectedOp.opSeq}`}
+              metricLabel={t('learned.cycleStd')}
+              sourceText={t('source.standard')}
+              standardText={`${selectedOp.cycleTime}m`}
+              secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
+              standardNote={
+                selectedLearned && selectedLearned.sampleCount > 0
+                  ? t('learned.accruing', { count: selectedLearned.sampleCount })
+                  : t('learned.noAdjustment')
+              }
+            />
+          )}
         </YStack>
       ) : null}
     </>
