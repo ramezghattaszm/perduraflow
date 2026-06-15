@@ -14,9 +14,9 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('90d'),
 
-  PORT: z.coerce.number().default(3000),
+  PORT: z.coerce.number().default(3010),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  CORS_ORIGIN: z.string().default('http://localhost:3001'),
+  CORS_ORIGIN: z.string().default('http://localhost:3011'),
 
   EMAIL_PROVIDER: z.enum(['console', 'smtp']).default('console'),
   EMAIL_FROM: z.string().default('noreply@perduraflow.app'),
@@ -27,7 +27,7 @@ const envSchema = z.object({
 
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
   LOCAL_STORAGE_PATH: z.string().default('./uploads'),
-  LOCAL_STORAGE_URL: z.string().default('http://localhost:3000/uploads'),
+  LOCAL_STORAGE_URL: z.string().default('http://localhost:3010/uploads'),
   AWS_REGION: z.string().default('us-east-1'),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),

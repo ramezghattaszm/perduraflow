@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   AppButton,
   AppInput,
@@ -13,6 +13,7 @@ import {
 } from '@perduraflow/ui'
 import { useTranslation } from '../../../i18n'
 import { usePlants } from '../../../hooks/useOrg'
+import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useScheduleResources, useScheduleVersions } from '../../../hooks/useScheduling'
 import { useSimulateActuals } from '../../../hooks/useLearning'
 import { AdminShell } from '../../shell/admin-shell'
@@ -26,10 +27,7 @@ import { AdminShell } from '../../shell/admin-shell'
 export function SimulatorContent() {
   const { t } = useTranslation('scheduling')
   const { data: plants = [] } = usePlants()
-  const [plantId, setPlantId] = useState<string | null>(null)
-  useEffect(() => {
-    if (!plantId && plants.length > 0) setPlantId(plants[0]!.id)
-  }, [plants, plantId])
+  const { plantId, setPlant } = usePlantSelection(plants)
 
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
@@ -60,7 +58,7 @@ export function SimulatorContent() {
       <PageHeader title={t('simulator.title')} subtitle={t('simulator.subtitle')} />
       <YStack gap="$4" maxWidth={520}>
         <FormField label={t('board.plant')}>
-          <AppSelect options={plants.map((p) => ({ value: p.id, label: p.name }))} value={plantId} onChange={setPlantId} placeholder={t('board.plant')} />
+          <AppSelect options={plants.map((p) => ({ value: p.id, label: p.name }))} value={plantId} onChange={setPlant} placeholder={t('board.plant')} />
         </FormField>
         <FormField label={t('simulator.version')}>
           <AppSelect options={versionOptions} value={versionId} onChange={setVersionId} placeholder={t('simulator.needCommitted')} />

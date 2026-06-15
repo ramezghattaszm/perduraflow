@@ -16,6 +16,7 @@ import {
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
 import { usePlants } from '../../hooks/useOrg'
+import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleVersions } from '../../hooks/useScheduling'
 import { useScorecard } from '../../hooks/useLearning'
 import { AdminShell } from '../shell/admin-shell'
@@ -31,11 +32,8 @@ const pct = (x: number) => `${Math.round(x * 100)}%`
 export function ScorecardContent() {
   const { t } = useTranslation(['scorecard', 'scheduling'])
   const { data: plants = [] } = usePlants()
-  const [plantId, setPlantId] = useState<string | null>(null)
+  const { plantId, setPlant } = usePlantSelection(plants)
   const [versionId, setVersionId] = useState<string | null>(null)
-  useEffect(() => {
-    if (!plantId && plants.length > 0) setPlantId(plants[0]!.id)
-  }, [plants, plantId])
 
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   useEffect(() => {
@@ -61,7 +59,7 @@ export function ScorecardContent() {
       <XStack gap="$4" flexWrap="wrap">
         <YStack width={240}>
           <FormField label={t('plant')}>
-            <AppSelect options={plantOptions} value={plantId} onChange={setPlantId} placeholder={t('plant')} />
+            <AppSelect options={plantOptions} value={plantId} onChange={setPlant} placeholder={t('plant')} />
           </FormField>
         </YStack>
         <YStack width={360}>

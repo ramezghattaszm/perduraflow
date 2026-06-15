@@ -1,7 +1,7 @@
 {
   "board": {
     "title": "Schedule board",
-    "subtitle": "Deterministic schedule — resources across time.",
+    "subtitle": "Learning from execution actuals.",
     "plant": "Plant",
     "version": "Version",
     "resolve": "Re-solve",

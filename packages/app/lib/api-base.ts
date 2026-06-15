@@ -1,6 +1,6 @@
 import { Platform } from 'react-native'
 
-const FALLBACK = 'http://localhost:3000/api/v1'
+const FALLBACK = 'http://localhost:3010/api/v1'
 
 const configured =
   process.env.EXPO_PUBLIC_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? FALLBACK

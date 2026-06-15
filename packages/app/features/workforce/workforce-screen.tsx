@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ColorTokens, MatrixCell } from '@perduraflow/ui'
 import {
   CoverageProposal,
@@ -15,6 +15,7 @@ import {
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
 import { usePlants } from '../../hooks/useOrg'
+import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useConfirmCoverageProposal, useCoverage } from '../../hooks/useLearning'
 import { AdminShell } from '../shell/admin-shell'
 
@@ -29,10 +30,7 @@ const CELL: Record<string, MatrixCell> = { qualified: 'on', not_qualified: 'off'
 export function WorkforceContent() {
   const { t } = useTranslation('workforce')
   const { data: plants = [] } = usePlants()
-  const [plantId, setPlantId] = useState<string | null>(null)
-  useEffect(() => {
-    if (!plantId && plants.length > 0) setPlantId(plants[0]!.id)
-  }, [plants, plantId])
+  const { plantId, setPlant } = usePlantSelection(plants)
 
   const { data: cov } = useCoverage(plantId ?? undefined)
   const confirmProposal = useConfirmCoverageProposal(plantId ?? undefined)
@@ -50,7 +48,7 @@ export function WorkforceContent() {
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
       <YStack width={240}>
         <FormField label={t('plant')}>
-          <AppSelect options={plantOptions} value={plantId} onChange={setPlantId} placeholder={t('plant')} />
+          <AppSelect options={plantOptions} value={plantId} onChange={setPlant} placeholder={t('plant')} />
         </FormField>
       </YStack>
 

@@ -18,6 +18,7 @@ import {
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { usePlants } from '../../../hooks/useOrg'
+import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts } from '../../../hooks/useMasterData'
 import {
   useCommitSchedule,
@@ -43,13 +44,8 @@ export function BoardContent() {
   const { t } = useTranslation(['scheduling', 'admin', 'masterData'])
   const { data: plants = [] } = usePlants()
   const { data: parts = [] } = useParts()
-  const [plantId, setPlantId] = useState<string | null>(null)
+  const { plantId, setPlant } = usePlantSelection(plants)
   const [versionId, setVersionId] = useState<string | null>(null)
-
-  // default plant = first
-  useEffect(() => {
-    if (!plantId && plants.length > 0) setPlantId(plants[0]!.id)
-  }, [plants, plantId])
 
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
@@ -206,7 +202,7 @@ export function BoardContent() {
       <XStack gap="$4" flexWrap="wrap">
         <YStack width={240}>
           <FormField label={t('board.plant')}>
-            <AppSelect options={plantOptions} value={plantId} onChange={setPlantId} placeholder={t('board.plant')} />
+            <AppSelect options={plantOptions} value={plantId} onChange={setPlant} placeholder={t('board.plant')} />
           </FormField>
         </YStack>
         <YStack width={360}>

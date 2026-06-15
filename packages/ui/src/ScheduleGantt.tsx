@@ -109,12 +109,14 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
   }
   const showHover = (bar: GanttBar, anchor: BarAnchor) => setActive((cur) => (cur?.pinned ? cur : { bar, anchor, pinned: false }))
   const hideHover = () => setActive((cur) => (cur && !cur.pinned ? null : cur))
-  const togglePin = (bar: GanttBar, anchor: BarAnchor) =>
-    setActive((cur) => {
-      const next = cur?.pinned && cur.bar.id === bar.id ? null : { bar, anchor, pinned: true }
-      onBarSelect?.(next ? bar.id : null)
-      return next
-    })
+  const togglePin = (bar: GanttBar, anchor: BarAnchor) => {
+    // Event handler (not render): read current `active` from closure, then set both
+    // states as side effects — never call onBarSelect inside the setActive updater
+    // (React runs updaters during render → cross-component setState warning).
+    const next = active?.pinned && active.bar.id === bar.id ? null : { bar, anchor, pinned: true }
+    setActive(next)
+    onBarSelect?.(next ? bar.id : null)
+  }
   const c = {
     bar: theme.primary?.val ?? '#3f6fd6',
     barTop: theme.primaryLight?.val ?? '#5b8def',
