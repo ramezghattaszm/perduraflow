@@ -1,7 +1,7 @@
 'use client'
 
 import { type ReactNode, useState } from 'react'
-import { Platform } from 'react-native'
+import { KeyboardAvoidingView, Platform } from 'react-native'
 import { useRouter } from 'solito/navigation'
 import { Settings } from '@tamagui/lucide-icons'
 import {
@@ -105,11 +105,15 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', children }: AppShe
       {isSmall ? (
         <>
           <TopBar isSmall collapsed={false} insetTop={insets.top} onToggleCollapse={() => {}} onOpenDrawer={() => setNavOpen(true)} />
-          <ScrollView flex={1}>
-            <YStack flex={1} padding="$4" gap="$4" width="100%" paddingBottom={insets.bottom + 16}>
-              {children}
-            </YStack>
-          </ScrollView>
+          {/* Lift the page above the on-screen keyboard so focused inputs near the
+              bottom stay reachable (native; no-op on web). */}
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView flex={1} keyboardShouldPersistTaps="handled">
+              <YStack flex={1} padding="$4" gap="$4" width="100%" paddingBottom={insets.bottom + 16}>
+                {children}
+              </YStack>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </>
       ) : (
         <XStack flex={1}>

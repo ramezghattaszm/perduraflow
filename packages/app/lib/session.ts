@@ -3,11 +3,7 @@ import type { ApiEnvelope, AuthResponse } from '@perduraflow/contracts'
 import { useAuthStore } from '../stores/auth.store'
 import { getRefreshToken, hydrateRefreshToken, setRefreshToken } from './refresh-store'
 import { getTokenStore } from './token-store'
-
-const baseURL =
-  process.env.EXPO_PUBLIC_API_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  'http://localhost:3000/api/v1'
+import { API_BASE_URL as baseURL } from './api-base'
 
 /**
  * Restore a session on app start (UI-ARCHITECTURE.md §8). Native: hydrate the

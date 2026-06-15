@@ -1,6 +1,28 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
+import { Keyboard, Platform } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Portal, ScrollView, Sheet, useMedia, XStack, YStack } from 'tamagui'
 import { H, P } from './typography'
+
+/**
+ * Current on-screen keyboard height (0 when hidden). iOS reports `will*` events
+ * (smooth, ahead of the animation); Android only fires `did*`. Returns 0 on web
+ * (the RN-web Keyboard never emits), so callers can add it as padding safely.
+ */
+function useKeyboardHeight(): number {
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const show = Keyboard.addListener(showEvt, (e) => setHeight(e.endCoordinates?.height ?? 0))
+    const hide = Keyboard.addListener(hideEvt, () => setHeight(0))
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
+  return height
+}
 
 /**
  * Popup — the one responsive modal primitive, driven by an explicit `useMedia`
@@ -38,6 +60,13 @@ export interface PopupProps {
   error?: string
   /** Action row (right-aligned on desktop; below the content in the sheet). */
   footer?: ReactNode
+  /** Sheet snap point(s), percent of screen height. Defaults to a single `[80]`;
+   *  override for taller/shorter forms (small screens only). */
+  snapPoints?: number[]
+  /** How the sheet reacts to the keyboard (small screens): `pad` lifts the actions
+   *  above the keyboard via bottom padding (default, safest); `move` translates the
+   *  whole sheet up partially. */
+  keyboardMotion?: 'pad' | 'move'
   children?: ReactNode
 }
 
@@ -57,9 +86,13 @@ export function Popup({
   dismissable = true,
   error,
   footer,
+  snapPoints = [80],
+  keyboardMotion = 'pad',
   children,
 }: PopupProps) {
   const media = useMedia()
+  const insets = useSafeAreaInsets()
+  const keyboardHeight = useKeyboardHeight()
   // v5 media is mobile-first/min-width (media.sm = width >= 640), so use the
   // max-width key for "small screen": <= 767.98px gets the bottom sheet.
   const isSheet = Boolean(media['max-md'])
@@ -96,12 +129,17 @@ export function Popup({
     return (
       <Sheet
         modal
-        native
+        // No `native`: that renders the iOS UIKit sheet, which ignores our
+        // snapPoints / Sheet.ScrollView drag handoff and dismisses erratically on a
+        // small drag. The JS sheet (via GestureHandlerRootView at the app root) is
+        // consistent across iOS + Android.
         open={open}
         onOpenChange={(next: boolean) => {
           if (!next) onClose()
         }}
-        snapPoints={[80]}
+        snapPoints={snapPoints}
+        // Single snap point: a downward drag either snaps back (forms) or dismisses
+        // (when dismissable) — it never rests at an intermediate lower point.
         dismissOnSnapToBottom={dismissable}
         dismissOnOverlayPress={dismissable}
         zIndex={Z}
@@ -113,11 +151,24 @@ export function Popup({
       >
         <Sheet.Overlay backgroundColor="$overlay" />
         <Sheet.Frame
-          padding="$5"
+          paddingTop="$5"
           gap="$3"
           backgroundColor="$surface"
           borderTopLeftRadius="$6"
           borderTopRightRadius="$6"
+          // Keyboard handling. The bottom safe-area inset is ALWAYS included so the
+          // footer never lands in the home-indicator / gesture-nav area. On iOS the
+          // window doesn't resize, so `pad` adds the keyboard height (lifting the
+          // footer above it) and `move` translates the frame up partially. On Android
+          // the OS resizes the window for the keyboard, so only the inset is needed.
+          style={{
+            paddingBottom:
+              insets.bottom + 16 + (Platform.OS === 'ios' && keyboardMotion === 'pad' ? keyboardHeight : 0),
+            transform:
+              Platform.OS === 'ios' && keyboardMotion === 'move'
+                ? [{ translateY: -keyboardHeight * 0.6 }]
+                : [],
+          }}
         >
           <Sheet.Handle
             alignSelf="center"
@@ -126,14 +177,17 @@ export function Popup({
             borderRadius="$10"
             backgroundColor="$borderColor"
           />
-          {header}
-          <Sheet.ScrollView>
-            <YStack gap="$3" paddingBottom="$4">
+          {/* Horizontal padding lives on each section, not the frame, so the
+              ScrollView spans the full width and its scrollbar sits flush to the
+              sheet's right edge (matching the desktop dialog). */}
+          {header ? <YStack paddingHorizontal="$5">{header}</YStack> : null}
+          <Sheet.ScrollView keyboardShouldPersistTaps="handled">
+            <YStack gap="$3" paddingHorizontal="$5" paddingBottom="$4">
               {children}
             </YStack>
           </Sheet.ScrollView>
-          {errorLine}
-          {footerRow}
+          {errorLine ? <YStack paddingHorizontal="$5">{errorLine}</YStack> : null}
+          {footerRow ? <YStack paddingHorizontal="$5">{footerRow}</YStack> : null}
         </Sheet.Frame>
       </Sheet>
     )

@@ -30,6 +30,14 @@ export interface Column<T> {
 type SortDir = 'asc' | 'desc'
 type SortState = { key: string; dir: SortDir } | null
 
+// Exact-layout constants. Columns get a computed pixel width (not flex) so every
+// row's cells line up: inside a horizontal ScrollView the table has no definite
+// main-axis size, so flexGrow has no shared free space to divide and each row
+// would size to its own content. PAD_X / GAP / BORDER must match the row styles.
+const PAD_X = 16 // row paddingHorizontal
+const GAP = 12 // inter-column gap
+const BORDER = 1 // table border width
+
 type SortPrimitive = string | number | boolean | null | undefined
 
 /** Type-aware compare; nullish sorts last. Strings compare numerically + case-insensitively. */
@@ -88,6 +96,18 @@ export function DataTable<T extends { id: string }>({
       return null
     })
 
+  // Measure the scroll viewport, then size every column in exact pixels. The
+  // table fills the viewport when it fits, else holds `minRowWidth` and scrolls.
+  const [viewportWidth, setViewportWidth] = useState(0)
+  const tableWidth = Math.max(viewportWidth, minRowWidth)
+  const colWidths = useMemo(() => {
+    const flexCols = columns.filter((c) => !c.width)
+    const fixedTotal = columns.reduce((sum, c) => sum + (c.width ?? 0), 0)
+    const flexTotal = flexCols.reduce((sum, c) => sum + (c.flex ?? 1), 0) || 1
+    const free = Math.max(0, tableWidth - BORDER * 2 - PAD_X * 2 - GAP * (columns.length - 1) - fixedTotal)
+    return columns.map((c) => c.width ?? (free * (c.flex ?? 1)) / flexTotal)
+  }, [columns, tableWidth])
+
   if (isLoading) {
     return (
       <YStack padding="$6" alignItems="center">
@@ -106,28 +126,24 @@ export function DataTable<T extends { id: string }>({
       horizontal
       showsHorizontalScrollIndicator={false}
       width="100%"
-      contentContainerStyle={{ minWidth: '100%' }}
+      onLayout={(e) => setViewportWidth(e.nativeEvent.layout.width)}
     >
       <YStack
-        flex={1}
-        minWidth={minRowWidth}
-        borderWidth={1}
+        width={tableWidth}
+        borderWidth={BORDER}
         borderColor="$borderColor"
         borderRadius="$4"
         overflow="hidden"
       >
-        <XStack backgroundColor="$surface" paddingVertical="$3" paddingHorizontal="$4" gap="$3">
-          {columns.map((c) => {
+        <XStack backgroundColor="$surface" paddingVertical="$3" paddingHorizontal={PAD_X}>
+          {columns.map((c, i) => {
             const active = sort?.key === c.key
             const indicator = active ? (sort?.dir === 'asc' ? ' ↑' : ' ↓') : ''
             return (
               <XStack
                 key={c.key}
-                width={c.width}
-                flexGrow={c.width ? 0 : (c.flex ?? 1)}
-                flexShrink={c.width ? 0 : 1}
-                flexBasis={c.width ? undefined : 0}
-                minWidth={c.width ?? 0}
+                width={colWidths[i]}
+                marginRight={i < columns.length - 1 ? GAP : 0}
                 overflow="hidden"
                 alignItems="center"
                 cursor={c.sortable ? 'pointer' : undefined}
@@ -146,8 +162,7 @@ export function DataTable<T extends { id: string }>({
           <XStack
             key={row.id}
             paddingVertical="$3"
-            paddingHorizontal="$4"
-            gap="$3"
+            paddingHorizontal={PAD_X}
             alignItems="center"
             borderTopWidth={1}
             borderTopColor="$borderColor"
@@ -156,18 +171,15 @@ export function DataTable<T extends { id: string }>({
             hoverStyle={onRowPress ? { backgroundColor: '$surface' } : undefined}
             onPress={onRowPress ? () => onRowPress(row) : undefined}
           >
-            {columns.map((c) => {
+            {columns.map((c, i) => {
               const content: ReactNode = c.render
                 ? c.render(row)
                 : String((row as Record<string, unknown>)[c.key] ?? '—')
               return (
                 <YStack
                   key={c.key}
-                  width={c.width}
-                  flexGrow={c.width ? 0 : (c.flex ?? 1)}
-                  flexShrink={c.width ? 0 : 1}
-                  flexBasis={c.width ? undefined : 0}
-                  minWidth={c.width ?? 0}
+                  width={colWidths[i]}
+                  marginRight={i < columns.length - 1 ? GAP : 0}
                   overflow="hidden"
                 >
                   {/* Wrap raw text so a string-returning `render` never lands directly in a View. */}

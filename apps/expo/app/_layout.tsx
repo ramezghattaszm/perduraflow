@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useColorScheme } from 'react-native'
 import { useFonts } from 'expo-font'
 import { SplashScreen, Stack } from 'expo-router'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { Provider } from '@perduraflow/app/provider'
@@ -38,12 +39,17 @@ export default function RootLayout() {
   if (!interLoaded && !interError) return null
 
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <Provider defaultTheme={theme}>
-          <Stack screenOptions={{ headerShown: false }} />
-        </Provider>
-      </QueryClientProvider>
-    </SafeAreaProvider>
+    // GestureHandlerRootView must wrap the whole app — Tamagui's Sheet uses
+    // react-native-gesture-handler for drag/scroll handoff; without this root the
+    // sheet gestures are inconsistent (and non-functional on Android).
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <Provider defaultTheme={theme}>
+            <Stack screenOptions={{ headerShown: false }} />
+          </Provider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }

@@ -3,6 +3,7 @@ import type { ApiEnvelope, AuthResponse } from '@perduraflow/contracts'
 import { useAuthStore } from '../stores/auth.store'
 import { getRefreshToken, setRefreshToken } from './refresh-store'
 import { getTokenStore } from './token-store'
+import { API_BASE_URL as baseURL } from './api-base'
 
 /**
  * API client (UI-ARCHITECTURE.md §11). withCredentials sends the httpOnly
@@ -10,10 +11,6 @@ import { getTokenStore } from './token-store'
  * response interceptor unwraps the {statusCode, data} envelope and performs a
  * single silent refresh on 401 (queued so concurrent 401s refresh once).
  */
-const baseURL =
-  process.env.EXPO_PUBLIC_API_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  'http://localhost:3000/api/v1'
 
 export const apiClient = axios.create({ baseURL, withCredentials: true })
 
