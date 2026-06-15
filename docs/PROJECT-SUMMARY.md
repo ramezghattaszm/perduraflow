@@ -9,7 +9,20 @@
 > `priority`, `org.read 1.1` (additive), and the published `masterdata.read 1.0` (no resolver).
 > Migration `0003` applied + seeded; `bun run check` + `next build` + expo tsc green; all four boundary
 > proofs pass; CRUD/soft-delete/routing-editor/qualifications-matrix browser-verified. Spec deltas in
-> api-spec §10 + frontend-spec §9–§12 (design choices AS5–AS8 / FS5–FS8 confirmed). Not yet committed.
+> api-spec §10 + frontend-spec §9–§12 (design choices AS5–AS8 / FS5–FS8 confirmed). Committed + pushed
+> (`7142ddc`).
+>
+> **Phase 2 (deterministic scheduling core + first per-tenant binding): BUILT & verified.** The
+> `scheduling` module (`demand_input`/`optimizer_run`/`schedule_version`/`scheduled_operation`), the
+> kernel `binding` module + `BindingResolver` consuming `masterdata.read` per-tenant →
+> `platform_module`, a deterministic EDD penalty sequencer (firm-dominant, SKIP-03 stand-in),
+> `masterdata.read 1.0 → 1.1` (additive: `listResources`/`getPrimaryRoutingForPart`), and a read-first
+> Gantt board (`ScheduleGantt` on `react-native-svg`, web + native). Migration `0004` applied + seeded
+> (binding row, 8 demand lines, coloured parts). `bun run check` + `next build` + expo tsc green; all
+> five boundary/determinism proofs pass (negative lint, no cross-schema FK, genuine re-bind,
+> source/confidence fields wired, identical re-runs); board + re-solve + commit + infeasibility
+> browser/API-verified. Spec deltas api-spec §11 + frontend-spec §13–§17 (AS9–AS12 / FS9–FS11
+> confirmed). Not yet committed.
 
 ---
 

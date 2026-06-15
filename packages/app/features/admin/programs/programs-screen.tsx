@@ -34,7 +34,10 @@ export function ProgramsScreen() {
   const [priority, setPriority] = useState<OrgPriority | null>(null)
 
   const { show } = usePopup()
-  const priorityOptions = (['standard', 'high', 'critical'] as const).map((v) => ({ value: v, label: t(`priority.${v}`) }))
+  const priorityOptions = (['standard', 'high', 'critical'] as const).map((v) => ({
+    value: v,
+    label: t(`priority.${v}`),
+  }))
 
   const confirmDeactivate = () => {
     if (!editingId) return
@@ -79,7 +82,11 @@ export function ProgramsScreen() {
     if (!customerId) return
     const fenceVal = fence.trim() === '' ? null : Number(fence)
     const onSuccess = () => setOpen(false)
-    if (editingId) update.mutate({ id: editingId, body: { name, customerId, firmFenceDays: fenceVal, priority } }, { onSuccess })
+    if (editingId)
+      update.mutate(
+        { id: editingId, body: { name, customerId, firmFenceDays: fenceVal, priority } },
+        { onSuccess }
+      )
     else create.mutate({ name, customerId, firmFenceDays: fenceVal, priority }, { onSuccess })
   }
 
@@ -88,7 +95,11 @@ export function ProgramsScreen() {
       <PageHeader
         title={t('programs.title')}
         subtitle={t('programs.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<ProgramDto>
         isLoading={isLoading}
@@ -104,11 +115,19 @@ export function ProgramsScreen() {
             render: (p) => <P size={4}>{customerName.get(p.customerId) ?? '—'}</P>,
           },
           { key: 'firmFenceDays', label: t('programs.fields.firmFenceDays') },
-          { key: 'priority', label: t('programs.fields.priority'), render: (p) => (p.priority ? t(`priority.${p.priority}`) : t('priority.inherit')) },
+          {
+            key: 'priority',
+            label: t('programs.fields.priority'),
+            render: (p) => (p.priority ? t(`priority.${p.priority}`) : t('priority.inherit')),
+          },
           {
             key: 'isActive',
             label: t('common.status'),
-            render: (p) => <StatusPill tone={p.isActive ? 'active' : 'inactive'}>{p.isActive ? t('common.active') : t('common.inactive')}</StatusPill>,
+            render: (p) => (
+              <StatusPill tone={p.isActive ? 'active' : 'inactive'}>
+                {p.isActive ? t('common.active') : t('common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -116,7 +135,7 @@ export function ProgramsScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        dismissable={false}
+        size="medium"
         error={formError}
         footer={
           <>
@@ -145,7 +164,11 @@ export function ProgramsScreen() {
           keyboardType="number-pad"
         />
         <FormField label={t('programs.fields.priority')}>
-          <SelectField options={priorityOptions} value={priority} onChange={(v) => setPriority(v as OrgPriority | null)} />
+          <SelectField
+            options={priorityOptions}
+            value={priority}
+            onChange={(v) => setPriority(v as OrgPriority | null)}
+          />
         </FormField>
         {editingId ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>

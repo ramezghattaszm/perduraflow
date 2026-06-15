@@ -22,4 +22,10 @@ export const QUERY_KEYS = {
     certifications: () => ['master-data', 'certifications'] as const,
     operators: () => ['master-data', 'operators'] as const,
   },
+  scheduling: {
+    versions: (plantId: string) => ['scheduling', 'versions', plantId] as const,
+    version: (id: string) => ['scheduling', 'version', id] as const,
+    demand: (plantId: string) => ['scheduling', 'demand', plantId] as const,
+    resources: (plantId: string) => ['scheduling', 'resources', plantId] as const,
+  },
 }

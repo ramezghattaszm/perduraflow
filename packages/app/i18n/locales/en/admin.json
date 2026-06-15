@@ -15,10 +15,12 @@
     "certifications": "Certifications",
     "operators": "Operators",
     "qualifications": "Qualifications",
+    "board": "Board",
     "section": "Administration",
     "sections": {
       "administration": "Administration",
       "masterData": "Master data",
+      "scheduling": "Scheduling",
       "access": "Access"
     }
   },

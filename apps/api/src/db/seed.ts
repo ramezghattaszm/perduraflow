@@ -1,5 +1,5 @@
 import * as bcrypt from 'bcryptjs'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { env } from '../config/env'
@@ -17,6 +17,8 @@ import {
   routing,
   routingOperation,
 } from '../modules/master-data/schema'
+import { contractBinding } from '../modules/binding/schema'
+import { demandInput } from '../modules/scheduling/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48). Idempotent. Aggregates every
@@ -213,6 +215,76 @@ async function main(): Promise<void> {
         { tenantId, operatorId: bruno!.id, certificationId: cmm!.id },
       ])
       console.log('  ✓ sample master data: 2 parts, 2 resources, 1 group, 1 routing (2 ops), 3 certs, 2 operators')
+    }
+  }
+
+  // --- phase 2: binding (masterdata.read → platform_module) -------------------
+  const existingBinding = await db.select().from(contractBinding).where(eq(contractBinding.tenantId, tenantId))
+  if (existingBinding.length === 0) {
+    await db.insert(contractBinding).values({ tenantId, contractId: 'masterdata.read', major: '1', mode: 'platform_module' })
+    console.log('  ✓ binding: masterdata.read/1 → platform_module')
+  }
+
+  // --- phase 2: extra coloured parts + routings + seeded demand ---------------
+  const fg1002 = await db.select().from(part).where(and(eq(part.tenantId, tenantId), eq(part.partNo, 'FG-1002')))
+  if (fg1002.length === 0) {
+    const plants = await db.select().from(plant).where(eq(plant.tenantId, tenantId))
+    const groups = await db.select().from(resourceGroup).where(eq(resourceGroup.tenantId, tenantId))
+    const custs = await db.select().from(customer).where(eq(customer.tenantId, tenantId))
+    const progs = await db.select().from(program).where(eq(program.tenantId, tenantId))
+    const parts1001 = await db.select().from(part).where(and(eq(part.tenantId, tenantId), eq(part.partNo, 'FG-1001')))
+    const p1 = plants[0]
+    const grp = groups[0]
+    const cust = custs[0]
+    const prog = progs[0]
+    const fg1001 = parts1001[0]
+    if (p1 && grp && cust && fg1001) {
+      // two more finished parts with different colours (changeover variety)
+      const [fgSilver] = await db
+        .insert(part)
+        .values({ tenantId, partNo: 'FG-1002', description: 'Door inner — silver', partType: 'finished', uom: 'EA', material: 'Steel', gauge: '1.0mm', colour: 'Silver' })
+        .returning()
+      const [fgBlack2] = await db
+        .insert(part)
+        .values({ tenantId, partNo: 'FG-1003', description: 'Cross member — black', partType: 'finished', uom: 'EA', material: 'Steel', gauge: '1.5mm', colour: 'Black' })
+        .returning()
+      // a 1-op primary routing on the stamping group for each (changeover keyed on colour)
+      for (const fgp of [fgSilver!, fgBlack2!]) {
+        const [rt] = await db
+          .insert(routing)
+          .values({ tenantId, partId: fgp.id, name: `${fgp.partNo} primary`, isPrimary: true })
+          .returning()
+        await db.insert(routingOperation).values({ tenantId, routingId: rt!.id, opSeq: 10, resourceGroupId: grp.id, stdSetupTime: 20, stdCycleTime: 1.0, changeoverAttributeKey: 'colour' })
+      }
+      // seeded demand (SKIP-10): mixed colours, firmness, due-date spread (deterministic dates)
+      const D = (iso: string) => new Date(iso)
+      const rows = [
+        { line: 'DL-0001', part: fg1001.id, firm: 'firm', qty: 100, due: '2026-06-15T12:00:00Z' }, // Black, Mon
+        { line: 'DL-0002', part: fgSilver!.id, firm: 'firm', qty: 80, due: '2026-06-15T12:00:00Z' }, // Silver, Mon
+        { line: 'DL-0003', part: fgBlack2!.id, firm: 'forecast', qty: 60, due: '2026-06-16T12:00:00Z' }, // Black, Tue
+        { line: 'DL-0004', part: fg1001.id, firm: 'forecast', qty: 50, due: '2026-06-16T12:00:00Z' }, // Black, Tue
+        { line: 'DL-0005', part: fgSilver!.id, firm: 'firm', qty: 120, due: '2026-06-17T12:00:00Z' }, // Silver, Wed
+        { line: 'DL-0006', part: fgBlack2!.id, firm: 'firm', qty: 60, due: '2026-06-15T00:45:00Z' }, // Black — due too early ⇒ at-risk (late)
+        { line: 'DL-0007', part: fg1001.id, firm: 'forecast', qty: 30, due: '2026-06-15T12:00:00Z' }, // Black, Mon
+        { line: 'DL-0008', part: fgSilver!.id, firm: 'firm', qty: 70, due: '2026-06-16T12:00:00Z' }, // Silver, Tue
+      ] as const
+      await db.insert(demandInput).values(
+        rows.map((r) => ({
+          tenantId,
+          demandLineId: r.line,
+          releaseReference: 'REL-830-001',
+          partId: r.part,
+          plantId: p1.id,
+          customerId: cust.id,
+          programId: prog?.id ?? null,
+          demandType: 'stock' as const,
+          firmness: r.firm,
+          requiredQty: r.qty,
+          uom: 'EA',
+          requiredDate: D(r.due),
+        })),
+      )
+      console.log('  ✓ phase-2 seed: 2 coloured parts + routings, 8 demand lines')
     }
   }
 

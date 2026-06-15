@@ -108,7 +108,11 @@ export function RolesScreen() {
       <PageHeader
         title={t('roles.title')}
         subtitle={t('roles.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<Role>
         isLoading={isLoading}
@@ -121,18 +125,30 @@ export function RolesScreen() {
           {
             key: 'approvalTierId',
             label: t('roles.fields.approvalTierId'),
-            render: (r) => <P size={4}>{r.approvalTierId ? (tierName.get(r.approvalTierId) ?? '—') : '—'}</P>,
+            render: (r) => (
+              <P size={4}>{r.approvalTierId ? (tierName.get(r.approvalTierId) ?? '—') : '—'}</P>
+            ),
           },
           {
             key: 'canConfigure',
             label: t('roles.fields.canConfigure'),
             render: (r) =>
-              r.canConfigure ? <StatusPill tone="active">✓</StatusPill> : <P size={4} color="$textSecondary">—</P>,
+              r.canConfigure ? (
+                <StatusPill tone="active">✓</StatusPill>
+              ) : (
+                <P size={4} color="$textSecondary">
+                  —
+                </P>
+              ),
           },
           {
             key: 'isActive',
             label: t('common.status'),
-            render: (r) => <StatusPill tone={r.isActive ? 'active' : 'inactive'}>{r.isActive ? t('common.active') : t('common.inactive')}</StatusPill>,
+            render: (r) => (
+              <StatusPill tone={r.isActive ? 'active' : 'inactive'}>
+                {r.isActive ? t('common.active') : t('common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -140,8 +156,9 @@ export function RolesScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        dismissable={false}
+        dismissable
         error={formError}
+        size="large"
         footer={
           <>
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
@@ -167,10 +184,20 @@ export function RolesScreen() {
           />
         </FormField>
         <FormField label={t('roles.fields.scopedPlantIds')}>
-          <SelectField options={plantOptions} multiple value={scopedPlantIds} onChange={setScopedPlantIds} />
+          <SelectField
+            options={plantOptions}
+            multiple
+            value={scopedPlantIds}
+            onChange={setScopedPlantIds}
+          />
         </FormField>
         <FormField label={t('roles.fields.scopedPlantGroupIds')}>
-          <SelectField options={groupOptions} multiple value={scopedGroupIds} onChange={setScopedGroupIds} />
+          <SelectField
+            options={groupOptions}
+            multiple
+            value={scopedGroupIds}
+            onChange={setScopedGroupIds}
+          />
         </FormField>
         <FormField label={t('roles.fields.approvalTierId')}>
           <SelectField options={tierOptions} value={tierId} onChange={setTierId} />

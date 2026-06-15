@@ -55,7 +55,11 @@ export function CertificationsScreen() {
       message: t('admin:common.deactivateConfirm'),
       buttons: [
         { text: t('admin:actions.cancel'), tone: 'light' },
-        { text: t('admin:actions.deactivate'), tone: 'danger', onPress: () => update.mutate({ id, body: { isActive: false } }) },
+        {
+          text: t('admin:actions.deactivate'),
+          tone: 'danger',
+          onPress: () => update.mutate({ id, body: { isActive: false } }),
+        },
       ],
     })
   }
@@ -65,7 +69,11 @@ export function CertificationsScreen() {
       <PageHeader
         title={t('certifications.title')}
         subtitle={t('certifications.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('admin:actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('admin:actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<CertificationDto>
         isLoading={isLoading}
@@ -79,7 +87,11 @@ export function CertificationsScreen() {
           {
             key: 'isActive',
             label: t('certifications.fields.status'),
-            render: (c) => <StatusPill tone={c.isActive ? 'active' : 'inactive'}>{c.isActive ? t('admin:common.active') : t('admin:common.inactive')}</StatusPill>,
+            render: (c) => (
+              <StatusPill tone={c.isActive ? 'active' : 'inactive'}>
+                {c.isActive ? t('admin:common.active') : t('admin:common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -87,12 +99,19 @@ export function CertificationsScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('admin:actions.edit') : t('admin:actions.new')}
-        dismissable={false}
+        size="medium"
         error={formError}
         footer={
           <>
-            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>{t('admin:actions.cancel')}</AppButton>
-            <AppButton variant="primary" size="$3" loading={create.isPending || update.isPending} onPress={submit}>
+            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
+              {t('admin:actions.cancel')}
+            </AppButton>
+            <AppButton
+              variant="primary"
+              size="$3"
+              loading={create.isPending || update.isPending}
+              onPress={submit}
+            >
               {editingId ? t('admin:actions.save') : t('admin:actions.create')}
             </AppButton>
           </>
@@ -100,9 +119,15 @@ export function CertificationsScreen() {
       >
         <AppInput label={t('certifications.fields.code')} value={code} onChangeText={setCode} />
         <AppInput label={t('certifications.fields.name')} value={name} onChangeText={setName} />
-        <AppInput label={t('certifications.fields.description')} value={description} onChangeText={setDescription} />
+        <AppInput
+          label={t('certifications.fields.description')}
+          value={description}
+          onChangeText={setDescription}
+        />
         {editingId ? (
-          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>{t('admin:actions.deactivate')}</AppButton>
+          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
+            {t('admin:actions.deactivate')}
+          </AppButton>
         ) : null}
       </Popup>
     </AdminShell>

@@ -124,9 +124,8 @@ export function PlantsScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        dismissable={false}
+        size="medium"
         error={formError}
-        size="large"
         footer={
           <>
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>

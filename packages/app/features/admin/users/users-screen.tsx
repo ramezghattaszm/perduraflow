@@ -82,7 +82,8 @@ export function UsersScreen() {
   }
   const submit = () => {
     const onSuccess = () => setOpen(false)
-    if (editingId) update.mutate({ id: editingId, body: { name, roleId, isVerified: verified } }, { onSuccess })
+    if (editingId)
+      update.mutate({ id: editingId, body: { name, roleId, isVerified: verified } }, { onSuccess })
     else create.mutate({ name, email, password, roleId, isVerified: verified }, { onSuccess })
   }
 
@@ -91,7 +92,11 @@ export function UsersScreen() {
       <PageHeader
         title={t('users.title')}
         subtitle={t('users.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<AdminUser>
         isLoading={isLoading}
@@ -110,12 +115,22 @@ export function UsersScreen() {
             key: 'isVerified',
             label: t('users.fields.isVerified'),
             render: (u) =>
-              u.isVerified ? <StatusPill tone="active">✓</StatusPill> : <P size={4} color="$textSecondary">—</P>,
+              u.isVerified ? (
+                <StatusPill tone="active">✓</StatusPill>
+              ) : (
+                <P size={4} color="$textSecondary">
+                  —
+                </P>
+              ),
           },
           {
             key: 'isActive',
             label: t('common.status'),
-            render: (u) => <StatusPill tone={u.isActive ? 'active' : 'inactive'}>{u.isActive ? t('common.active') : t('common.inactive')}</StatusPill>,
+            render: (u) => (
+              <StatusPill tone={u.isActive ? 'active' : 'inactive'}>
+                {u.isActive ? t('common.active') : t('common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -123,7 +138,7 @@ export function UsersScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        dismissable={false}
+        size="medium"
         error={formError}
         footer={
           <>
@@ -144,8 +159,18 @@ export function UsersScreen() {
         <AppInput label={t('users.fields.name')} value={name} onChangeText={setName} />
         {editingId ? null : (
           <>
-            <AppInput type="email" label={t('users.fields.email')} value={email} onChangeText={setEmail} />
-            <AppInput type="password" label={t('users.fields.password')} value={password} onChangeText={setPassword} />
+            <AppInput
+              type="email"
+              label={t('users.fields.email')}
+              value={email}
+              onChangeText={setEmail}
+            />
+            <AppInput
+              type="password"
+              label={t('users.fields.password')}
+              value={password}
+              onChangeText={setPassword}
+            />
           </>
         )}
         <FormField label={t('users.fields.roleId')}>

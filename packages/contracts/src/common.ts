@@ -62,6 +62,11 @@ export const ERROR_CODES = {
   // unique business-key conflicts within a tenant scope
   DUPLICATE_PART_NO: 'DUPLICATE_PART_NO',
   DUPLICATE_CERTIFICATION_CODE: 'DUPLICATE_CERTIFICATION_CODE',
+  // scheduling module (phase 2, api-spec §11.6)
+  SCHEDULE_VERSION_NOT_FOUND: 'SCHEDULE_VERSION_NOT_FOUND',
+  OPTIMIZER_RUN_FAILED: 'OPTIMIZER_RUN_FAILED',
+  SCHEDULE_INFEASIBLE: 'SCHEDULE_INFEASIBLE',
+  NO_DEMAND_TO_SCHEDULE: 'NO_DEMAND_TO_SCHEDULE',
 } as const
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]

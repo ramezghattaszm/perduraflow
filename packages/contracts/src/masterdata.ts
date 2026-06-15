@@ -15,7 +15,10 @@ import { z } from 'zod'
  * no BOM (SKIP-45), single base UoM no conversion, no tooling/asset domain, the
  * changeover matrix + sequencing rules stay scheduling-owned (SKIP-48).
  */
-export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.0' } as const
+// `1.1` (phase 2, additive MINOR — api-spec §11.3): adds `listResources` and
+// `getPrimaryRoutingForPart` for the scheduling consumer. Every `1.0` consumer
+// keeps compiling; bindings pin major `1` so this floats in (A12).
+export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.1' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -141,10 +144,14 @@ export interface MasterDataReadContract {
   getPart(tenantId: string, id: string): Promise<PartDto | null>
   validatePartIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
   getResource(tenantId: string, id: string): Promise<ResourceDto | null>
+  /** All resources in the tenant (added in `1.1` — board rows / group-member detail). */
+  listResources(tenantId: string): Promise<ResourceDto[]>
   validateResourceIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
   getResourceGroup(tenantId: string, id: string): Promise<ResourceGroupDto | null>
   validateResourceGroupIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
   getRouting(tenantId: string, id: string): Promise<RoutingDto | null>
+  /** The active primary routing (with operations) for a part, or null (added in `1.1`). */
+  getPrimaryRoutingForPart(tenantId: string, partId: string): Promise<RoutingDto | null>
   listCertifications(tenantId: string): Promise<CertificationDto[]>
   getOperator(tenantId: string, id: string): Promise<OperatorDto | null>
 }

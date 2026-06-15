@@ -89,7 +89,11 @@ export function PlantGroupsScreen() {
       <PageHeader
         title={t('plantGroups.title')}
         subtitle={t('plantGroups.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<PlantGroupDto>
         isLoading={isLoading}
@@ -107,7 +111,11 @@ export function PlantGroupsScreen() {
           {
             key: 'isActive',
             label: t('common.status'),
-            render: (g) => <StatusPill tone={g.isActive ? 'active' : 'inactive'}>{g.isActive ? t('common.active') : t('common.inactive')}</StatusPill>,
+            render: (g) => (
+              <StatusPill tone={g.isActive ? 'active' : 'inactive'}>
+                {g.isActive ? t('common.active') : t('common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -115,8 +123,9 @@ export function PlantGroupsScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        dismissable={false}
+        dismissable
         error={formError}
+        size="medium"
         footer={
           <>
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>

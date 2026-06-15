@@ -2,11 +2,25 @@
 
 import { useMemo, useState } from 'react'
 import type { ResourceGroupDto } from '@perduraflow/contracts'
-import { AppButton, AppInput, DataTable, FormField, Popup, P, PageHeader, SelectField, StatusPill } from '@perduraflow/ui'
+import {
+  AppButton,
+  AppInput,
+  DataTable,
+  FormField,
+  Popup,
+  P,
+  PageHeader,
+  SelectField,
+  StatusPill,
+} from '@perduraflow/ui'
 import { Plus } from '@tamagui/lucide-icons'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
-import { useResourceGroups, useResourceGroupMutations, useResources } from '../../../hooks/useMasterData'
+import {
+  useResourceGroups,
+  useResourceGroupMutations,
+  useResources,
+} from '../../../hooks/useMasterData'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePopup } from '../../../stores/popup.store'
 import { AdminShell } from '../../shell/admin-shell'
@@ -62,7 +76,11 @@ export function ResourceGroupsScreen() {
       message: t('admin:common.deactivateConfirm'),
       buttons: [
         { text: t('admin:actions.cancel'), tone: 'light' },
-        { text: t('admin:actions.deactivate'), tone: 'danger', onPress: () => update.mutate({ id, body: { isActive: false } }) },
+        {
+          text: t('admin:actions.deactivate'),
+          tone: 'danger',
+          onPress: () => update.mutate({ id, body: { isActive: false } }),
+        },
       ],
     })
   }
@@ -72,7 +90,11 @@ export function ResourceGroupsScreen() {
       <PageHeader
         title={t('resourceGroups.title')}
         subtitle={t('resourceGroups.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('admin:actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('admin:actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<ResourceGroupDto>
         isLoading={isLoading}
@@ -81,12 +103,25 @@ export function ResourceGroupsScreen() {
         emptyTitle={t('resourceGroups.title')}
         columns={[
           { key: 'name', label: t('resourceGroups.fields.name'), flex: 2, sortable: true },
-          { key: 'plantId', label: t('resourceGroups.fields.plantId'), flex: 2, render: (g) => <P size={4}>{plantName.get(g.plantId) ?? '—'}</P> },
-          { key: 'memberResourceIds', label: t('resourceGroups.fields.memberResourceIds'), render: (g) => <P size={4}>{g.memberResourceIds.length}</P> },
+          {
+            key: 'plantId',
+            label: t('resourceGroups.fields.plantId'),
+            flex: 2,
+            render: (g) => <P size={4}>{plantName.get(g.plantId) ?? '—'}</P>,
+          },
+          {
+            key: 'memberResourceIds',
+            label: t('resourceGroups.fields.memberResourceIds'),
+            render: (g) => <P size={4}>{g.memberResourceIds.length}</P>,
+          },
           {
             key: 'isActive',
             label: t('admin:common.status'),
-            render: (g) => <StatusPill tone={g.isActive ? 'active' : 'inactive'}>{g.isActive ? t('admin:common.active') : t('admin:common.inactive')}</StatusPill>,
+            render: (g) => (
+              <StatusPill tone={g.isActive ? 'active' : 'inactive'}>
+                {g.isActive ? t('admin:common.active') : t('admin:common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -94,12 +129,19 @@ export function ResourceGroupsScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('admin:actions.edit') : t('admin:actions.new')}
-        dismissable={false}
+        size="medium"
         error={formError}
         footer={
           <>
-            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>{t('admin:actions.cancel')}</AppButton>
-            <AppButton variant="primary" size="$3" loading={create.isPending || update.isPending} onPress={submit}>
+            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
+              {t('admin:actions.cancel')}
+            </AppButton>
+            <AppButton
+              variant="primary"
+              size="$3"
+              loading={create.isPending || update.isPending}
+              onPress={submit}
+            >
               {editingId ? t('admin:actions.save') : t('admin:actions.create')}
             </AppButton>
           </>
@@ -110,10 +152,17 @@ export function ResourceGroupsScreen() {
           <SelectField options={plantOptions} value={plantId} onChange={setPlantId} />
         </FormField>
         <FormField label={t('resourceGroups.fields.memberResourceIds')}>
-          <SelectField options={resourceOptions} value={memberIds} multiple onChange={setMemberIds} />
+          <SelectField
+            options={resourceOptions}
+            value={memberIds}
+            multiple
+            onChange={setMemberIds}
+          />
         </FormField>
         {editingId ? (
-          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>{t('admin:actions.deactivate')}</AppButton>
+          <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>
+            {t('admin:actions.deactivate')}
+          </AppButton>
         ) : null}
       </Popup>
     </AdminShell>

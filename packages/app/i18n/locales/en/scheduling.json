@@ -1,0 +1,31 @@
+{
+  "board": {
+    "title": "Schedule board",
+    "subtitle": "Deterministic schedule — resources across time.",
+    "plant": "Plant",
+    "version": "Version",
+    "resolve": "Re-solve",
+    "commit": "Commit",
+    "empty": "Nothing scheduled yet — Re-solve to generate a draft.",
+    "noResources": "No resources for this plant.",
+    "noVersions": "No schedule versions yet.",
+    "run": {
+      "status": "Run",
+      "horizon": "Horizon",
+      "ops": "Operations",
+      "demand": "Demand lines"
+    },
+    "tooltip": { "setup": "setup", "run": "run" }
+  },
+  "legend": {
+    "run": "Run (sized by duration)",
+    "setup": "Setup",
+    "changeover": "Changeover (attribute switch)",
+    "atRisk": "At-risk (late vs due)",
+    "sourceNote": "std = standard time (ML overlay later)"
+  },
+  "status": { "draft": "Draft", "committed": "Committed", "superseded": "Superseded" },
+  "runStatus": { "success": "Success", "infeasible": "Infeasible", "failed": "Failed" },
+  "atRisk": "At risk",
+  "source": { "standard": "std", "ml_adjusted": "ML" }
+}

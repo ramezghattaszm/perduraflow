@@ -2,7 +2,16 @@
 
 import { useState } from 'react'
 import type { CustomerDto, OrgPriority } from '@perduraflow/contracts'
-import { AppButton, AppInput, DataTable, FormField, Popup, PageHeader, SelectField, StatusPill } from '@perduraflow/ui'
+import {
+  AppButton,
+  AppInput,
+  DataTable,
+  FormField,
+  Popup,
+  PageHeader,
+  SelectField,
+  StatusPill,
+} from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { useCustomers, useCustomerMutations } from '../../../hooks/useOrg'
@@ -22,7 +31,10 @@ export function CustomersScreen() {
   const [priority, setPriority] = useState<OrgPriority>('standard')
 
   const { show } = usePopup()
-  const priorityOptions = (['standard', 'high', 'critical'] as const).map((v) => ({ value: v, label: t(`priority.${v}`) }))
+  const priorityOptions = (['standard', 'high', 'critical'] as const).map((v) => ({
+    value: v,
+    label: t(`priority.${v}`),
+  }))
 
   const confirmDeactivate = () => {
     if (!editingId) return
@@ -70,7 +82,11 @@ export function CustomersScreen() {
       <PageHeader
         title={t('customers.title')}
         subtitle={t('customers.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<CustomerDto>
         isLoading={isLoading}
@@ -80,11 +96,20 @@ export function CustomersScreen() {
         columns={[
           { key: 'name', label: t('customers.fields.name'), flex: 2, sortable: true },
           { key: 'firmFenceDays', label: t('customers.fields.firmFenceDays') },
-          { key: 'priority', label: t('customers.fields.priority'), sortable: true, render: (c) => t(`priority.${c.priority}`) },
+          {
+            key: 'priority',
+            label: t('customers.fields.priority'),
+            sortable: true,
+            render: (c) => t(`priority.${c.priority}`),
+          },
           {
             key: 'isActive',
             label: t('common.status'),
-            render: (c) => <StatusPill tone={c.isActive ? 'active' : 'inactive'}>{c.isActive ? t('common.active') : t('common.inactive')}</StatusPill>,
+            render: (c) => (
+              <StatusPill tone={c.isActive ? 'active' : 'inactive'}>
+                {c.isActive ? t('common.active') : t('common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -92,8 +117,8 @@ export function CustomersScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        dismissable={false}
         error={formError}
+        size="medium"
         footer={
           <>
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
@@ -118,7 +143,11 @@ export function CustomersScreen() {
           keyboardType="number-pad"
         />
         <FormField label={t('customers.fields.priority')}>
-          <SelectField options={priorityOptions} value={priority} onChange={(v) => setPriority((v as OrgPriority) ?? 'standard')} />
+          <SelectField
+            options={priorityOptions}
+            value={priority}
+            onChange={(v) => setPriority((v as OrgPriority) ?? 'standard')}
+          />
         </FormField>
         {editingId ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>

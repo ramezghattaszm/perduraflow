@@ -174,6 +174,18 @@ export class MasterDataRepository {
     return this.db.query.routing.findFirst({ where: and(eq(routing.tenantId, tenantId), eq(routing.id, id)) })
   }
 
+  /** The active primary routing for a part (masterdata.read 1.1 — scheduling consumer). */
+  findPrimaryRoutingForPart(tenantId: string, partId: string): Promise<Routing | undefined> {
+    return this.db.query.routing.findFirst({
+      where: and(
+        eq(routing.tenantId, tenantId),
+        eq(routing.partId, partId),
+        eq(routing.isPrimary, true),
+        eq(routing.status, 'active'),
+      ),
+    })
+  }
+
   operationsFor(routingId: string): Promise<RoutingOperation[]> {
     return this.db
       .select()

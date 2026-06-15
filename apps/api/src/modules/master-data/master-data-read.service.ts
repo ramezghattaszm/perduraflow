@@ -61,6 +61,11 @@ export class MasterDataReadService implements MasterDataReadContract {
     return row ? toResourceDto(row) : null
   }
 
+  /** All resources in the tenant (1.1 — board rows / group-member detail). */
+  async listResources(tenantId: string): Promise<ResourceDto[]> {
+    return (await this.repo.listResources(tenantId)).map(toResourceDto)
+  }
+
   /** Validates resource references (O4) — for phase-2 consumers. */
   async validateResourceIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation> {
     const valid = await this.repo.resourceIdsIn(tenantId, ids)
@@ -85,6 +90,13 @@ export class MasterDataReadService implements MasterDataReadContract {
   /** Resolves one routing (with its ordered operations) in the tenant, or null. */
   async getRouting(tenantId: string, id: string): Promise<RoutingDto | null> {
     const row = await this.repo.findRouting(tenantId, id)
+    if (!row) return null
+    return toRoutingDto(row, await this.repo.operationsFor(row.id))
+  }
+
+  /** The active primary routing (with operations) for a part, or null (1.1 — scheduling). */
+  async getPrimaryRoutingForPart(tenantId: string, partId: string): Promise<RoutingDto | null> {
+    const row = await this.repo.findPrimaryRoutingForPart(tenantId, partId)
     if (!row) return null
     return toRoutingDto(row, await this.repo.operationsFor(row.id))
   }

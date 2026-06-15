@@ -247,3 +247,66 @@ full CRUD incl. soft-delete from the first pass — no repeat of the Phase-0 CRU
 | FS6 | **Operator-qualifications UI** (operator×certification many-to-many). | A dedicated **`QualificationMatrix` screen** (operators × certifications checkbox grid; toggle = create/remove `operator_qualification`). Operator identity CRUD stays on the Operators screen; qualifications are not edited on the operator Popup. | **Confirmed** (matrix screen) |
 | FS7 | **Master Data placement in nav** — own section vs under Administration. | Its **own `Master data` sidebar section** (it's a domain area, not kernel admin). | **Confirmed** |
 | FS8 | **Routing list → edit navigation.** | Row click on the routings list navigates to `routings/[id]` (Solito), not a Popup (consistent with FS5). | **Confirmed** |
+
+---
+
+# Phase 2 — Scheduling board (BUILT)
+
+> **STATUS: BUILT & browser-verified** (read-first Gantt on `react-native-svg`, web + native routes;
+> plant/version selectors, re-solve → draft, commit → committed; source tag rendered). Source:
+> `docs/CLAUDE-CODE-BRIEF-PHASE-2.md`, scheduling spec §4.4/§4.9. The shell is already built
+> (`frontend-spec-shell.md`); the board renders **into** it. API side: api-spec §11.
+
+## 13. Phase-2 nav & route
+
+A new **"Scheduling"** sidebar section (its own domain area, like Master data). Read-first this phase:
+
+```
+(app)/
+  scheduling/
+    board                      ← read-first Gantt + version selector + re-solve + commit (SKIP-40)
+```
+
+`nav.ts` gains a `Scheduling` section with one item, **Board** (icon `GanttChartSquare`/`CalendarClock`).
+**The board is wired into BOTH `apps/next` and `apps/expo`** — unlike the admin/master-data screens
+(web/tablet authoring), the board is **iPad/native first-class** (FS9), so it ships a native route too.
+`ScheduleGantt` is `react-native-svg`-based and renders identically on both.
+
+## 14. Board screen (`features/scheduling/board/`)
+
+Read-first (SKIP-40) — **no drag-to-author** (deferred with the virtualized canvas). Layout:
+
+- **Controls row:** a **plant selector** (from `org.read` plants) → a **version selector** (the
+  plant's `schedule_version`s, newest first, labelled `status · created_at`) → a **Re-solve** button
+  (→ new `draft` version, auto-selected) → a **Commit** button shown on a `draft` version
+  (promotes `draft → committed`, supersedes the prior committed — AS11). Both writes are
+  ConfigureGuard-gated.
+- **`ScheduleGantt`** (new `packages/ui`): resources (lines) as rows, time horizontal across the
+  version horizon, `scheduled_operation`s as bars positioned by `planned_start`/`planned_end`. A bar
+  shows the part + a small **source chip** (`std`, from `setup_source`/`cycle_source`) and, when
+  present, a **confidence** badge (null now → not shown; SKIP-04 carry-through renders with zero board
+  change in Phase 3). **At-risk** bars get a `$danger` border + an at-risk marker.
+- **Empty/infeasible states:** no demand → `EmptyState` ("nothing to schedule"); an `infeasible` run →
+  a banner naming the offending demand (the D4 hard-gate outcome, not a silent drop).
+- A small **run/version detail** strip: trigger, status, `stop_reason`, horizon, op count.
+
+`bindings`/sequencer are server-side; the board is a pure consumer of `GET /scheduling/versions/:id`.
+
+## 15. New `packages/ui` components (variant-driven, both-theme stories — UI §0.2/§16)
+
+| Component | Purpose | Notes |
+|---|---|---|
+| `ScheduleGantt` | Read-first Gantt: resource rows × **hour time axis with gridlines**; bars **positioned by `planned_start` and sized by duration** (no equal-width chips). Encodes **setup head** (shaded), **changeover** attribute-switch (accent tick), **at-risk** (`$danger` inset border + dot, not a different fill). Labels render **only where they fit**; source/confidence live in the **legend + press tooltip**, never inside a bar. | Controlled/presentational (`resources`, `bars`, `horizonStart/End`, `onBarPress?`); **`react-native-svg`** (FS9), theme-token colours. **Decision: horizontal scroll with a pinned resource-label column** (shop-floor-appropriate, bars stay readable; reuses the DataTable scroll pattern) — not fit-to-horizon. Press hit-targets are Tamagui overlays over the SVG (reliable web+native). The deferred virtualized authoring canvas supersedes it behind the same `scheduled_operation` data. |
+
+## 16. i18n
+
+Add a **`scheduling`** namespace (board labels, version/run status, at-risk, source/confidence,
+re-solve, empty/infeasible copy); extend `errors.json` with api-spec §11.6 codes.
+
+## 17. Open phase-2 UI decisions (brief §5 — see also api-spec AS9–AS12)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| FS9 | **Gantt rendering approach** (explicitly *not* the virtualized canvas; **iPad/native is first-class**). | **`react-native-svg`** (CONFIRMED) — already installed (15.12.1), Next transpiles/aliases it, so the **same `<Svg>` JSX renders web AND native/iPad, no platform split, no new dep**; theme colours from tokens. **Scroll decision: horizontal scroll + pinned resource-label column** (GANTT-FIX §"scroll vs fit") — bars stay at a readable scale; reuses the DataTable scroll pattern. Bars are time-positioned/duration-sized with setup/changeover/at-risk encoding; source/confidence in legend + press tooltip. The deferred virtualized canvas (SKIP-40) supersedes it behind the same data. | **Confirmed + BUILT** (react-native-svg; scroll + pinned labels) |
+| FS10 | **Board context selection.** How does the planner pick what to view? | **Plant selector → version selector**; default to the first plant + its newest `committed` version (or newest `draft` if none committed). **Re-solve** → new `draft`, auto-selected; **Commit** (on a draft) → `committed`, supersedes prior (AS11). | **Confirmed** (draft-then-commit) |
+| FS11 | **Source/confidence rendering while empty (SKIP-04).** | Always render a **source chip** (`std`) on every bar; render a **confidence** badge only when non-null (null now → omitted). Phase 3's closed loop flips values with **zero board change**. | **Confirmed** |

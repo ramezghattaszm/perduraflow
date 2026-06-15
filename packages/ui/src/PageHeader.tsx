@@ -19,14 +19,7 @@ export function PageHeader({
   actions?: ReactNode
 }) {
   return (
-    <XStack
-      alignItems="flex-start"
-      justifyContent="space-between"
-      gap="$4"
-      paddingBottom="$4"
-      borderBottomWidth={1}
-      borderBottomColor="$borderColor"
-    >
+    <XStack alignItems="flex-start" justifyContent="space-between" gap="$4">
       <YStack gap="$1" flex={1}>
         <H level={2} color="$textPrimary">
           {title}

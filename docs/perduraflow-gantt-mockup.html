@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PerduraFlow — schedule board (improved)</title>
+<style>
+  :root{
+    --bg:#080B14; --surface:#131926; --raised:#1A2030; --line:#232C3D;
+    --ink:#E6E8EB; --dim:#9AA3B2; --faint:#5e6776;
+    --accent:#5b8def; --accent-soft:rgba(91,141,239,.14);
+    --green:#36d07f; --green-ink:#06200f; --danger:#f87171;
+    --bar:#3f6fd6; --bar-top:#5b8def;
+    font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070c;color:var(--ink);padding:26px 22px 60px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:27px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:14px;margin:0 0 22px}
+
+  .meta{display:flex;align-items:center;gap:14px;margin:0 0 14px;font-size:13px;color:var(--dim)}
+  .pill{font-size:12px;font-weight:500;padding:4px 12px;border-radius:999px}
+  .pill.ok{background:var(--green);color:var(--green-ink)}
+
+  .legend{display:flex;gap:18px;margin:0 0 12px;font-size:12px;color:var(--dim);flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:22px;height:12px;border-radius:3px;flex:none}
+  .sw.run{background:var(--bar);border-top:3px solid var(--bar-top)}
+  .sw.setup{background:repeating-linear-gradient(45deg,#2a3650,#2a3650 4px,#202a40 4px,#202a40 8px)}
+  .sw.risk{background:var(--bar);box-shadow:inset 0 0 0 2px var(--danger)}
+  .sw.chg{width:3px;height:16px;border-radius:2px;background:var(--accent)}
+
+  /* gantt */
+  .gantt{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+  .grow{display:grid;grid-template-columns:150px 1fr}
+  .ghead{display:contents}
+  .corner{background:var(--raised);border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+    padding:10px 14px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  .axis{position:relative;height:38px;background:var(--raised);border-bottom:1px solid var(--line)}
+  .tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--line)}
+  .tick span{position:absolute;top:10px;left:6px;font-size:11px;color:var(--faint);white-space:nowrap}
+
+  .rlabel{display:flex;align-items:center;padding:0 14px;border-right:1px solid var(--line);
+    border-bottom:1px solid var(--line);font-size:14px;font-weight:500;min-height:62px}
+  .rlabel small{display:block;color:var(--dim);font-weight:400;font-size:11.5px;margin-top:2px}
+  .lane{position:relative;border-bottom:1px solid var(--line);min-height:62px;background:rgba(255,255,255,.012)}
+  .lane:nth-child(4n){background:transparent}
+  .gridline{position:absolute;top:0;bottom:0;border-left:1px solid rgba(255,255,255,.04)}
+
+  .bar{position:absolute;top:12px;height:38px;border-radius:6px;background:var(--bar);
+    border-top:3px solid var(--bar-top);display:flex;align-items:center;padding:0 9px;overflow:hidden;
+    box-shadow:0 1px 0 rgba(0,0,0,.3);cursor:default}
+  .bar .nm{font-size:12.5px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar.risk{box-shadow:inset 0 0 0 2px var(--danger),0 1px 0 rgba(0,0,0,.3)}
+  .bar .setup{position:absolute;left:0;top:0;bottom:0;
+    background:repeating-linear-gradient(45deg,rgba(0,0,0,.28),rgba(0,0,0,.28) 4px,transparent 4px,transparent 8px)}
+  /* changeover marker between unlike jobs */
+  .chg{position:absolute;top:8px;height:46px;width:3px;border-radius:2px;background:var(--accent);opacity:.8}
+  .riskdot{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--danger);top:8px}
+
+  .hint{margin-top:12px;font-size:12px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Schedule board</h1>
+  <p class="sub">Deterministic schedule — Saltillo Stamping · committed</p>
+
+  <div class="meta">
+    <span class="pill ok">Committed</span>
+    Run: Success · Operations: 11 · Demand lines: 8 · Horizon 06-15 06:00 → 18:00
+  </div>
+
+  <div class="legend">
+    <span><span class="sw run"></span>Run (sized by duration)</span>
+    <span><span class="sw setup"></span>Setup</span>
+    <span><span class="sw chg"></span>Changeover (attribute switch)</span>
+    <span><span class="sw risk"></span>At-risk (late vs due)</span>
+    <span style="color:var(--faint)">· std = standard time (ML overlay later)</span>
+  </div>
+
+  <div class="gantt">
+    <div class="grow" id="grid">
+      <!-- header -->
+      <div class="corner">Resource</div>
+      <div class="axis" id="axis"></div>
+      <!-- rows injected -->
+    </div>
+  </div>
+  <p class="hint">Bars positioned by <code>planned_start</code> and sized by duration on an hour scale. Labels show only where they fit; hover a bar for full detail. Source/confidence render per-bar (all <code>std</code> now; flips to <code>ml</code> + confidence in Phase 3 with no board change).</p>
+</div>
+
+<script>
+  // ----- time model -----
+  const H0 = 6*60, H1 = 18*60;            // 06:00..18:00 in minutes
+  const span = H1 - H0;
+  const PX = 86;                          // px per hour
+  const trackW = (span/60)*PX;
+
+  // ----- seeded ops (mins from midnight) -----
+  // attr drives changeover (colour). setup minutes shown as hatch at bar start.
+  const rows = [
+    { name:'Press Line A', sub:'Stamping', ops:[
+      {part:'FG-1001', attr:'blue',  start:6*60,           setup:20, run:70},
+      {part:'FG-1001', attr:'blue',  start:6*60+90,        setup:0,  run:60},
+      {part:'FG-1003', attr:'red',   start:6*60+150,       setup:30, run:80, chg:true},
+      {part:'FG-1002', attr:'green', start:6*60+260,       setup:30, run:95, chg:true},
+      {part:'FG-1002', attr:'green', start:6*60+385,       setup:0,  run:70},
+    ]},
+    { name:'Weld Cell 2', sub:'Welding', ops:[
+      {part:'FG-1001', attr:'blue',  start:6*60+20,        setup:15, run:55},
+      {part:'FG-1002', attr:'green', start:6*60+110,       setup:25, run:85, chg:true},
+      {part:'FG-1002', attr:'green', start:6*60+220,       setup:0,  run:80},
+      {part:'FG-1003', attr:'red',   start:6*60+330,       setup:25, run:120, chg:true, risk:true},
+    ]},
+  ];
+
+  const grid = document.getElementById('grid');
+  const axis = document.getElementById('axis');
+  axis.style.width = trackW+'px';
+
+  // axis ticks every hour
+  for(let m=H0;m<=H1;m+=60){
+    const x=((m-H0)/span)*trackW;
+    const t=document.createElement('div'); t.className='tick'; t.style.left=x+'px';
+    const lbl=document.createElement('span'); const hr=(m/60); lbl.textContent=String(hr).padStart(2,'0')+':00';
+    t.appendChild(lbl); axis.appendChild(t);
+  }
+
+  const mx = m => ((m-H0)/span)*trackW;
+
+  rows.forEach(r=>{
+    const lab=document.createElement('div'); lab.className='rlabel';
+    lab.innerHTML = r.name+'<small>'+r.sub+'</small>';
+    grid.appendChild(lab);
+
+    const lane=document.createElement('div'); lane.className='lane'; lane.style.width=trackW+'px';
+    // gridlines
+    for(let m=H0+60;m<H1;m+=60){const g=document.createElement('div');g.className='gridline';g.style.left=mx(m)+'px';lane.appendChild(g);}
+    r.ops.forEach(o=>{
+      const x=mx(o.start), w=((o.setup+o.run)/span)*trackW;
+      const bar=document.createElement('div'); bar.className='bar'+(o.risk?' risk':'');
+      bar.style.left=x+'px'; bar.style.width=w+'px';
+      bar.title = o.part+'  ·  '+fmt(o.start)+'–'+fmt(o.start+o.setup+o.run)+'  ·  setup '+o.setup+'m / run '+o.run+'m  ·  std'+(o.risk?'  ·  AT RISK (late)':'');
+      if(o.setup){const s=document.createElement('div');s.className='setup';s.style.width=(o.setup/(o.setup+o.run)*100)+'%';bar.appendChild(s);}
+      const nm=document.createElement('div'); nm.className='nm'; nm.textContent = w>74 ? o.part : '';
+      bar.appendChild(nm);
+      lane.appendChild(bar);
+      if(o.chg){const c=document.createElement('div');c.className='chg';c.style.left=(x-2)+'px';lane.appendChild(c);}
+      if(o.risk){const d=document.createElement('div');d.className='riskdot';d.style.left=(x+w-12)+'px';lane.appendChild(d);}
+    });
+    grid.appendChild(lane);
+  });
+
+  function fmt(m){const h=Math.floor(m/60),mm=m%60;return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0');}
+</script>
+</body>
+</html>

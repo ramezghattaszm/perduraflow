@@ -35,5 +35,9 @@
   "INVALID_RESOURCE_GROUP_REFERENCE": "One or more selected resource groups no longer exist.",
   "DUPLICATE_PART_NO": "That part number is already in use.",
   "DUPLICATE_CERTIFICATION_CODE": "That certification code is already in use.",
+  "SCHEDULE_VERSION_NOT_FOUND": "That schedule version no longer exists.",
+  "OPTIMIZER_RUN_FAILED": "The scheduling run failed. Please try again.",
+  "SCHEDULE_INFEASIBLE": "The schedule is infeasible — some demand can't be produced (no routing or eligible resource).",
+  "NO_DEMAND_TO_SCHEDULE": "There is no active demand to schedule for this plant.",
   "GENERIC": "Something went wrong. Please try again."
 }

@@ -21,6 +21,9 @@ export const EVENTS = {
   ROUTING_CREATED: 'master_data.routing.created',
   CERTIFICATION_CREATED: 'master_data.certification.created',
   OPERATOR_CREATED: 'master_data.operator.created',
+  // scheduling module (phase 2)
+  SCHEDULING_RUN_COMPLETED: 'scheduling.run.completed',
+  SCHEDULING_VERSION_COMMITTED: 'scheduling.version.committed',
 } as const
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS]

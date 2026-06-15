@@ -3,7 +3,17 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'solito/navigation'
 import type { RoutingDto } from '@perduraflow/contracts'
-import { AppButton, AppInput, DataTable, FormField, Popup, P, PageHeader, SelectField, StatusPill } from '@perduraflow/ui'
+import {
+  AppButton,
+  AppInput,
+  DataTable,
+  FormField,
+  Popup,
+  P,
+  PageHeader,
+  SelectField,
+  StatusPill,
+} from '@perduraflow/ui'
 import { Plus } from '@tamagui/lucide-icons'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
@@ -40,7 +50,7 @@ export function RoutingsScreen() {
           setOpen(false)
           router.push(`/master-data/routings/${r.id}`)
         },
-      },
+      }
     )
   }
 
@@ -49,7 +59,11 @@ export function RoutingsScreen() {
       <PageHeader
         title={t('routings.title')}
         subtitle={t('routings.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('admin:actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('admin:actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<RoutingDto>
         isLoading={isLoading}
@@ -58,12 +72,25 @@ export function RoutingsScreen() {
         emptyTitle={t('routings.title')}
         columns={[
           { key: 'name', label: t('routings.fields.name'), flex: 2, sortable: true },
-          { key: 'partId', label: t('routings.fields.partId'), flex: 2, render: (r) => <P size={4}>{partName.get(r.partId) ?? '—'}</P> },
-          { key: 'operations', label: t('routings.operations.title'), render: (r) => <P size={4}>{r.operations.length}</P> },
+          {
+            key: 'partId',
+            label: t('routings.fields.partId'),
+            flex: 2,
+            render: (r) => <P size={4}>{partName.get(r.partId) ?? '—'}</P>,
+          },
+          {
+            key: 'operations',
+            label: t('routings.operations.title'),
+            render: (r) => <P size={4}>{r.operations.length}</P>,
+          },
           {
             key: 'status',
             label: t('routings.fields.status'),
-            render: (r) => <StatusPill tone={r.status === 'active' ? 'active' : 'inactive'}>{r.status === 'active' ? t('admin:common.active') : t('admin:common.inactive')}</StatusPill>,
+            render: (r) => (
+              <StatusPill tone={r.status === 'active' ? 'active' : 'inactive'}>
+                {r.status === 'active' ? t('admin:common.active') : t('admin:common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -71,12 +98,16 @@ export function RoutingsScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={t('admin:actions.new')}
-        dismissable={false}
+        size="medium"
         error={formError}
         footer={
           <>
-            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>{t('admin:actions.cancel')}</AppButton>
-            <AppButton variant="primary" size="$3" loading={create.isPending} onPress={submit}>{t('admin:actions.create')}</AppButton>
+            <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
+              {t('admin:actions.cancel')}
+            </AppButton>
+            <AppButton variant="primary" size="$3" loading={create.isPending} onPress={submit}>
+              {t('admin:actions.create')}
+            </AppButton>
           </>
         }
       >

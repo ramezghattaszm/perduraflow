@@ -138,17 +138,23 @@ export function DataTable<T extends { id: string }>({
           hoverStyle={onRowPress ? { backgroundColor: '$background' } : undefined}
           onPress={onRowPress ? () => onRowPress(row) : undefined}
         >
-          {columns.map((c) => (
-            <YStack key={c.key} width={c.width} flex={c.width ? undefined : (c.flex ?? 1)}>
-              {c.render ? (
-                c.render(row)
-              ) : (
-                <P size={4} color="$textPrimary">
-                  {String((row as Record<string, unknown>)[c.key] ?? '—')}
-                </P>
-              )}
-            </YStack>
-          ))}
+          {columns.map((c) => {
+            const content: ReactNode = c.render
+              ? c.render(row)
+              : String((row as Record<string, unknown>)[c.key] ?? '—')
+            return (
+              <YStack key={c.key} width={c.width} flex={c.width ? undefined : (c.flex ?? 1)}>
+                {/* Wrap raw text so a string-returning `render` never lands directly in a View. */}
+                {typeof content === 'string' || typeof content === 'number' ? (
+                  <P size={4} color="$textPrimary">
+                    {content}
+                  </P>
+                ) : (
+                  content
+                )}
+              </YStack>
+            )
+          })}
         </XStack>
       ))}
       </YStack>

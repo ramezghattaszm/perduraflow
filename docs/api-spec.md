@@ -13,6 +13,11 @@
 > - **Phase 1 (§10): BUILT & verified** — the first domain module (`master-data`) + an `org` priority
 >   edit + the `org.read 1.1` bump + `masterdata.read 1.0`. Migration `0003` applied + seeded; all
 >   boundary proofs pass (scoped schema, no cross-schema FK, additive contract, no resolver).
+> - **Phase 2 (§11): BUILT & verified.** The second domain module (`scheduling`) + the **first
+>   per-tenant binding resolver** (`binding` kernel module) consuming `masterdata.read`, a deterministic
+>   EDD penalty sequencer (firm-dominant, SKIP-03 stand-in), seeded `demand_input`, and `masterdata.read
+>   1.0 → 1.1` (additive). Migration `0004` applied + seeded; all five boundary/determinism proofs pass;
+>   the read-first board renders web + native.
 
 ---
 
@@ -451,3 +456,161 @@ cross-module **write** transaction expected (O8); flag SKIP-06 if one appears.
 | AS6 | **Changeover attributes on the operation.** What does `routing_operation` carry now (modeled, not sequenced) vs deferred? | **Add part physical attributes** `material`/`gauge`/`colour` to `part` now (MD11/5.6); `routing_operation.changeover_attribute_key` (enum `colour|material|gauge`, nullable) names which part attribute drives changeover — **modeled, not sequenced**. The **changeover matrix + sequencing rules stay scheduling-owned & deferred** (SKIP-48). | **Confirmed** (part attrs added) |
 | AS7 | **Operation target grain.** Does an operation target a resource **group** or a specific resource? | Target a **`resource_group_id`** (the eligible group, 5.2) — matches scheduling's eligibility grain. No direct single-resource targeting in phase 1. | **Confirmed** |
 | AS8 | **Priority representation.** Ordinal int vs named tier? | Named **tier enum `standard|high|critical`** (customer default, program override) — demo-friendly, mirrors firm-fence. | **Confirmed** |
+
+---
+
+# Phase 2 — Scheduling (BUILT)
+
+> **STATUS: BUILT & verified** (migration `0004`; binding resolver + EDD sequencer; board web + native;
+> all five DoD proofs pass). Source: `docs/CLAUDE-CODE-BRIEF-PHASE-2.md`, scheduling spec §4.1/§4.4/§4.9, §5.3/§5.4,
+> D2/D4/D7/D18, platform-arch A8 / §6.3 (binding model). All §0 override rules (O1–O8) + §2 schema
+> rules carry forward unchanged.
+
+## 11. Phase-2 module & the first binding resolver
+
+| Module | Postgres schema | Kind | Owns / changes |
+|---|---|---|---|
+| `scheduling` *(new — second domain module)* | `scheduling` | **domain** | `demand_input`, `optimizer_run`, `schedule_version`, `scheduled_operation` |
+| `binding` *(new — kernel construct)* | `binding` *(table per AS12)* | kernel | `contract_binding` (per-tenant contract→counterpart bindings) + the `BindingResolver` |
+| `master-data` *(edit)* | `master_data` | domain | **`masterdata.read 1.0 → 1.1`** (additive: `listResources`, `getPrimaryRoutingForPart`) |
+
+**The architectural first — the per-tenant binding resolver.** Phase 1 *published* `masterdata.read`;
+phase 2 is its first consumer. Scheduling never injects `MASTERDATA_READ` directly — it asks the
+**`BindingResolver`** for the counterpart bound to `masterdata.read` **for the caller's tenant** (O7,
+A8 §6.3). Only the `platform_module` counterpart (the Phase-1 module) is implemented; `connector |
+upload | native` remain later config, not code. Re-binding needs **zero scheduling code change** —
+the headline boundary proof. **Kernel contracts (`org.read`) are still consumed directly** — bindings
+are for *domain* contracts only.
+
+### 11.1 Binding resolver (O7, A8 §6.3)
+
+- **`BindingResolver`** (kernel `binding` module) resolves `(tenantId, contract)` → the counterpart
+  implementation. It reads the per-tenant binding **mode** (default `platform_module`) and returns the
+  counterpart registered for that mode.
+- **Counterpart registry — composition-root wiring (A2):** each domain module that *fulfils* a
+  contract registers its read service as a counterpart `{ contractId, mode, impl }` at the app
+  composition root (so the `binding` module imports no domain module — O1). Phase 2 registers exactly
+  one: `{ 'masterdata.read', 'platform_module', MASTERDATA_READ }`.
+- **Consumer side:** `scheduling` injects `BindingResolver` and calls
+  `resolver.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)` → a
+  `MasterDataReadContract`. It depends on the **contract interface + the resolver**, never on
+  `master-data`. Swapping the bound mode (or counterpart) changes only registry/config — proof #3.
+- **Versioning:** a binding records `contract_id + major` (A12: pin major, float minor). Phase 2 pins
+  `masterdata.read` major `1`; the additive `1.1` (11.3) floats in with no binding change.
+
+### 11.2 `scheduling` table sketches (O2/§2.4 rules: ULID PK, `tenant_id` + index, `created_at`, soft-delete)
+
+> Deterministic spine only (D2). Deferred & logged: actuals/closed-loop/ML/metrics/what-if/baseline/
+> narration/stability (Phase 3+); net-requirements netting — **demand is a seeded fixture** (SKIP-10);
+> the real optimizer (SKIP-03); approval policy stage-2 (SKIP-46); the virtualized authoring canvas
+> (SKIP-40). **`setup_source`/`cycle_source`/`*_confidence` are wired now but empty** (SKIP-04).
+
+**scheduling.demand_input** (§4.1, **seeded** — SKIP-10) — `tenant_id`, `demand_line_id` (text,
+business ref), `release_reference` (text), `part_id` (**text → `masterdata.read`**, no FK),
+`plant_id` (text → `org`), `customer_id` (text → `org`), `program_id` (text → `org`, nullable),
+`demand_type` (enum `JIT|JIS|stock`, default `stock`), `firmness` (enum `firm|forecast`),
+`required_qty` (decimal — **pre-netted**, D14/D20, not netted here), `uom` (text),
+`required_date` (timestamptz), `is_active`. *(Minimal subset of §4.1; JIS block, CUM, delivery
+windows deferred. Priority is read from `org` customer/program, not stored here.)*
+
+**scheduling.optimizer_run** (§4.9) — `tenant_id`, `plant_id` (text → `org`), `trigger`
+(enum `manual|scheduled|event|what_if`, phase 2 uses `manual`), `objective_summary` (text — names the
+heuristic, e.g. "EDD changeover-aware (SKIP-03 stand-in)"), `status` (enum `success|infeasible|failed`),
+**`stop_reason`** (text — why the run ended; deterministic-termination discipline, A16), `started_at`,
+`finished_at`, `input_demand_count` (int — input snapshot size). The run header backs the board,
+re-solve, and later what-if.
+
+**scheduling.schedule_version** (§4.9) — `tenant_id`, `plant_id` (text → `org`), `status`
+(enum `draft|committed|superseded`, AS11), `horizon_start` / `horizon_end` (timestamptz),
+`optimizer_run_id` (→ `scheduling.optimizer_run.id`, **intra-schema FK**),
+`supersedes_version_id` (→ `scheduling.schedule_version.id`, nullable, intra FK), `created_at`.
+
+**scheduling.scheduled_operation** (§4.4, committed schedule) — `tenant_id`,
+`schedule_version_id` (→ `scheduling.schedule_version.id`, intra FK), `demand_line_id` (text — the
+satisfied demand line; traceability), `part_id` (**text → `masterdata.read`**),
+`routing_operation_id` (**text → `masterdata.read`**), `resource_id` (**text → `masterdata.read`** —
+the assigned member of the op's resource group), `op_seq` (int), `sequence_position` (int — position
+in the resource's queue), `planned_start` / `planned_end` (timestamptz), `planned_qty` (decimal),
+`setup_time` (decimal — effective setup used) / `cycle_time` (decimal — from `routing_operation`
+std times, D7), **`setup_source`** (enum `standard|ml_adjusted`, **default `standard`**) /
+**`cycle_source`** (enum, **default `standard`**), **`setup_confidence`** / **`cycle_confidence`**
+(decimal, **nullable, default null**), `at_risk` (bool, default false), `at_risk_reason` (text,
+nullable). **No FK to `master_data` or `org`** — all cross-module refs are text, resolved/validated
+through the binding-resolved contract (proof #2).
+
+### 11.3 `masterdata.read 1.0 → 1.1` (additive MINOR — A12, no consumer breakage)
+
+The sequencer needs to resolve a demand part → its routing/operations, and the board needs resource
+names; `1.0` exposes neither as a list/lookup. **Additive** additions (every `1.0` consumer keeps
+compiling; the Phase-1 module is the producer and is unaffected):
+- `listResources(tenantId): ResourceDto[]` — board rows + group-member → resource detail.
+- `getPrimaryRoutingForPart(tenantId, partId): RoutingDto | null` — the active primary routing (with
+  operations) for a demand part.
+- Bump `MASTERDATA_READ_CONTRACT.version` → `'1.1'`. Bindings pin major `1`, so this floats in with
+  no binding/resolver change.
+
+### 11.4 Sequencer (SKIP-03) — deterministic EDD, changeover-aware (see AS9)
+
+A transparent, reproducible heuristic — **explicitly a placeholder** for the real optimizer (D18/AQ6);
+`objective_summary` labels it. Per plant, over the seeded firm demand within the horizon:
+1. **Resolve** each demand line's part → primary routing → operations via the bound `masterdata.read`;
+   each operation's `resource_group_id` → its eligible **active** member resources. Unresolvable
+   part/routing or **no eligible resource = hard-gate failure (D4)** → run `status=infeasible`,
+   `stop_reason` records the offending line; that op is not scheduled.
+2. **Place** by a deterministic greedy over a **changeover-penalty model** (AS9). Maintain per-resource
+   free-time (init `horizon_start`) and current changeover-attribute. Repeatedly select the next
+   unplaced op minimizing
+   `score = W_LATE(firmness)·max(0, projectedLatenessHours) + W_CHG·changeoverCost`, assigning it to the
+   **least-loaded** eligible member (earliest free-time; tie-break lowest `resource_id`) — AS10;
+   `changeoverCost = 0` if the op shares that resource's current attribute else a flat
+   `CHANGEOVER_PENALTY` (matrix deferred SKIP-48 → flat per-switch cost).
+   **Firm-lateness dominance (D13/D23):** `W_LATE` is firmness-weighted — `W_LATE_FIRM ≫ CHANGEOVER_PENALTY`
+   so a **firm** line's lateness can **never** be traded away for a changeover saving (firm orders
+   sequence effectively EDD-strict, protecting delivery), while `W_LATE_FORECAST` is modest so
+   **forecast** lines may flex to group changeovers. All weights are **documented constants** (D48
+   defaults); total-order tie-break `firmness(firm first) → required_date → priority (org) → part_no →
+   demand_line_id`. Each op records its score components, so the choice is explainable.
+3. **Time** each placement: `planned_start = max(assigned-resource free, horizon_start)`,
+   `planned_end = start + setup_time + cycle_time × qty`; update that resource's free-time + current
+   attribute. `setup_time`/`cycle_time` from the routing operation's std times (D7);
+   `setup_source`/`cycle_source = standard`. **Delivery-window gate (D4):** `planned_end > required_date`
+   → `at_risk=true`, `at_risk_reason='late'` (scheduled late, not dropped; a late **firm** line is the
+   serious case the dominance rule minimizes).
+4. **Determinism (D2):** the schedule timeline anchors to a **deterministic origin** (`horizon_start` =
+   start-of-day of the earliest demand `required_date`, or a configured value) — **never `Date.now()`** —
+   so re-running the same seed yields identical `scheduled_operation` rows (planned times + sequence).
+   Only `optimizer_run.started_at/finished_at` are wall-clock; the schedule is byte-identical (proof #5).
+
+Produces one `optimizer_run` + one `schedule_version` (lifecycle AS11).
+
+### 11.5 Endpoints
+
+Reads (`JwtAuthGuard`, tenant-scoped): `GET /scheduling/versions?plantId=` (selector list),
+`GET /scheduling/versions/:id` (header + `scheduled_operation`s — board data),
+`GET /scheduling/demand?plantId=` (seeded demand, read-only), `GET /scheduling/resources?plantId=`
+(board rows, via the bound contract). Writes (`JwtAuthGuard + ConfigureGuard`):
+`POST /admin/scheduling/solve { plantId }` — runs the sequencer, creates run + a **`draft`** version,
+returns it (the board's "re-solve"); `POST /admin/scheduling/versions/:id/commit` — promotes
+`draft → committed`, supersedes the plant's prior committed (AS11).
+
+### 11.6 Error codes (add to §6 `ERROR_CODES` + `errors.json`)
+
+```
+SCHEDULE_VERSION_NOT_FOUND, OPTIMIZER_RUN_FAILED,
+SCHEDULE_INFEASIBLE,          // a demand op had no eligible resource / unresolvable ref (D4 hard gate)
+NO_DEMAND_TO_SCHEDULE         // solve called with no active firm demand in the horizon
+```
+
+### 11.7 EventBus (O5) — minimal phase-2 events
+
+`scheduling.run.completed`, `scheduling.version.committed` through the same coordinator. No
+cross-module **write** (O8); the run only *reads* master-data through the resolved contract.
+
+### 11.8 Open phase-2 API decisions (brief §5 — see also frontend-spec FS9–FS11)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| AS9 | **EDD changeover-aware rule.** How does changeover-awareness compose with EDD, staying deterministic/explainable? | **Changeover-penalty model with firm-lateness dominance** (CONFIRMED): greedy minimizing `W_LATE(firmness)·latenessHours + W_CHG·changeoverCost` (flat per-switch cost; matrix deferred SKIP-48). **`W_LATE_FIRM ≫ CHANGEOVER_PENALTY`** → a firm line's lateness is never traded for a changeover (firm = effectively EDD-strict, D13/D23); `W_LATE_FORECAST` modest → forecast lines flex to group changeovers. Documented constant weights; total-order tie-break (`firmness → required_date → priority → part_no → demand_line_id`); deterministic + explainable (per-op score components recorded). | **Confirmed** (penalty term, firm-dominant) |
+| AS10 | **Resource assignment within a group.** An op targets a resource *group*; which member runs it? | The **least-loaded** eligible active member — earliest current free-time; tie-break lowest `resource_id` (CONFIRMED). Spreads load across interchangeable members; deterministic. | **Confirmed** (least-loaded) |
+| AS11 | **`schedule_version` lifecycle.** How does re-solve relate to versions? | **Draft-then-commit** (CONFIRMED by review): each `solve` → a new `optimizer_run` + a new `schedule_version` in status **`draft`** (passing the D4 hard gates; an `infeasible` run produces no version). A planner **Commit** action (`POST …/versions/:id/commit`) promotes `draft → committed` and supersedes the plant's current `committed` (`supersedes_version_id` set) — at most one `committed` per plant, drafts/superseded retained. The commit step is the seam the Phase-3 **approval policy** (SKIP-46) will gate; no approval routing yet. | **Confirmed** (draft-then-commit) |
+| AS12 | **Binding store.** Where does the per-tenant binding config live? | A seeded kernel **`binding.contract_binding`** table `(tenant_id, contract_id, major, mode)` — D42-governed config, seeded `(tenant, 'masterdata.read', '1', 'platform_module')`. Makes per-tenant binding real + re-bind = a row change (proof #3 concrete). (Alternative: a code-level default map, no table — lighter but less faithful to "bindings are tenant config" A8 §6.3.) | **Confirmed** (binding table) |

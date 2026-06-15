@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import type { ColorTokens } from '@perduraflow/ui'
 import {
   Award,
+  CalendarClock,
   CalendarDays,
   Cpu,
   Factory,
@@ -61,6 +62,13 @@ export const ADMIN_NAV: NavConfigSection[] = [
       { id: 'certifications', labelKey: 'nav.certifications', path: '/master-data/certifications', icon: Award },
       { id: 'operators', labelKey: 'nav.operators', path: '/master-data/operators', icon: HardHat },
       { id: 'qualifications', labelKey: 'nav.qualifications', path: '/master-data/qualifications', icon: Grid3x3 },
+    ],
+  },
+  {
+    id: 'scheduling',
+    sectionLabelKey: 'nav.sections.scheduling',
+    items: [
+      { id: 'board', labelKey: 'nav.board', path: '/scheduling/board', icon: CalendarClock },
     ],
   },
   {

@@ -104,7 +104,11 @@ export function CalendarsScreen() {
       <PageHeader
         title={t('calendars.title')}
         subtitle={t('calendars.subtitle')}
-        actions={<AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>{t('actions.new')}</AppButton>}
+        actions={
+          <AppButton variant="ghost" size="$3" icon={Plus} onPress={openNew}>
+            {t('actions.new')}
+          </AppButton>
+        }
       />
       <DataTable<CalendarDto>
         isLoading={isLoading}
@@ -117,12 +121,18 @@ export function CalendarsScreen() {
             key: 'plantId',
             label: t('calendars.fields.plantId'),
             flex: 2,
-            render: (c) => <P size={4}>{c.plantId ? (plantName.get(c.plantId) ?? '—') : t('common.none')}</P>,
+            render: (c) => (
+              <P size={4}>{c.plantId ? (plantName.get(c.plantId) ?? '—') : t('common.none')}</P>
+            ),
           },
           {
             key: 'isActive',
             label: t('common.status'),
-            render: (c) => <StatusPill tone={c.isActive ? 'active' : 'inactive'}>{c.isActive ? t('common.active') : t('common.inactive')}</StatusPill>,
+            render: (c) => (
+              <StatusPill tone={c.isActive ? 'active' : 'inactive'}>
+                {c.isActive ? t('common.active') : t('common.inactive')}
+              </StatusPill>
+            ),
           },
         ]}
       />
@@ -130,8 +140,9 @@ export function CalendarsScreen() {
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? t('actions.edit') : t('actions.new')}
-        dismissable={false}
+        dismissable
         error={formError}
+        size="large"
         footer={
           <>
             <AppButton variant="light" size="$3" onPress={() => setOpen(false)}>
@@ -152,8 +163,18 @@ export function CalendarsScreen() {
         <FormField label={t('calendars.fields.plantId')}>
           <SelectField options={plantOptions} value={plantId} onChange={setPlantId} />
         </FormField>
-        <AppInput type="multiline" label={t('calendars.fields.shiftPatterns')} value={shifts} onChangeText={setShifts} />
-        <AppInput type="multiline" label={t('calendars.fields.holidays')} value={holidays} onChangeText={setHolidays} />
+        <AppInput
+          type="multiline"
+          label={t('calendars.fields.shiftPatterns')}
+          value={shifts}
+          onChangeText={setShifts}
+        />
+        <AppInput
+          type="multiline"
+          label={t('calendars.fields.holidays')}
+          value={holidays}
+          onChangeText={setHolidays}
+        />
         <AppInput
           type="multiline"
           label={t('calendars.fields.maintenanceWindows')}
