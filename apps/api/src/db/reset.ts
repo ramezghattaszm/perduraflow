@@ -20,7 +20,6 @@ import { seed } from './seed'
  * appears on the planner's first Re-solve.
  */
 const APP_SCHEMAS = ['tenant', 'auth', 'org', 'master_data', 'binding', 'scheduling', 'learning']
-const DEMO_PLANT_PREFIX = 'Saltillo'
 const API = `http://localhost:${env.PORT}/api/v1`
 const ADMIN = { email: 'admin@perduraflow.test', password: 'Password123' }
 
@@ -67,16 +66,19 @@ async function main(): Promise<void> {
 
   await seed() // re-creates the deterministic baseline (own connection)
 
-  const plant = (
+  // Build a committed baseline for every plant that has demand (Saltillo + Ramos).
+  const plants = (
     await pool.query<{ id: string; name: string }>(
-      `SELECT id, name FROM org.plant WHERE name LIKE $1 ORDER BY name LIMIT 1`,
-      [`${DEMO_PLANT_PREFIX}%`],
+      `SELECT DISTINCT p.id, p.name FROM org.plant p
+       JOIN scheduling.demand_input d ON d.plant_id = p.id
+       WHERE d.tenant_id = p.tenant_id AND d.is_active = true
+       ORDER BY p.name`,
     )
-  ).rows[0]
-  if (!plant) throw new Error('reset: seeded demo plant not found')
-
-  const built = await buildBaseline(plant.id)
-  if (built) console.log(`  ✓ committed baseline schedule for ${plant.name} (via the real engine)`)
+  ).rows
+  if (plants.length === 0) throw new Error('reset: no plants with seeded demand found')
+  for (const p of plants) {
+    if (await buildBaseline(p.id)) console.log(`  ✓ committed baseline schedule for ${p.name} (via the real engine)`)
+  }
 
   // Confirm the post-reset state from the DB (computed, not asserted).
   const count = async (sql: string): Promise<number> => Number((await pool.query<{ n: string }>(sql)).rows[0]!.n)

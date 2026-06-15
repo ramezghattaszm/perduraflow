@@ -39,12 +39,16 @@
 > `next build` + expo tsc green. AS13–AS18 / FS12–FS15 implemented as proposed. **Remaining:** browser
 > verification on web + native (incl. per-version reselect) — user-driven per the brief DoD.
 >
-> **Demo reset:** `bun run demo:reset` (apps/api `src/db/reset.ts`) restores the deterministic baseline
-> in one step — truncates all app-schema tables (wipes learned values, actuals, schedule versions),
-> re-seeds, and rebuilds the committed baseline via the real engine (solve+commit through the API).
-> **Idempotent + deterministic**; post-reset the board opens with all ops `std`, 0 of 11 learned, no
-> variance (8 demand lines, 1 committed version, 0 actuals). Requires the API running; docs in README
-> §"Demo reset". Dev ports: **API 3010 / web 3011** (changed from 3000/3001).
+> **Demo reset + Magna scenario:** `bun run demo:reset` (apps/api `src/db/reset.ts`) restores the
+> deterministic **Magna de México** dataset (docs/SEED-SCENARIO-SPEC.md) in one step — truncates all
+> app-schema tables (wipes learned values, actuals, schedule versions), re-seeds the one coherent
+> scenario (3 plants, GM/Stellantis/Nissan/Aftermarket tiers, stamping+weld lines w/ cost rates, named
+> parts, operators+certs, the four-collision demand spine incl. `GP-1142`), and rebuilds committed
+> baselines via the real engine (solve+commit through the API). **Idempotent + deterministic**; baseline
+> all `std`, 0 learned, no variance (8 demand lines, 2 committed versions). Cert gap is coherent (Luis OUT
+> → gap; Jorge the cheapest off-shift fill); DL-1006 is computed-late; Collision-3 `PV-22` is a tagged
+> staged anchor (NMA SKIP-13). Requires the API running; docs in README §"Demo reset". Dev ports:
+> **API 3010 / web 3011**.
 
 ---
 

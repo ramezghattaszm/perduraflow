@@ -328,12 +328,15 @@ demos to get a clean, identical starting point every time.
 - **Idempotent** (run any number of times → identical clean state) and **deterministic**
   (the sequencer is reproducible, D2).
 
-Post-reset confirmation (printed by the command):
+Restores the **Magna de México** scenario (an illustrative, clearly-not-real dataset): 3 plants
+(Saltillo Stamping, Ramos Arizpe Welding, Monterrey Components), GM/Stellantis/Nissan/Aftermarket
+priority tiers, stamping + weld lines with cost rates, named parts (FG-2001 …), operators + certs,
+and the four-collision demand spine (incl. GM `GP-1142`). Post-reset confirmation (printed):
 
 ```
 • active demand lines  : 8
-• committed versions   : 1
-• scheduled operations : 11 (ml_adjusted = 0, learned = 0 of 11)
+• committed versions   : 2          # Saltillo + Ramos Arizpe baselines
+• scheduled operations : 8 (ml_adjusted = 0, learned = 0 of 8)
 • execution actuals    : 0
 • variance             : none (no actuals)
 ```

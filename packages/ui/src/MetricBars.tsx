@@ -29,8 +29,8 @@ export function MetricBars({ items }: MetricBarsProps) {
           <P size={5} color="$textSecondary" width={104}>
             {it.label}
           </P>
-          <XStack flex={1} height={8} borderRadius="$2" backgroundColor="$surfaceRaised" overflow="hidden">
-            <YStack width={`${Math.round(Math.max(0, Math.min(1, it.value)) * 100)}%`} backgroundColor="$primary" />
+          <XStack flex={1} height={8} borderRadius="$4" backgroundColor="$surfaceRaised" overflow="hidden">
+            <YStack width={`${Math.round(Math.max(0, Math.min(1, it.value)) * 100)}%`} backgroundColor="$primary" borderRadius="$4" />
           </XStack>
           <P size={5} weight="b" width={44} style={{ textAlign: 'right' }}>
             {Math.round(it.value * 100)}%

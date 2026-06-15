@@ -99,8 +99,18 @@ export function QualificationMatrix({
             </XStack>
             {cols.map((c) => {
               const state: MatrixCell = cellState ? cellState(r.id, c.id) : isOn(r.id, c.id) ? 'on' : 'off'
-              const fill = state === 'on' ? '$primary' : state === 'gap' ? '$dangerSoft' : 'transparent'
-              const border = state === 'on' ? '$primary' : state === 'gap' ? '$danger' : '$borderColor'
+              // OUT operators can't cover any station regardless of certification —
+              // availability overrides qualification: the cell renders unavailable
+              // (greyed; a dim check if they hold the cert), never live coverage.
+              const unavailable = coverage && Boolean(r.out)
+              const fill = unavailable
+                ? '$surfaceRaised'
+                : state === 'on'
+                  ? '$primary'
+                  : state === 'gap'
+                    ? '$dangerSoft'
+                    : 'transparent'
+              const border = unavailable ? '$borderColor' : state === 'on' ? '$primary' : state === 'gap' ? '$danger' : '$borderColor'
               return (
                 <XStack key={c.id} width={CELL_WIDTH} paddingVertical="$2" justifyContent="center" alignItems="center">
                   <XStack
@@ -109,6 +119,7 @@ export function QualificationMatrix({
                     height={28}
                     borderRadius="$3"
                     borderWidth={1}
+                    opacity={unavailable ? 0.4 : 1}
                     cursor={readOnly || coverage ? 'default' : 'pointer'}
                     alignItems="center"
                     justifyContent="center"
@@ -117,10 +128,14 @@ export function QualificationMatrix({
                     hoverStyle={readOnly || coverage ? undefined : { borderColor: '$primary' }}
                     pressStyle={readOnly || coverage ? undefined : { opacity: 0.7 }}
                     role="checkbox"
-                    aria-checked={state === 'on'}
-                    aria-label={`${r.label} — ${c.label}`}
+                    aria-checked={!unavailable && state === 'on'}
+                    aria-label={`${r.label} — ${c.label}${unavailable ? ' (unavailable)' : ''}`}
                   >
-                    {state === 'on' ? <Check size={18} color="$surface" /> : null}
+                    {unavailable ? (
+                      state === 'on' ? <Check size={16} color="$textSecondary" /> : null
+                    ) : state === 'on' ? (
+                      <Check size={18} color="$surface" />
+                    ) : null}
                   </XStack>
                 </XStack>
               )

@@ -126,10 +126,11 @@ export function BoardContent() {
       .filter((r) => r.behindPlanPct >= BEHIND_PCT)
       .map((r) => [r.resourceId, t('variance.behindPlan', { pct: Math.round(r.behindPlanPct * 100) })]),
   )
+  // Lane sub-label: don't echo the raw resource_type enum ("Line"); the behind chip
+  // (when present) is the meaningful secondary, else just the resource name.
   const ganttResources = resources.map((r) => ({
     id: r.id,
     label: r.name,
-    subLabel: t(`masterData:resources.types.${r.resourceType}`),
     behind: behindByResource.get(r.id),
   }))
   const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
@@ -141,27 +142,25 @@ export function BoardContent() {
   )
   const opById = useMemo(() => new Map((detail?.operations ?? []).map((o) => [o.id, o])), [detail])
 
-  // Variance strip chips (all computed from the version's actuals — no literals).
+  // Variance strip chips — all computed; only meaningful chips show, so a clean
+  // pre-drift version (no actuals, no churn, no learned values) shows NONE.
   const varianceChips: VarianceChip[] = useMemo(() => {
     if (!variance) return []
+    const chips: VarianceChip[] = []
     const behind = [...variance.resources].sort((a, b) => b.behindPlanPct - a.behindPlanPct)[0]
-    const churnTone = variance.churn == null ? 'ok' : variance.churn < 0.34 ? 'warn' : 'bad'
-    const churnLabel =
-      variance.churn == null
-        ? t('variance.churnNone')
-        : variance.churn < 0.34
-          ? t('variance.churnLow')
-          : variance.churn < 0.67
-            ? t('variance.churnMed')
-            : t('variance.churnHigh')
-    return [
-      ...(behind && behind.behindPlanPct > 0.005
-        ? [{ label: behind.resourceName, value: t('variance.behindPlan', { pct: Math.round(behind.behindPlanPct * 100) }), tone: 'bad' as const }]
-        : []),
-      { label: t('variance.throughput'), value: `${Math.round(variance.throughputAttainment * 100)}%`, tone: variance.throughputAttainment >= 0.95 ? 'ok' : 'warn' },
-      { label: t('variance.churn'), value: churnLabel, tone: churnTone },
-      { label: t('variance.learnedParams'), value: t('variance.learnedCount', { count: variance.learnedParamCount, total: variance.opCount }), tone: 'ok' },
-    ]
+    if (behind && behind.behindPlanPct > 0.005) {
+      chips.push({ label: behind.resourceName, value: t('variance.behindPlan', { pct: Math.round(behind.behindPlanPct * 100) }), tone: 'bad' })
+    }
+    if (variance.throughputAttainment != null) {
+      chips.push({ label: t('variance.throughput'), value: `${Math.round(variance.throughputAttainment * 100)}%`, tone: variance.throughputAttainment >= 0.95 ? 'ok' : 'warn' })
+    }
+    if (variance.churn != null && variance.churn > 0.005) {
+      chips.push({ label: t('variance.churn'), value: variance.churn < 0.34 ? t('variance.churnLow') : variance.churn < 0.67 ? t('variance.churnMed') : t('variance.churnHigh'), tone: variance.churn < 0.34 ? 'warn' : 'bad' })
+    }
+    if (variance.learnedParamCount > 0) {
+      chips.push({ label: t('variance.learnedParams'), value: t('variance.learnedCount', { count: variance.learnedParamCount, total: variance.opCount }), tone: 'ok' })
+    }
+    return chips
   }, [variance, t])
 
   // D56 tool-wear flag → toast (once per resource/op while crossed).

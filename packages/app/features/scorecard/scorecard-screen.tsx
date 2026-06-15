@@ -78,49 +78,85 @@ export function ScorecardContent() {
           <KpiTileRow>
             <KpiTile value={pct(sc.otif)} label={t('kpi.otif')} caption={t('kpi.otifCaption')} />
             <KpiTile
-              value={sc.costPerUnit != null ? `$${sc.costPerUnit.toFixed(2)}` : t('costNa')}
+              value={sc.costPerUnit != null ? `$${sc.costPerUnit.toFixed(2)}` : '—'}
               label={t('kpi.costPerUnit')}
-              caption={t('kpi.costCaption')}
+              caption={sc.costPerUnit != null ? t('kpi.costCaption') : t('noActuals')}
             />
-            <KpiTile value={pct(sc.oee.oee)} label={t('kpi.oee')} caption={t('kpi.oeeCaption')} />
+            <KpiTile
+              value={sc.oee != null ? pct(sc.oee.oee) : '—'}
+              label={t('kpi.oee')}
+              caption={sc.oee != null ? t('kpi.oeeCaption') : t('noActuals')}
+            />
           </KpiTileRow>
 
           <XStack gap="$4" flexWrap="wrap">
-            <YStack flexGrow={1} flexBasis={360} minWidth={300} gap="$3">
-              <P size={3} weight="b">
-                {t('oee.title')}
-              </P>
-              <MetricBars
-                items={[
-                  { label: t('oee.availability'), value: sc.oee.availability },
-                  { label: t('oee.performance'), value: sc.oee.performance },
-                  { label: t('oee.quality'), value: sc.oee.quality },
-                ]}
-              />
-              <YStack
-                marginTop="$2"
-                borderWidth={1}
-                borderColor="$borderColor"
-                borderStyle="dashed"
-                borderRadius="$4"
-                padding="$3"
-              >
-                <P size={6} color="$textSecondary">
-                  {t('baseline.title')} — {t('baseline.seam')}
+            {/* OEE breakdown — in a card to match the other sections (4b) */}
+            <YStack flexGrow={1} flexBasis={360} minWidth={300} backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
+              <YStack padding="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
+                <P size={8} weight="b" color="$textSecondary">
+                  {t('oee.title').toUpperCase()}
                 </P>
+              </YStack>
+              <YStack padding="$4" gap="$3">
+                {sc.oee != null ? (
+                  <MetricBars
+                    items={[
+                      { label: t('oee.availability'), value: sc.oee.availability },
+                      { label: t('oee.performance'), value: sc.oee.performance },
+                      { label: t('oee.quality'), value: sc.oee.quality },
+                    ]}
+                  />
+                ) : (
+                  <P size={5} color="$textSecondary">
+                    {t('oee.empty')}
+                  </P>
+                )}
+                {/* Phase-5 seam — manual-baseline comparison; named, never faked. */}
+                <YStack marginTop="$1" borderWidth={1} borderColor="$borderColor" borderStyle="dashed" borderRadius="$4" padding="$3">
+                  <P size={6} color="$textSecondary">
+                    {t('baseline.title')} — {t('baseline.seam')}
+                  </P>
+                </YStack>
               </YStack>
             </YStack>
 
-            <YStack flexGrow={1} flexBasis={360} minWidth={300} gap="$3">
-              <P size={3} weight="b">
-                {t('atRisk.title')}
-              </P>
+            {/* At-risk orders — order + computed detail sub-line + reason badge (4d) */}
+            <YStack flexGrow={1} flexBasis={360} minWidth={300} backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
+              <YStack padding="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
+                <P size={8} weight="b" color="$textSecondary">
+                  {t('atRisk.title').toUpperCase()}
+                </P>
+              </YStack>
               <DataTable<AtRiskOrderDto & { id: string }>
                 rows={sc.atRisk.map((a) => ({ ...a, id: a.demandLineId }))}
                 emptyTitle={t('atRisk.empty')}
                 columns={[
-                  { key: 'label', label: t('atRisk.title'), flex: 2 },
-                  { key: 'reason', label: 'reason', flex: 2 },
+                  {
+                    key: 'label',
+                    label: t('atRisk.orderCol'),
+                    flex: 2,
+                    render: (a) => (
+                      <YStack>
+                        <P size={4} color="$textPrimary">
+                          {a.label}
+                        </P>
+                        <P size={6} color="$textSecondary">
+                          {a.detail}
+                        </P>
+                      </YStack>
+                    ),
+                  },
+                  {
+                    key: 'reason',
+                    label: t('atRisk.reasonCol'),
+                    render: (a) => (
+                      <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$2" paddingVertical="$0.5">
+                        <P size={7} weight="b" color="$danger">
+                          {a.reason}
+                        </P>
+                      </XStack>
+                    ),
+                  },
                 ]}
               />
             </YStack>

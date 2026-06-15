@@ -125,8 +125,8 @@ export interface ResourceVarianceDto {
 export interface PerformanceVarianceDto {
   scheduleVersionId: string
   resources: ResourceVarianceDto[]
-  /** Blended throughput attainment across the version. */
-  throughputAttainment: number
+  /** Blended throughput attainment; **null when the version has no actuals yet** (no data ≠ 100%). */
+  throughputAttainment: number | null
   /** Sequence churn vs the prior committed version (0–1); null if no prior. */
   churn: number | null
   /** Ops with a held learned overlay / total ops. */
@@ -147,6 +147,9 @@ export interface OeeDto {
 export interface AtRiskOrderDto {
   demandLineId: string
   label: string
+  /** Computed sub-line, e.g. "op 10 · Press Line A" (never hardcoded). */
+  detail: string
+  /** The reason tag from the schedule (e.g. "late") — rendered as a badge. */
   reason: string
 }
 
@@ -156,10 +159,12 @@ export interface ScorecardDto {
   scheduleVersionId: string | null
   /** On-time-in-full (service). */
   otif: number
-  /** Tier-B cost per unit (computed from seeded Master-Data rates). */
+  /** Tier-B cost per unit (computed from seeded Master-Data rates); null when no actuals. */
   costPerUnit: number | null
-  oee: OeeDto
-  throughputAttainment: number
+  /** OEE A·P·Q; **null when the version has no actuals yet** (no data ≠ 0%). */
+  oee: OeeDto | null
+  /** Throughput attainment; **null when no actuals yet**. */
+  throughputAttainment: number | null
   atRisk: AtRiskOrderDto[]
 }
 

@@ -15,14 +15,18 @@
     "title": "OEE breakdown — where the loss is",
     "availability": "Availability",
     "performance": "Performance",
-    "quality": "Quality"
+    "quality": "Quality",
+    "empty": "No actuals yet — run the schedule to measure OEE."
   },
+  "noActuals": "no actuals yet",
   "baseline": {
     "title": "Service vs cost — baseline → optimized",
     "seam": "vs manual baseline — Phase 5"
   },
   "atRisk": {
     "title": "At-risk orders — service exposure",
+    "orderCol": "Order",
+    "reasonCol": "Reason",
     "empty": "No at-risk orders."
   },
   "empty": "No committed schedule yet — commit a version to see its scorecard.",

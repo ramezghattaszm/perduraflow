@@ -350,6 +350,7 @@ export class SchedulingService {
       })
       .sort((a, b) => a.resourceName.localeCompare(b.resourceName))
 
+    const hasActuals = actuals.length > 0
     const totalPlanned = ops.reduce((s, o) => s + o.plannedQty, 0)
     const totalGood = ops.reduce((s, o) => s + (actualByOp.get(o.id)?.goodQty ?? 0), 0)
     const learnedParamCount = ops.filter(
@@ -379,7 +380,8 @@ export class SchedulingService {
     return {
       scheduleVersionId: versionId,
       resources,
-      throughputAttainment: totalPlanned > 0 && totalGood > 0 ? totalGood / totalPlanned : 1,
+      // null when no actuals yet — the board hides the chip (no data ≠ 100%).
+      throughputAttainment: hasActuals && totalPlanned > 0 ? totalGood / totalPlanned : null,
       churn,
       learnedParamCount,
       opCount: ops.length,
@@ -408,8 +410,8 @@ export class SchedulingService {
       scheduleVersionId: null,
       otif: 1,
       costPerUnit: null,
-      oee: { availability: 0, performance: 0, quality: 0, oee: 0 },
-      throughputAttainment: 1,
+      oee: null,
+      throughputAttainment: null,
       atRisk: [],
     }
     if (!version) return empty
@@ -417,11 +419,13 @@ export class SchedulingService {
     const ops = await this.repo.operationsForVersion(version.id)
     if (ops.length === 0) return { ...empty, scheduleVersionId: version.id }
     const actuals = await this.learning.listActualsForVersion(tenantId, version.id)
+    const hasActuals = actuals.length > 0
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
     const md = await this.resolveMasterData(tenantId)
     const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
 
+    // OTIF is plan-based (the schedule's on-time fraction) — valid without actuals.
     const otif = ops.filter((o) => !o.atRisk).length / ops.length
 
     let runtime = 0
@@ -451,16 +455,21 @@ export class SchedulingService {
         costedGood += g
       }
     }
-    const availability = runtime + downtime > 0 ? runtime / (runtime + downtime) : 0
-    const performance = runtime > 0 ? Math.min(1, idealRun / runtime) : 0
-    const quality = good + scrap > 0 ? good / (good + scrap) : 0
-    const oee: OeeDto = { availability, performance, quality, oee: availability * performance * quality }
+    // OEE needs actuals — null (not 0%) when none, so the UI reads "no actuals yet".
+    let oee: OeeDto | null = null
+    if (hasActuals) {
+      const availability = runtime + downtime > 0 ? runtime / (runtime + downtime) : 0
+      const performance = runtime > 0 ? Math.min(1, idealRun / runtime) : 0
+      const quality = good + scrap > 0 ? good / (good + scrap) : 0
+      oee = { availability, performance, quality, oee: availability * performance * quality }
+    }
 
     const atRisk: AtRiskOrderDto[] = ops
       .filter((o) => o.atRisk)
       .map((o) => ({
         demandLineId: o.demandLineId,
-        label: `${partNoById.get(o.partId) ?? o.partId} · op ${o.opSeq}`,
+        label: `${partNoById.get(o.partId) ?? o.partId} · ${o.demandLineId}`,
+        detail: `op ${o.opSeq} · ${resourceById.get(o.resourceId)?.name ?? o.resourceId}`,
         reason: o.atRiskReason ?? 'at risk',
       }))
 
@@ -470,7 +479,7 @@ export class SchedulingService {
       otif,
       costPerUnit: costedGood > 0 ? cost / costedGood : null,
       oee,
-      throughputAttainment: planned > 0 && good > 0 ? good / planned : 1,
+      throughputAttainment: hasActuals && planned > 0 ? good / planned : null,
       atRisk,
     }
   }
@@ -503,7 +512,13 @@ export class SchedulingService {
     const gapStations = certs.filter((c) => !covered(c.id))
     const proposals: CoverageProposalDto[] = gapStations
       .map((c): CoverageProposalDto | null => {
-        const fill = operators.find((op) => holds(op, c.id)) // a qualified operator to call in (incl. OUT → OT)
+        // Call in the CHEAPEST off-shift qualified operator (an OT call-in is for
+        // absent staff); tie-break by id for determinism (D54 confirmed-fill).
+        const fill =
+          operators
+            .filter((op) => holds(op, c.id) && !op.available)
+            .sort((a, b) => (a.laborRate ?? Number.POSITIVE_INFINITY) - (b.laborRate ?? Number.POSITIVE_INFINITY) || a.id.localeCompare(b.id))[0] ??
+          operators.find((op) => holds(op, c.id))
         if (!fill) return null
         return {
           id: c.id,

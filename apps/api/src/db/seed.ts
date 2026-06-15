@@ -1,5 +1,5 @@
 import * as bcrypt from 'bcryptjs'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { env } from '../config/env'
@@ -60,7 +60,7 @@ export async function seed(): Promise<void> {
   // --- tenant ----------------------------------------------------------------
   // Demo client identity for the shell's brand zone. logoUrl stays null so the
   // OrgAvatar placeholder shows — real logos are tenant-supplied (SKIP-53).
-  const DEMO_TENANT = { name: 'Saltillo Industrial Group', logoUrl: null as string | null }
+  const DEMO_TENANT = { name: 'Magna de México', logoUrl: null as string | null }
   const existingTenant = (await db.select().from(tenant).limit(1))[0]
   const tenantRow = existingTenant ?? (await db.insert(tenant).values(DEMO_TENANT).returning())[0]
   if (existingTenant) await db.update(tenant).set(DEMO_TENANT).where(eq(tenant.id, existingTenant.id))
@@ -120,182 +120,149 @@ export async function seed(): Promise<void> {
     console.log(`  ✓ user: ${ADMIN_EMAIL} (Admin / configurator)`)
   }
 
-  // --- sample org rows -------------------------------------------------------
+  // --- Magna de México scenario (SEED-SCENARIO-SPEC) -------------------------
+  // ONE coherent, illustrative dataset (an informed guess — NOT Magna's real data)
+  // driving all six views + the four collisions. Every displayed figure computes
+  // from these inputs through the real path (no hardcoded outputs). Guarded so a
+  // standalone `db:seed` is idempotent; `demo:reset` truncates first.
   const existingPlants = await db.select().from(plant).where(eq(plant.tenantId, tenantId))
   if (existingPlants.length === 0) {
-    const [p1] = await db
-      .insert(plant)
-      .values({ tenantId, name: 'Saltillo Stamping', timezone: 'America/Mexico_City', region: 'Coahuila' })
-      .returning()
-    const [p2] = await db
-      .insert(plant)
-      .values({ tenantId, name: 'Ramos Arizpe Molding', timezone: 'America/Mexico_City', region: 'Coahuila' })
-      .returning()
-    const [grp] = await db
-      .insert(plantGroup)
-      .values({ tenantId, name: 'Coahuila cluster', groupType: 'cluster', allowsResourceSharing: false })
-      .returning()
+    type ChangeoverKey = 'colour' | 'material' | 'gauge' | null
+    // plants — Coahuila cluster shares resources (allocation context); Monterrey light.
+    const [saltillo] = await db.insert(plant).values({ tenantId, name: 'Saltillo Stamping', timezone: 'America/Mexico_City', region: 'Coahuila' }).returning()
+    const [ramos] = await db.insert(plant).values({ tenantId, name: 'Ramos Arizpe Welding', timezone: 'America/Mexico_City', region: 'Coahuila' }).returning()
+    await db.insert(plant).values({ tenantId, name: 'Monterrey Components', timezone: 'America/Monterrey', region: 'Nuevo León' })
+    const [cluster] = await db.insert(plantGroup).values({ tenantId, name: 'Coahuila cluster', groupType: 'cluster', allowsResourceSharing: true }).returning()
     await db.insert(plantGroupMember).values([
-      { tenantId, plantGroupId: grp!.id, plantId: p1!.id },
-      { tenantId, plantGroupId: grp!.id, plantId: p2!.id },
+      { tenantId, plantGroupId: cluster!.id, plantId: saltillo!.id },
+      { tenantId, plantGroupId: cluster!.id, plantId: ramos!.id },
     ])
-    const [cust] = await db
-      .insert(customer)
-      .values({ tenantId, name: 'General Motors', firmFenceDays: 14 })
-      .returning()
-    await db.insert(program).values({ tenantId, customerId: cust!.id, name: 'GMT900', firmFenceDays: 21 })
-    await db.insert(calendar).values({
-      tenantId,
-      plantId: p1!.id,
-      name: 'Saltillo 3-shift',
-      shiftPatterns: [{ name: 'A', start: '06:00', end: '14:00' }],
-      holidays: [],
-      maintenanceWindows: [],
-    })
-    console.log('  ✓ sample org: 2 plants, 1 cluster, 1 customer, 1 program, 1 calendar')
-  }
 
-  // --- customer/program priority (phase 1, MD15 — set on the seeded rows) -----
-  await db.update(customer).set({ priority: 'critical' }).where(eq(customer.name, 'General Motors'))
-  await db.update(program).set({ priority: 'high' }).where(eq(program.name, 'GMT900'))
+    // customers (priority tiers — View 5; priority set on insert) + programs
+    const [gm] = await db.insert(customer).values({ tenantId, name: 'General Motors', firmFenceDays: 14, priority: 'critical' }).returning()
+    const [stellantis] = await db.insert(customer).values({ tenantId, name: 'Stellantis', firmFenceDays: 14, priority: 'critical' }).returning()
+    const [nissan] = await db.insert(customer).values({ tenantId, name: 'Nissan Mexicana', firmFenceDays: 10, priority: 'high' }).returning()
+    const [aftermarket] = await db.insert(customer).values({ tenantId, name: 'Aftermarket / Service Parts', firmFenceDays: 7, priority: 'standard' }).returning()
+    const [gmProgram] = await db.insert(program).values({ tenantId, customerId: gm!.id, name: 'Silverado/Sierra body', firmFenceDays: 21 }).returning()
+    const [stelProgram] = await db.insert(program).values({ tenantId, customerId: stellantis!.id, name: 'RAM 1500 underbody', firmFenceDays: 18 }).returning()
 
-  // --- sample master data (phase 1) — references existing plants + calendar ---
-  const existingParts = await db.select().from(part).where(eq(part.tenantId, tenantId))
-  if (existingParts.length === 0) {
-    const plants = await db.select().from(plant).where(eq(plant.tenantId, tenantId))
-    const cals = await db.select().from(calendar).where(eq(calendar.tenantId, tenantId))
-    const p1 = plants[0]
-    const cal = cals[0]
-    if (p1 && cal) {
-      // parts (current-version only; physical attrs are the changeover drivers)
-      const [fg] = await db
-        .insert(part)
-        .values({ tenantId, partNo: 'FG-1001', description: 'Floor pan assembly', partType: 'finished', uom: 'EA', material: 'Steel', gauge: '1.2mm', colour: 'Black' })
-        .returning()
-      await db
-        .insert(part)
-        .values({ tenantId, partNo: 'CMP-2001', description: 'Reinforcement bracket', partType: 'component', uom: 'EA', material: 'Steel', gauge: '2.0mm' })
+    // calendars — one standard two-shift pattern per producing plant
+    const shifts = { shiftPatterns: [{ name: 'A', start: '06:00', end: '14:00' }, { name: 'B', start: '14:00', end: '22:00' }], holidays: [], maintenanceWindows: [] }
+    const [calSaltillo] = await db.insert(calendar).values({ tenantId, plantId: saltillo!.id, name: 'Saltillo two-shift', ...shifts }).returning()
+    const [calRamos] = await db.insert(calendar).values({ tenantId, plantId: ramos!.id, name: 'Ramos Arizpe two-shift', ...shifts }).returning()
 
-      // resources (referencing the seeded plant + calendar via text id, no FK)
-      // cost rates (Tier-B, masterdata.read 1.2) — seeded engineering reference data;
-      // scheduling computes cost/unit from these (no hardcoding in the UI).
-      const [press] = await db
-        .insert(resource)
-        .values({ tenantId, name: 'Press Line A', resourceType: 'line', plantId: p1.id, calendarId: cal.id, rate: 12, rateUom: 'strokes/min', runCostPerHour: 120, setupCost: 80, overheadPerUnit: 0.5 })
-        .returning()
-      const [weld] = await db
-        .insert(resource)
-        .values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: p1.id, calendarId: cal.id, runCostPerHour: 95, setupCost: 60, overheadPerUnit: 0.4 })
-        .returning()
+    // resources + Tier-B cost rates (Master-Data-owned; scheduling computes cost/unit)
+    const [pressA] = await db.insert(resource).values({ tenantId, name: 'Press Line A', resourceType: 'line', plantId: saltillo!.id, calendarId: calSaltillo!.id, rate: 12, rateUom: 'strokes/min', runCostPerHour: 145, setupCost: 130, overheadPerUnit: 0.65 }).returning()
+    const [pressB] = await db.insert(resource).values({ tenantId, name: 'Press Line B', resourceType: 'line', plantId: saltillo!.id, calendarId: calSaltillo!.id, rate: 11, rateUom: 'strokes/min', runCostPerHour: 140, setupCost: 125, overheadPerUnit: 0.6 }).returning()
+    const [weld1] = await db.insert(resource).values({ tenantId, name: 'Weld Cell 1', resourceType: 'cell', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 98, setupCost: 75, overheadPerUnit: 0.48 }).returning()
+    const [weld2] = await db.insert(resource).values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 95, setupCost: 70, overheadPerUnit: 0.45 }).returning()
+    const [pressGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Saltillo stamping presses', plantId: saltillo!.id }).returning()
+    const [weldGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Ramos weld cells', plantId: ramos!.id }).returning()
+    await db.insert(resourceGroupMember).values([
+      { tenantId, resourceGroupId: pressGrp!.id, resourceId: pressA!.id },
+      { tenantId, resourceGroupId: pressGrp!.id, resourceId: pressB!.id },
+      { tenantId, resourceGroupId: weldGrp!.id, resourceId: weld1!.id },
+      { tenantId, resourceGroupId: weldGrp!.id, resourceId: weld2!.id },
+    ])
 
-      // resource group + members
-      const [grp] = await db
-        .insert(resourceGroup)
-        .values({ tenantId, name: 'Stamping presses', plantId: p1.id })
-        .returning()
-      await db.insert(resourceGroupMember).values([
-        { tenantId, resourceGroupId: grp!.id, resourceId: press!.id },
-        { tenantId, resourceGroupId: grp!.id, resourceId: weld!.id },
-      ])
+    // parts (specific automotive components — informed guess; physical attrs drive changeover)
+    const mkPart = async (v: { partNo: string; description: string; material: string; gauge: string; colour?: string }): Promise<string> =>
+      (await db.insert(part).values({ tenantId, partType: 'finished', uom: 'EA', colour: null, ...v }).returning())[0]!.id
+    const fg2001 = await mkPart({ partNo: 'FG-2001', description: 'Rear floor cross-member', material: 'Steel HSLA', gauge: '1.5mm', colour: 'Black' })
+    const fg2002 = await mkPart({ partNo: 'FG-2002', description: 'B-pillar reinforcement, LH', material: 'Steel', gauge: '1.2mm', colour: 'Silver' })
+    const fg2004 = await mkPart({ partNo: 'FG-2004', description: 'Front seat cross-member', material: 'Steel', gauge: '1.0mm', colour: 'Black' })
+    const fg3001 = await mkPart({ partNo: 'FG-3001', description: 'Front rail weldment, LH', material: 'Steel', gauge: '2.0mm' })
+    const fg3002 = await mkPart({ partNo: 'FG-3002', description: 'Rear shock-tower weldment', material: 'Steel', gauge: '1.8mm' })
+    // Collision-3 ANCHOR (not a live mechanism): a purchased component whose shortage
+    // forces priority allocation. NMA is deferred (SKIP-13) — this is a staged data
+    // anchor + the Exception-Queue row (phases 4–5); REPLACE when NMA lands.
+    await db.insert(part).values({ tenantId, partNo: 'PV-22', description: 'Reinforcement gusset (purchased — Collision-3 anchor; NMA SKIP-13)', partType: 'component', uom: 'EA', material: 'Steel', gauge: '2.0mm' })
 
-      // routing + ordered operations (std times = the `standard` baseline, D7)
-      const [rt] = await db
-        .insert(routing)
-        .values({ tenantId, partId: fg!.id, name: 'FG-1001 primary', isPrimary: true })
-        .returning()
-      await db.insert(routingOperation).values([
-        { tenantId, routingId: rt!.id, opSeq: 10, resourceGroupId: grp!.id, stdSetupTime: 30, stdCycleTime: 1.2, changeoverAttributeKey: 'colour' },
-        { tenantId, routingId: rt!.id, opSeq: 20, resourceGroupId: grp!.id, stdSetupTime: 15, stdCycleTime: 0.8, changeoverAttributeKey: null },
-      ])
-
-      // certification taxonomy (MD15)
-      const [leak] = await db.insert(certification).values({ tenantId, code: 'LEAK', name: 'Leak test', description: 'Leak-test station qualification' }).returning()
-      const [torque] = await db.insert(certification).values({ tenantId, code: 'TORQUE', name: 'Torque-critical', description: 'Torque-critical fastening' }).returning()
-      const [cmm] = await db.insert(certification).values({ tenantId, code: 'CMM', name: 'CMM inspection' }).returning()
-
-      // operators (externally-sourced stubs) + qualifications + next-shift presence.
-      // Demo coverage (View 3): the only LEAK-qualified operator (Jorge) is OUT next
-      // shift → leak-test cert gap → OT call-in proposal (D54, human-confirmed).
-      const [ana] = await db.insert(operator).values({ tenantId, name: 'Ana Reyes', homePlantId: p1.id, laborRate: 26, available: true }).returning()
-      const [bruno] = await db.insert(operator).values({ tenantId, name: 'Bruno Cruz', homePlantId: p1.id, laborRate: 24.5, available: true }).returning()
-      const [jorge] = await db.insert(operator).values({ tenantId, name: 'Jorge Morales', homePlantId: p1.id, laborRate: 27.5, available: false }).returning()
-      await db.insert(operatorQualification).values([
-        { tenantId, operatorId: ana!.id, certificationId: torque!.id },
-        { tenantId, operatorId: bruno!.id, certificationId: cmm!.id },
-        { tenantId, operatorId: jorge!.id, certificationId: leak!.id },
-      ])
-      console.log('  ✓ sample master data: 2 parts, 2 resources, 1 group, 1 routing (2 ops), 3 certs, 3 operators')
+    // routings (1 primary op each; std times = the `standard` baseline, D7).
+    // Stamped FGs → presses (changeover on colour); welded FGs → weld cells (on material).
+    const mkRouting = async (partId: string, name: string, groupId: string, setup: number, cycle: number, key: ChangeoverKey): Promise<void> => {
+      const [rt] = await db.insert(routing).values({ tenantId, partId, name, isPrimary: true }).returning()
+      await db.insert(routingOperation).values({ tenantId, routingId: rt!.id, opSeq: 10, resourceGroupId: groupId, stdSetupTime: setup, stdCycleTime: cycle, changeoverAttributeKey: key })
     }
-  }
+    await mkRouting(fg2001, 'FG-2001 primary', pressGrp!.id, 30, 0.3, 'colour')
+    await mkRouting(fg2002, 'FG-2002 primary', pressGrp!.id, 30, 0.3, 'colour')
+    await mkRouting(fg2004, 'FG-2004 primary', pressGrp!.id, 28, 0.32, 'colour')
+    await mkRouting(fg3001, 'FG-3001 primary', weldGrp!.id, 22, 1.4, 'material')
+    await mkRouting(fg3002, 'FG-3002 primary', weldGrp!.id, 20, 1.45, 'material')
 
-  // --- phase 2: binding (masterdata.read → platform_module) -------------------
-  const existingBinding = await db.select().from(contractBinding).where(eq(contractBinding.tenantId, tenantId))
-  if (existingBinding.length === 0) {
+    // certifications (MD15)
+    const mkCert = async (code: string, name: string, description: string): Promise<string> =>
+      (await db.insert(certification).values({ tenantId, code, name, description }).returning())[0]!.id
+    const leak = await mkCert('LEAK', 'Leak test', 'Leak-test station qualification')
+    const torque = await mkCert('TORQUE', 'Torque-critical', 'Torque-critical fastening')
+    const cmm = await mkCert('CMM', 'CMM inspection', 'Coordinate-measuring inspection')
+    const weld = await mkCert('WELD', 'Weld certification', 'MIG / spot weld qualification')
+
+    // operators + certs + next-shift presence (Workforce View 3 / Collision 4).
+    // COHERENT cert gap: at Ramos Arizpe, LEAK has NO available certified operator —
+    // Luis Cruz (the regular) is OUT → the gap; Jorge Morales (a DIFFERENT leak-cert
+    // operator, off-shift, cheaper OT) is the call-in fill. The other certs are
+    // covered by present staff → a single clean leak gap.
+    const mkOp = async (name: string, plantId: string, available: boolean, laborRate: number): Promise<string> =>
+      (await db.insert(operator).values({ tenantId, name, homePlantId: plantId, available, laborRate }).returning())[0]!.id
+    const luis = await mkOp('Luis Cruz', ramos!.id, false, 28.0)
+    const jorge = await mkOp('Jorge Morales', ramos!.id, false, 26.5)
+    const diego = await mkOp('Diego Hernández', ramos!.id, true, 27.0)
+    const maria = await mkOp('María Fuentes', ramos!.id, true, 27.5)
+    const brunoG = await mkOp('Bruno García', ramos!.id, true, 24.5)
+    const ana = await mkOp('Ana Reyes', saltillo!.id, true, 26.0)
+    const sofia = await mkOp('Sofía Ramírez', saltillo!.id, true, 25.5)
+    await db.insert(operatorQualification).values([
+      { tenantId, operatorId: luis, certificationId: leak },
+      { tenantId, operatorId: luis, certificationId: torque },
+      { tenantId, operatorId: jorge, certificationId: leak },
+      { tenantId, operatorId: diego, certificationId: weld },
+      { tenantId, operatorId: diego, certificationId: torque },
+      { tenantId, operatorId: maria, certificationId: weld },
+      { tenantId, operatorId: maria, certificationId: cmm },
+      { tenantId, operatorId: brunoG, certificationId: cmm },
+      { tenantId, operatorId: ana, certificationId: torque },
+      { tenantId, operatorId: sofia, certificationId: torque },
+    ])
+
+    // binding: masterdata.read → platform_module (the per-tenant counterpart)
     await db.insert(contractBinding).values({ tenantId, contractId: 'masterdata.read', major: '1', mode: 'platform_module' })
-    console.log('  ✓ binding: masterdata.read/1 → platform_module')
-  }
 
-  // --- phase 2: extra coloured parts + routings + seeded demand ---------------
-  const fg1002 = await db.select().from(part).where(and(eq(part.tenantId, tenantId), eq(part.partNo, 'FG-1002')))
-  if (fg1002.length === 0) {
-    const plants = await db.select().from(plant).where(eq(plant.tenantId, tenantId))
-    const groups = await db.select().from(resourceGroup).where(eq(resourceGroup.tenantId, tenantId))
-    const custs = await db.select().from(customer).where(eq(customer.tenantId, tenantId))
-    const progs = await db.select().from(program).where(eq(program.tenantId, tenantId))
-    const parts1001 = await db.select().from(part).where(and(eq(part.tenantId, tenantId), eq(part.partNo, 'FG-1001')))
-    const p1 = plants[0]
-    const grp = groups[0]
-    const cust = custs[0]
-    const prog = progs[0]
-    const fg1001 = parts1001[0]
-    if (p1 && grp && cust && fg1001) {
-      // two more finished parts with different colours (changeover variety)
-      const [fgSilver] = await db
-        .insert(part)
-        .values({ tenantId, partNo: 'FG-1002', description: 'Door inner — silver', partType: 'finished', uom: 'EA', material: 'Steel', gauge: '1.0mm', colour: 'Silver' })
-        .returning()
-      const [fgBlack2] = await db
-        .insert(part)
-        .values({ tenantId, partNo: 'FG-1003', description: 'Cross member — black', partType: 'finished', uom: 'EA', material: 'Steel', gauge: '1.5mm', colour: 'Black' })
-        .returning()
-      // a 1-op primary routing on the stamping group for each (changeover keyed on colour)
-      for (const fgp of [fgSilver!, fgBlack2!]) {
-        const [rt] = await db
-          .insert(routing)
-          .values({ tenantId, partId: fgp.id, name: `${fgp.partNo} primary`, isPrimary: true })
-          .returning()
-        await db.insert(routingOperation).values({ tenantId, routingId: rt!.id, opSeq: 10, resourceGroupId: grp.id, stdSetupTime: 20, stdCycleTime: 1.0, changeoverAttributeKey: 'colour' })
-      }
-      // seeded demand (SKIP-10): mixed colours, firmness, due-date spread (deterministic dates)
-      const D = (iso: string) => new Date(iso)
-      const rows = [
-        { line: 'DL-0001', part: fg1001.id, firm: 'firm', qty: 100, due: '2026-06-15T12:00:00Z' }, // Black, Mon
-        { line: 'DL-0002', part: fgSilver!.id, firm: 'firm', qty: 80, due: '2026-06-15T12:00:00Z' }, // Silver, Mon
-        { line: 'DL-0003', part: fgBlack2!.id, firm: 'forecast', qty: 60, due: '2026-06-16T12:00:00Z' }, // Black, Tue
-        { line: 'DL-0004', part: fg1001.id, firm: 'forecast', qty: 50, due: '2026-06-16T12:00:00Z' }, // Black, Tue
-        { line: 'DL-0005', part: fgSilver!.id, firm: 'firm', qty: 120, due: '2026-06-17T12:00:00Z' }, // Silver, Wed
-        { line: 'DL-0006', part: fgBlack2!.id, firm: 'firm', qty: 60, due: '2026-06-15T00:45:00Z' }, // Black — due too early ⇒ at-risk (late)
-        { line: 'DL-0007', part: fg1001.id, firm: 'forecast', qty: 30, due: '2026-06-15T12:00:00Z' }, // Black, Mon
-        { line: 'DL-0008', part: fgSilver!.id, firm: 'firm', qty: 70, due: '2026-06-16T12:00:00Z' }, // Silver, Tue
-      ] as const
-      await db.insert(demandInput).values(
-        rows.map((r) => ({
-          tenantId,
-          demandLineId: r.line,
-          releaseReference: 'REL-830-001',
-          partId: r.part,
-          plantId: p1.id,
-          customerId: cust.id,
-          programId: prog?.id ?? null,
-          demandType: 'stock' as const,
-          firmness: r.firm,
-          requiredQty: r.qty,
-          uom: 'EA',
-          requiredDate: D(r.due),
-        })),
-      )
-      console.log('  ✓ phase-2 seed: 2 coloured parts + routings, 8 demand lines')
-    }
+    // seeded demand (SKIP-10) — the four-collision spine; deterministic dates (Mon = 2026-06-15).
+    // DL-1006 is due before it can finish → the sequencer COMPUTES it at-risk (never flagged).
+    const D = (iso: string) => new Date(iso)
+    type Firmness = 'firm' | 'forecast'
+    const demand: {
+      line: string; ref: string; part: string; plant: string; cust: string; prog: string | null; firm: Firmness; qty: number; due: string
+    }[] = [
+      // Saltillo (presses)
+      { line: 'GP-1142', ref: 'GM-830-1142', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 100, due: '2026-06-15T12:00:00Z' },
+      { line: 'DL-1002', ref: 'GM-830-1002', part: fg2002, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 80, due: '2026-06-15T12:00:00Z' },
+      { line: 'DL-1003', ref: 'NIS-862-1003', part: fg2004, plant: saltillo!.id, cust: nissan!.id, prog: null, firm: 'forecast', qty: 120, due: '2026-06-16T12:00:00Z' },
+      { line: 'DL-1004', ref: 'GM-830-1004', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 60, due: '2026-06-17T12:00:00Z' },
+      { line: 'DL-1005', ref: 'AM-1005', part: fg2004, plant: saltillo!.id, cust: aftermarket!.id, prog: null, firm: 'forecast', qty: 40, due: '2026-06-16T12:00:00Z' },
+      { line: 'DL-1006', ref: 'GM-830-1006', part: fg2002, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 70, due: '2026-06-15T00:45:00Z' }, // computed late
+      // Ramos Arizpe (weld)
+      { line: 'ST-8830', ref: 'STL-862-8830', part: fg3001, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 90, due: '2026-06-16T12:00:00Z' },
+      { line: 'DL-2002', ref: 'STL-862-2002', part: fg3002, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 60, due: '2026-06-17T12:00:00Z' },
+    ]
+    await db.insert(demandInput).values(
+      demand.map((r) => ({
+        tenantId,
+        demandLineId: r.line,
+        releaseReference: r.ref,
+        partId: r.part,
+        plantId: r.plant,
+        customerId: r.cust,
+        programId: r.prog,
+        demandType: 'stock' as const,
+        firmness: r.firm,
+        requiredQty: r.qty,
+        uom: 'EA',
+        requiredDate: D(r.due),
+      })),
+    )
+    console.log('  ✓ Magna de México scenario: 3 plants, 4 customers, 4 resources, 6 parts, 4 certs, 7 operators, 8 demand lines')
   }
 
   console.log(`\nSeed complete. Log in as ${ADMIN_EMAIL} / "${DEFAULT_PASSWORD}".`)
