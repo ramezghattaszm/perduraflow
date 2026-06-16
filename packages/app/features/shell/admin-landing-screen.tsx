@@ -22,7 +22,7 @@ export function AdminLandingScreen() {
       <YStack gap="$5">
         {ADMIN_NAV.map((section) => (
           <YStack key={section.id} gap="$2">
-            <P size={5} weight="b" caps color="$textSecondary" paddingHorizontal="$1">
+            <P size={5} weight="b" caps color="$textTertiary" paddingHorizontal="$1">
               {t(section.sectionLabelKey)}
             </P>
             <YStack borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden">

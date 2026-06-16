@@ -374,7 +374,7 @@ function GanttLegend() {
   const Entry = ({ swatch, label }: { swatch: ReactNode; label: string }) => (
     <XStack alignItems="center" gap="$2">
       {swatch}
-      <P size={4} color="$textSecondary">
+      <P size={5} color="$textSecondary">
         {label}
       </P>
     </XStack>

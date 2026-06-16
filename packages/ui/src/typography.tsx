@@ -85,7 +85,7 @@ export const H = styled(Text, {
  * @example
  * <P>Body copy.</P>
  * <P size={5} weight="b" color="$primary">Dense label</P>
- * <P size={5} weight="b" caps color="$textSecondary">Column header</P>
+ * <P size={5} weight="b" caps color="$textTertiary">Column header</P>
  */
 export const P = styled(Text, {
   name: 'P',

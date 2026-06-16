@@ -399,8 +399,9 @@ Pick the body size by the verb the user is doing:
 
 ### Data tables (`DataTable`, and any bespoke table e.g. `QualificationMatrix`)
 
-- **Column headers** — 11 (`size={5}`) · weight 600 · `caps` (uppercase + tracking) · muted
-  (`$textSecondary`). Headers are scaffolding: small and quiet, they recede behind the data.
+- **Column headers** — 11 (`size={5}`) · weight 600 · `caps` (uppercase + tracking) · faint
+  (`$textTertiary` — see the colour roles in the dashboard map below). Headers are scaffolding:
+  small and quiet, they recede behind the data.
   **A header is never larger than its column's data** (inverted hierarchy is a bug).
 - **Data cells** — 14 (`size={3}`) · normal case · `$textPrimary` for primary, `$textSecondary` for
   secondary/meta. Weight 400, **except the primary identifier column** (order no / name / part no) at
@@ -417,7 +418,58 @@ Pick the body size by the verb the user is doing:
   ("OUT", "T1") — the component renders the label verbatim, so the caller passes the right case.
 
 **Visual-weight order in a row, loudest → quietest:** primary cell (14 / 500 / ink) → secondary cell
-(14 / 400) → header (11 / 600 / caps-tracked / muted) → badge (11 / 600 / semantic tint).
+(14 / 400) → header (11 / 600 / caps-tracked / faint) → badge (11 / 600 / semantic tint).
+
+### Board / dashboard element type map
+
+The per-element standard for the Schedule Board and all dashboards (Scorecard, Workforce, and the
+phase-4/5 views). Don't re-decide type per screen — map each element here. Dashboard surfaces use
+the shared **`Panel`** (a titled card: header label + content slot) for chrome — never an inline
+card; pass `contentPadding="$0"` for a full-bleed body like a table or a divided list.
+
+**Colour roles** (semantic tokens): **ink** = `$textPrimary` (primary text) · **dim** =
+`$textSecondary` (secondary / meta) · **faint** = `$textTertiary` (labels / scaffolding — a third,
+quieter level below dim). **Semantic** = `$success` / `$warning` / `$danger` / `$ml` — **status
+only, never decoration**.
+
+**The six patterns** (everything below follows these):
+1. **Labels** → `size={5}` (11) · 600 · `caps` (uppercase + tracking) · **faint**. Every "RESOURCE",
+   field label, section/tile label.
+2. **Values** → `size={3}` (14) · **ink** — weight **500** if identifier/primary, **600** if a number
+   meant to pop.
+3. **Meta / secondary** → `size={4}`–`size={3}` (12–14) · 400 · **dim**.
+4. **One hero number per panel** → `H level={3}` (22) · 600 · ink (KPI *cards* go one larger,
+   `level={2}` / 28). A panel gets exactly one big number; everything else stays small.
+5. **Semantic colour carries status only** (behind, churn-high, at-risk, settled, +delta) — never
+   decorative.
+6. **Headings are rare on a dense board** — only the screen title (`H level={1}`), a panel title
+   (`H level={4}`), and the one hero number (`H level={3}`/`{2}`). Everything else is `P`. If reaching
+   for an `H` elsewhere, it's a label (11/600/caps/faint) or a value (14).
+
+**Element map:**
+
+| element | token · weight · colour |
+|---|---|
+| Screen title (`PageHeader`) | `H level={1}` · 600 · ink (→ TopBar on small) |
+| Subtitle | `size={3}` (14) · 400 · dim (hidden on small) |
+| Context-bar field label | `size={5}` (11) · 600 · caps · faint |
+| Selected value (`AppSelect`) | `size={3}` (14) · 500 · ink |
+| Status pill | `size={5}` (11) · 600 · semantic tint |
+| Run meta | `size={4}` (12) · 400 · dim |
+| Metric chip label / value (`VarianceStrip`) | label `size={4}` (12) · 500 · dim · value `size={3}` (14) · 600 · ink-or-semantic; leading dot semantic |
+| Legend item | `size={5}` (11) · 400 · dim; swatch carries colour |
+| Gantt axis ticks | 11 · 400 · faint (SVG) |
+| Gantt "RESOURCE" header | `size={5}` (11) · 600 · caps · faint |
+| Gantt resource name | `size={3}` (14) · 500 · ink |
+| Gantt lane sub-label / behind chip | `size={5}` (11) · 400 dim / 600 danger tint |
+| Gantt bar label / source tag | 11 · 500 / 400 · white on fill (SVG) |
+| Learned panel title / subtitle | `H level={4}` (18) · ink / `size={4}` (12) · dim |
+| Learned panel section labels | `size={5}` (11) · 600 · caps · faint |
+| Learned hero value | `H level={3}` (22) · 600 · ink |
+| Struck standard / delta / confidence | `size={3}` strike dim / `size={5}` (11) · 600 · amber tint / `size={3}` (14) · 600 · ink |
+| "settled" indicator | `size={5}` (11) · 500 · green |
+| KPI tile value / label / sub / delta (`KpiTile`) | `H level={2}` (28) ink / `size={5}` caps faint / `size={4}` dim / `size={4}` (12) · 600 · semantic |
+| KPI bar row label / percent (`MetricBars`) | `size={3}` (14) · 400 · dim / `size={3}` (14) · 600 · ink |
 
 ---
 

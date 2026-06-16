@@ -8,6 +8,7 @@ import {
   H,
   P,
   PageHeader,
+  Panel,
   QualificationMatrix,
   XStack,
   YStack,
@@ -49,11 +50,18 @@ export function WorkforceContent() {
 
       {!cov ? null : (
         <XStack gap="$4" flexWrap="wrap" alignItems="flex-start">
-          <YStack flexGrow={2} flexBasis={420} minWidth={320} gap="$3">
-            <P size={3} weight="b">
-              {t('matrix.title')}
-            </P>
+          {/* Coverage panel — ~60%. Full-bleed matrix (pinned OPERATOR column,
+              cert columns scroll) + legend below, divided by a horizontal line. */}
+          <Panel
+            title={t('matrix.title')}
+            flexGrow={3}
+            flexBasis={360}
+            minWidth={300}
+            contentPadding="$0"
+            contentGap="$0"
+          >
             <QualificationMatrix
+              bordered={false}
               rows={cov.operators.map((o) => ({ id: o.id, label: o.label, out: o.out }))}
               cols={cov.stations.map((s) => ({ id: s.id, label: s.label, marked: s.certRequired }))}
               rowHeader={t('operator')}
@@ -67,7 +75,7 @@ export function WorkforceContent() {
                 return CELL[cov.cells[r]?.[c] ?? 'not_qualified'] ?? 'off'
               }}
             />
-            <XStack gap="$4" flexWrap="wrap">
+            <XStack gap="$4" flexWrap="wrap" padding="$3" borderTopWidth={1} borderTopColor="$borderColor">
               <Legend tone="$primary" label={t('legend.qualified')} />
               <Legend tone="$borderColor" label={t('legend.notQualified')} outline />
               <Legend tone="$dangerSoft" label={t('legend.gap')} />
@@ -75,14 +83,12 @@ export function WorkforceContent() {
                 {t('legend.certRequired')}
               </P>
             </XStack>
-          </YStack>
+          </Panel>
 
-          <YStack flexGrow={1} flexBasis={300} minWidth={260} gap="$3">
-            <YStack>
-              <P size={5} weight="b" caps color="$textSecondary">
-                {t('readiness.title')}
-              </P>
-              <H level={1} color={cov.certGapCount > 0 ? '$warning' : '$success'}>
+          {/* Readiness panel — ~40%. The "%" is the panel's one hero number. */}
+          <Panel title={t('readiness.title')} flexGrow={2} flexBasis={240} minWidth={240}>
+            <YStack gap="$1">
+              <H level={3} color={cov.certGapCount > 0 ? '$warning' : '$success'}>
                 {Math.round(cov.readinessPct * 100)}%
               </H>
               <P size={4} color="$textSecondary">
@@ -109,7 +115,7 @@ export function WorkforceContent() {
                 />
               ))
             )}
-          </YStack>
+          </Panel>
         </XStack>
       )}
     </>

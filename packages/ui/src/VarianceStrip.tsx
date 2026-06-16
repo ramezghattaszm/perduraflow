@@ -45,10 +45,10 @@ export function VarianceStrip({ chips }: VarianceStripProps) {
           paddingHorizontal="$3"
         >
           <YStack width={8} height={8} borderRadius={999} backgroundColor={DOT[c.tone]} />
-          <P size={4} color="$textSecondary">
+          <P size={4} weight="m" color="$textSecondary">
             {c.label}
           </P>
-          <P size={4} weight="b" color={VAL[c.tone]}>
+          <P size={3} weight="b" color={VAL[c.tone]}>
             {c.value}
           </P>
         </XStack>

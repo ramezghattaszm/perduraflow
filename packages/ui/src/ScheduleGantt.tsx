@@ -127,7 +127,7 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
     danger: theme.danger?.val ?? '#f87171',
     axisBg: theme.surfaceRaised?.val ?? '#1A2030',
     grid: theme.borderColor?.val ?? '#232C3D',
-    axisText: theme.textSecondary?.val ?? '#9AA3B2',
+    axisText: theme.textTertiary?.val ?? '#7B8494',
     barText: '#FFFFFF',
     laneTint: theme.hoverFill?.val ?? 'rgba(255,255,255,0.03)',
   }
@@ -158,7 +158,7 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
       {/* pinned label column */}
       <YStack width={LABEL_W} borderRightWidth={1} borderRightColor="$borderColor">
         <XStack height={AXIS_H} alignItems="center" paddingHorizontal="$3" backgroundColor="$surfaceRaised" borderBottomWidth={1} borderBottomColor="$borderColor">
-          <P size={5} weight="b" color="$textSecondary">
+          <P size={5} weight="b" caps color="$textTertiary">
             RESOURCE
           </P>
         </XStack>
@@ -238,7 +238,7 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
                   {b.changeover ? <Rect x={x - 2} y={y - 4} width={3} height={BAR_H + 8} rx={1.5} fill={c.accent} opacity={0.85} /> : null}
                   {b.atRisk ? <Circle cx={x + w - 10} cy={y + 8} r={3.5} fill={c.danger} /> : null}
                   {w >= LABEL_MIN_W ? (
-                    <SvgText x={x + 9} y={y + BAR_H / 2 + 4} fontSize={12} fontWeight="500" fill={c.barText}>
+                    <SvgText x={x + 9} y={y + BAR_H / 2 + 4} fontSize={11} fontWeight="500" fill={c.barText}>
                       {b.label}
                     </SvgText>
                   ) : null}

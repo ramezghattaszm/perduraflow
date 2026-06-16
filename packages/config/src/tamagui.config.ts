@@ -33,6 +33,7 @@ const palette = {
   surfaceRaisedLight: '#FFFFFF', // light elevates via border/shadow, = surface
   inkLight: '#1A1A2E',
   slateLight: '#5B6472',
+  faintLight: '#7A8290', // labels/scaffolding — fainter than slate (dim)
   lineLight: '#E3E8F0',
   navBarLight: '#EEF1F6', // close to bgLight (#F7F8FA), subtly recessed — mirrors dark
   // dark neutrals — Deep Navy (very dark desaturated navy; elevation reads lighter)
@@ -41,6 +42,7 @@ const palette = {
   surfaceRaisedDark: '#1A2030', // 3rd elevation layer (menus/popovers/raised header)
   inkDark: '#E6E8EB',
   slateDark: '#9AA3B2',
+  faintDark: '#7B8494', // labels/scaffolding — dimmer than slate (dim)
   lineDark: '#232C3D',
   navBarDark: '#0A1324',
   // status — light
@@ -83,6 +85,7 @@ const lightColors = {
   background: palette.bgLight,
   textPrimary: palette.inkLight,
   textSecondary: palette.slateLight,
+  textTertiary: palette.faintLight,
   borderColor: palette.lineLight,
   success: palette.successLight,
   danger: palette.dangerLight,
@@ -111,6 +114,7 @@ const darkColors = {
   background: palette.bgDark,
   textPrimary: palette.inkDark,
   textSecondary: palette.slateDark,
+  textTertiary: palette.faintDark,
   borderColor: palette.lineDark,
   success: palette.successDark,
   danger: palette.dangerDark,

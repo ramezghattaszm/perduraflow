@@ -1,6 +1,6 @@
 import { useMedia, XStack, YStack } from 'tamagui'
 import { AppSelect } from './AppSelect'
-import { FormField } from './FormField'
+import { P } from './typography'
 
 /** One context selector (e.g. Plant, Version). */
 export interface ContextSelector {
@@ -47,10 +47,12 @@ export function ContextSelectors({ selectors }: ContextSelectorsProps) {
   return (
     <XStack gap="$4" flexWrap="wrap">
       {selectors.map((s) => (
-        <YStack key={s.label} width={s.width ?? 260}>
-          <FormField label={s.label}>
-            <AppSelect options={s.options} value={s.value} onChange={s.onChange} placeholder={s.placeholder ?? s.label} />
-          </FormField>
+        <YStack key={s.label} width={s.width ?? 260} gap="$2">
+          {/* Context-bar field label — board type map: 11 · 600 · caps+tracked · faint */}
+          <P size={5} weight="b" caps color="$textTertiary">
+            {s.label}
+          </P>
+          <AppSelect options={s.options} value={s.value} onChange={s.onChange} placeholder={s.placeholder ?? s.label} />
         </YStack>
       ))}
     </XStack>

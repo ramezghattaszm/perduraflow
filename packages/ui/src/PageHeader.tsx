@@ -34,7 +34,7 @@ export function PageHeader({
   return (
     <XStack alignItems="flex-start" justifyContent="space-between" gap="$4">
       <YStack gap="$1" flex={1}>
-        <H level={2} color="$textPrimary">
+        <H level={1} color="$textPrimary">
           {title}
         </H>
         {subtitle ? (

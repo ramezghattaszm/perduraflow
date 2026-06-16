@@ -1,6 +1,6 @@
 import { TriangleAlert } from '@tamagui/lucide-icons'
 import { XStack, YStack } from 'tamagui'
-import { P } from './typography'
+import { H, P } from './typography'
 
 /** The learned (ml) settled-step detail — present only when a value has been adopted. */
 export interface LearnedStep {
@@ -61,9 +61,9 @@ export function LearnedParamPanel({
   return (
     <YStack backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
       <YStack padding="$4" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
-        <P size={3} weight="b" color="$textPrimary">
+        <H level={4} color="$textPrimary">
           {title}
-        </P>
+        </H>
         {subtitle ? (
           <P size={4} color="$textSecondary">
             {subtitle}
@@ -72,7 +72,7 @@ export function LearnedParamPanel({
       </YStack>
       <YStack padding="$4" gap="$3">
         <XStack alignItems="center" justifyContent="space-between" gap="$2">
-          <P size={5} weight="b" caps color="$textSecondary">
+          <P size={5} weight="b" caps color="$textTertiary">
             {metricLabel}
           </P>
           <XStack
@@ -97,11 +97,11 @@ export function LearnedParamPanel({
               <P size={3} color="$ml">
                 →
               </P>
-              <P size={2} weight="b" color="$textPrimary">
+              <H level={3} color="$textPrimary">
                 {learned.learnedText}
-              </P>
-              <XStack backgroundColor="$mlSoft" borderRadius="$3" paddingHorizontal="$2" paddingVertical="$0.5">
-                <P size={4} weight="b" color="$ml">
+              </H>
+              <XStack backgroundColor="$warningSoft" borderRadius="$3" paddingHorizontal="$2" paddingVertical="$0.5">
+                <P size={5} weight="b" color="$warning">
                   {learned.deltaText}
                 </P>
               </XStack>
@@ -115,23 +115,28 @@ export function LearnedParamPanel({
               <XStack flex={1} height={6} borderRadius="$2" backgroundColor="$surfaceRaised" overflow="hidden">
                 <YStack width={`${Math.round(Math.max(0, Math.min(1, learned.confidence)) * 100)}%`} backgroundColor="$ml" />
               </XStack>
-              <P size={4} weight="b">
+              <P size={3} weight="b">
                 {Math.round(Math.max(0, Math.min(1, learned.confidence)) * 100)}%
               </P>
             </XStack>
-            <P size={4} color="$textSecondary">
-              {learned.basisText} {learned.settledText}
-            </P>
+            <XStack alignItems="center" gap="$2" flexWrap="wrap">
+              <P size={3} color="$textSecondary">
+                {learned.basisText}
+              </P>
+              <P size={5} weight="m" color="$success">
+                {learned.settledText}
+              </P>
+            </XStack>
             {learned.trigger ? (
               <XStack gap="$3" alignItems="flex-start" backgroundColor="$surfaceRaised" borderRadius="$4" padding="$3">
                 <YStack width={26} height={26} borderRadius="$3" backgroundColor="$warningSoft" alignItems="center" justifyContent="center">
                   <TriangleAlert size={15} color="$warning" />
                 </YStack>
                 <YStack flex={1} gap="$0.5">
-                  <P size={4} weight="b" color="$textPrimary">
+                  <P size={3} weight="b" color="$textPrimary">
                     {learned.trigger.title}
                   </P>
-                  <P size={4} color="$textSecondary">
+                  <P size={3} color="$textSecondary">
                     {learned.trigger.body}
                   </P>
                 </YStack>
@@ -142,9 +147,9 @@ export function LearnedParamPanel({
           <>
             {/* standard state: the operation's standard time(s), no adjustment yet */}
             <XStack alignItems="baseline" gap="$3">
-              <P size={2} weight="b" color="$textPrimary">
+              <H level={3} color="$textPrimary">
                 {standardText}
-              </P>
+              </H>
               {secondary ? (
                 <P size={4} color="$textSecondary">
                   {secondary.label} {secondary.value}
@@ -152,7 +157,7 @@ export function LearnedParamPanel({
               ) : null}
             </XStack>
             {standardNote ? (
-              <P size={4} color="$textSecondary">
+              <P size={3} color="$textSecondary">
                 {standardNote}
               </P>
             ) : null}

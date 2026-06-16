@@ -8,6 +8,7 @@ import {
   MetricBars,
   P,
   PageHeader,
+  Panel,
   XStack,
   YStack,
 } from '@perduraflow/ui'
@@ -106,7 +107,7 @@ export function ScorecardContent() {
       {/* Drill-down scope: Plant (default) or a single line; chips + clickable at-risk rows */}
       {resources.length > 0 ? (
         <XStack gap="$2" flexWrap="wrap" alignItems="center">
-          <P size={5} color="$textSecondary">
+          <P size={5} weight="b" caps color="$textTertiary">
             {t('scope.label')}
           </P>
           <ScopeChip
@@ -170,71 +171,47 @@ export function ScorecardContent() {
           </KpiTileRow>
 
           <XStack gap="$4" flexWrap="wrap">
-            {/* OEE breakdown — in a card (4b); per-line when drilled */}
-            <YStack
-              flexGrow={1}
-              flexBasis={360}
-              minWidth={300}
-              backgroundColor="$surface"
-              borderWidth={1}
-              borderColor="$borderColor"
-              borderRadius="$5"
-              overflow="hidden"
-            >
-              <YStack padding="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
-                <P size={5} weight="b" caps color="$textSecondary">
-                  {t('oee.title')}
+            {/* OEE breakdown panel (4b); per-line when drilled */}
+            <Panel title={t('oee.title')} flexGrow={1} flexBasis={360} minWidth={300}>
+              {sc.oee != null ? (
+                <MetricBars
+                  items={[
+                    { label: t('oee.availability'), value: sc.oee.availability },
+                    { label: t('oee.performance'), value: sc.oee.performance },
+                    { label: t('oee.quality'), value: sc.oee.quality },
+                  ]}
+                />
+              ) : (
+                <P size={4} color="$textSecondary">
+                  {t('oee.empty')}
+                </P>
+              )}
+              {/* Phase-5 seam — manual-baseline comparison; named, never faked. */}
+              <YStack
+                marginTop="$1"
+                borderWidth={1}
+                borderColor="$borderColor"
+                borderStyle="dashed"
+                borderRadius="$4"
+                padding="$3"
+              >
+                <P size={4} color="$textSecondary">
+                  {t('baseline.title')} — {t('baseline.seam')}
                 </P>
               </YStack>
-              <YStack padding="$4" gap="$3">
-                {sc.oee != null ? (
-                  <MetricBars
-                    items={[
-                      { label: t('oee.availability'), value: sc.oee.availability },
-                      { label: t('oee.performance'), value: sc.oee.performance },
-                      { label: t('oee.quality'), value: sc.oee.quality },
-                    ]}
-                  />
-                ) : (
-                  <P size={4} color="$textSecondary">
-                    {t('oee.empty')}
-                  </P>
-                )}
-                {/* Phase-5 seam — manual-baseline comparison; named, never faked. */}
-                <YStack
-                  marginTop="$1"
-                  borderWidth={1}
-                  borderColor="$borderColor"
-                  borderStyle="dashed"
-                  borderRadius="$4"
-                  padding="$3"
-                >
-                  <P size={4} color="$textSecondary">
-                    {t('baseline.title')} — {t('baseline.seam')}
-                  </P>
-                </YStack>
-              </YStack>
-            </YStack>
+            </Panel>
 
-            {/* At-risk orders — order + computed detail + reason badge (4d); click → drill to that line */}
-            <YStack
+            {/* At-risk orders panel — order + computed detail + reason badge (4d).
+                Full-bleed divided list (no column header, a divider between orders,
+                no hover); each row drills to its line on press (Item 4). */}
+            <Panel
+              title={t('atRisk.title')}
               flexGrow={1}
               flexBasis={360}
               minWidth={300}
-              backgroundColor="$surface"
-              borderWidth={1}
-              borderColor="$borderColor"
-              borderRadius="$5"
-              overflow="hidden"
+              contentPadding="$0"
+              contentGap="$0"
             >
-              <YStack padding="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
-                <P size={5} weight="b" caps color="$textSecondary">
-                  {t('atRisk.title')}
-                </P>
-              </YStack>
-              {/* Plain divided list (not a DataTable): no column header, card
-                  background, a divider between orders, no hover. Each row still
-                  drills to its line on press (Item 4). */}
               {sc.atRisk.length === 0 ? (
                 <YStack padding="$4">
                   <P size={3} color="$textSecondary">
@@ -242,44 +219,42 @@ export function ScorecardContent() {
                   </P>
                 </YStack>
               ) : (
-                <YStack>
-                  {sc.atRisk.map((a, i) => (
+                sc.atRisk.map((a, i) => (
+                  <XStack
+                    key={a.demandLineId}
+                    gap="$3"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    paddingVertical="$3"
+                    paddingHorizontal="$4"
+                    borderTopWidth={i === 0 ? 0 : 1}
+                    borderTopColor="$borderColor"
+                    cursor="pointer"
+                    onPress={() => setResourceId(a.resourceId)}
+                  >
+                    <YStack flex={1}>
+                      <P size={3} weight="m" color="$textPrimary">
+                        {a.label}
+                      </P>
+                      <P size={4} color="$textSecondary">
+                        {a.detail}
+                      </P>
+                    </YStack>
                     <XStack
-                      key={a.demandLineId}
-                      gap="$3"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      paddingVertical="$3"
-                      paddingHorizontal="$4"
-                      borderTopWidth={i === 0 ? 0 : 1}
-                      borderTopColor="$borderColor"
-                      cursor="pointer"
-                      onPress={() => setResourceId(a.resourceId)}
+                      alignSelf="flex-start"
+                      backgroundColor="$dangerSoft"
+                      borderRadius="$2"
+                      paddingHorizontal="$2"
+                      paddingVertical="$0.5"
                     >
-                      <YStack flex={1}>
-                        <P size={3} color="$textPrimary">
-                          {a.label}
-                        </P>
-                        <P size={4} color="$textSecondary">
-                          {a.detail}
-                        </P>
-                      </YStack>
-                      <XStack
-                        alignSelf="flex-start"
-                        backgroundColor="$dangerSoft"
-                        borderRadius="$2"
-                        paddingHorizontal="$2"
-                        paddingVertical="$0.5"
-                      >
-                        <P size={5} weight="b" color="$danger">
-                          {a.reason}
-                        </P>
-                      </XStack>
+                      <P size={5} weight="b" color="$danger">
+                        {a.reason}
+                      </P>
                     </XStack>
-                  ))}
-                </YStack>
+                  </XStack>
+                ))
               )}
-            </YStack>
+            </Panel>
           </XStack>
         </>
       )}

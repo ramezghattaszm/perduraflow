@@ -43,6 +43,7 @@ export * from './MetricBars'
 export * from './VarianceStrip'
 export * from './LearnedParamPanel'
 export * from './CoverageProposal'
+export * from './Panel'
 export * from './ContextSelectors'
 
 // type augmentation for tamagui custom config

@@ -45,10 +45,10 @@ export function CoverageProposal({
       <P size={5} weight="b" caps color="$warning">
         {heading}
       </P>
-      <P size={4} color="$textPrimary">
+      <P size={3} color="$textPrimary">
         {gapText}
       </P>
-      <P size={4} color="$primary">
+      <P size={3} color="$primary">
         {actionText}
       </P>
       <P size={4} color="$textSecondary">
@@ -57,7 +57,7 @@ export function CoverageProposal({
       {confirmed ? (
         <XStack alignItems="center" gap="$2" paddingTop="$1">
           <YStack width={8} height={8} borderRadius={999} backgroundColor="$success" />
-          <P size={4} weight="b" color="$success">
+          <P size={5} weight="m" color="$success">
             {confirmedLabel}
           </P>
         </XStack>

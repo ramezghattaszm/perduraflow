@@ -152,7 +152,7 @@ export function DataTable<T extends { id: string }>({
                 : String((row as Record<string, unknown>)[c.key] ?? '—')
               return (
                 <XStack key={c.key} justifyContent="space-between" gap="$3" alignItems="center">
-                  <P size={5} weight="b" caps color="$textSecondary">
+                  <P size={5} weight="b" caps color="$textTertiary">
                     {c.label}
                   </P>
                   {typeof content === 'string' || typeof content === 'number' ? (
@@ -202,7 +202,7 @@ export function DataTable<T extends { id: string }>({
                 hoverStyle={c.sortable ? { opacity: 0.7 } : undefined}
                 onPress={c.sortable ? () => toggleSort(c.key) : undefined}
               >
-                <P size={5} weight="b" caps color={active ? '$primary' : '$textSecondary'}>
+                <P size={5} weight="b" caps color={active ? '$primary' : '$textTertiary'}>
                   {c.label}
                   {indicator}
                 </P>
