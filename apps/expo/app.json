@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "yourprojectsname",
-    "slug": "yourprojectsname",
-    "scheme": "yourprojectsname",
+    "name": "PerduraFlow",
+    "slug": "perduraflow",
+    "scheme": "perduraflow",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,7 +18,7 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourprojectsname.app"
+      "bundleIdentifier": "com.perduraflow.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,15 +26,12 @@
         "backgroundColor": "#FFFFFF"
       },
       "softwareKeyboardLayoutMode": "resize",
-      "package": "com.yourprojectsname.app"
+      "package": "com.perduraflow.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      ["expo-router", { "root": "./app" }],
-      "expo-font"
-    ],
+    "plugins": [["expo-router", { "root": "./app" }], "expo-font"],
     "experiments": {
       "typedRoutes": true
     }
