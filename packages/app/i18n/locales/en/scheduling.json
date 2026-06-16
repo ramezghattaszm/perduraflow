@@ -25,6 +25,13 @@
       "demandLine": "Demand line",
       "scheduled": "Scheduled",
       "source": "Source"
+    },
+    "perf": {
+      "title": "Performance — planned vs actual",
+      "cycle": "Cycle / unit",
+      "run": "Run",
+      "output": "Good / scrap",
+      "empty": "No actuals yet — recorded after this version runs."
     }
   },
   "legend": {

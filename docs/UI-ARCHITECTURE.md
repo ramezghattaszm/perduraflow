@@ -918,6 +918,41 @@ fits confirms, not live forms.
 
 ---
 
+## 18. Interaction — hover vs click, web vs native (Schedule Board bars)
+
+The board bar interaction is the reference pattern for any "preview vs detail" surface.
+
+**Core invariant — nothing is hover-only.** Hover is a **web-only convenience**; the **click/tap panel
+is the source of truth and is complete on both platforms.** Native has no hover, so every fact a hover
+shows must also live in the click panel.
+
+**Two tiers of the same information:**
+- **Tier 1 — hover preview (web only).** A transient, **non-interactive** tooltip (`pointerEvents:"none"`,
+  via Portal) following the bar; gone on mouse-out. Quick "what is this": resource · demand line ·
+  scheduled · setup · run. Native never shows it — and that's fine, because every fact repeats below.
+- **Tier 2 — click / tap detail (both platforms).** The full, **self-contained** panel — it does **not**
+  assume the hover was seen, so it repeats the identity/schedule facts at top, then the detail.
+
+**Panel content (identical on both platforms; only the container differs):** identity/schedule →
+learned value (`ml`: settled std→learned step, delta, confidence, "settled", tool-wear trigger; `std`:
+standard times + "no learned adjustment yet") → **performance** (planned-vs-actual cycle/run, variance,
+good/scrap; per the **selected version's** actuals; "no actuals yet" when none — never 0%/fabricated).
+
+**Container by platform** (`BarDetailSheet`, web / `.native` split):
+- **Web** — a **persistent panel below the board** (doesn't occlude the Gantt, so the planner clicks
+  bar-to-bar comparing). Clicking a bar **selects** it (no occluding popover); clicking it again, or
+  another bar, switches/dismisses — no close button.
+- **Native** — a **bottom sheet** sliding up full-width (a bar-anchored popover is cramped and covers
+  the tapped bar). Tap → sheet up; drag/overlay dismiss → board.
+
+**Selected state** — the open bar shows a **selected outline** (an outset ring, distinct from the
+at-risk inset border) on both platforms.
+
+**Type** — per the board type map (§4): identity labels 11/600/caps/faint; the one hero number is the
+learned value at `heading.3`; performance figures 14/ink (semantic tint only on variance/scrap).
+
+---
+
 ## Revision History
 
 | Version | Date | Notes                                                                                                                                                                                                                                                                                    |

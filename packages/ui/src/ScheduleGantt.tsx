@@ -18,10 +18,10 @@ interface BarAnchor {
   width: number
   height: number
 }
-interface ActivePopover {
+/** A transient hover preview (web only) — anchored under the hovered bar. */
+interface HoverPreview {
   bar: GanttBar
   anchor: BarAnchor
-  pinned: boolean
 }
 
 /** A resource row (a line/machine). `subLabel` is an optional second line (e.g. type). */
@@ -66,13 +66,17 @@ export interface ScheduleGanttProps {
   horizonStartMs: number
   horizonEndMs: number
   /**
-   * Detail content for a bar's popover. When provided, hovering a bar previews it
-   * and clicking pins it open (with an outside-click scrim). The renderer keeps
-   * the gantt presentational — the caller supplies labels/i18n.
+   * Lightweight **hover preview** content (Tier 1, web only) — a transient tooltip
+   * shown while hovering a bar (never on native, which has no hover). Supplementary:
+   * every fact here is repeated in the click/tap panel, so nothing is hover-only.
    */
   barDetail?: (bar: GanttBar) => ReactNode
-  /** Notified when a bar is pinned (selected) or unpinned (null) — drives a side panel. */
+  /** Notified when a bar is selected (its id) or deselected (null) on click/tap —
+   *  drives the self-contained detail panel (web) / bottom sheet (native). */
   onBarSelect?: (barId: string | null) => void
+  /** The currently selected bar (its detail panel/sheet is open) — drawn with a
+   *  selected outline on both platforms. */
+  selectedBarId?: string | null
   emptyText?: string
 }
 
@@ -102,22 +106,21 @@ const DISPLAY_MIN_HOURS = 14
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, onBarSelect, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, onBarSelect, selectedBarId, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
-  const [active, setActive] = useState<ActivePopover | null>(null)
+  // Hover preview only (web). The selected/open bar is owned by the parent
+  // (`selectedBarId`) and drives the persistent panel / bottom sheet — clicking a
+  // bar never pins an occluding popover over the schedule.
+  const [hover, setHover] = useState<HoverPreview | null>(null)
   if (resources.length === 0) {
     return <EmptyState title={emptyText ?? 'Nothing to schedule'} />
   }
-  const showHover = (bar: GanttBar, anchor: BarAnchor) => setActive((cur) => (cur?.pinned ? cur : { bar, anchor, pinned: false }))
-  const hideHover = () => setActive((cur) => (cur && !cur.pinned ? null : cur))
-  const togglePin = (bar: GanttBar, anchor: BarAnchor) => {
-    // Event handler (not render): read current `active` from closure, then set both
-    // states as side effects — never call onBarSelect inside the setActive updater
-    // (React runs updaters during render → cross-component setState warning).
-    const next = active?.pinned && active.bar.id === bar.id ? null : { bar, anchor, pinned: true }
-    setActive(next)
-    onBarSelect?.(next ? bar.id : null)
+  const showHover = (bar: GanttBar, anchor: BarAnchor) => setHover({ bar, anchor })
+  const hideHover = () => setHover(null)
+  const selectBar = (bar: GanttBar) => {
+    setHover(null) // a click resolves the preview into the panel; don't linger
+    onBarSelect?.(selectedBarId === bar.id ? null : bar.id)
   }
   const c = {
     bar: theme.primary?.val ?? '#3f6fd6',
@@ -125,6 +128,7 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
     ml: theme.ml?.val ?? '#7c5cff',
     accent: theme.primaryLight?.val ?? '#5b8def',
     danger: theme.danger?.val ?? '#f87171',
+    selected: theme.primary?.val ?? '#3f6fd6',
     axisBg: theme.surfaceRaised?.val ?? '#1A2030',
     grid: theme.borderColor?.val ?? '#232C3D',
     axisText: theme.textTertiary?.val ?? '#7B8494',
@@ -237,6 +241,10 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
                   {b.atRisk ? <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill="none" stroke={c.danger} strokeWidth={2} /> : null}
                   {b.changeover ? <Rect x={x - 2} y={y - 4} width={3} height={BAR_H + 8} rx={1.5} fill={c.accent} opacity={0.85} /> : null}
                   {b.atRisk ? <Circle cx={x + w - 10} cy={y + 8} r={3.5} fill={c.danger} /> : null}
+                  {/* selected state — an outset ring while this bar's panel/sheet is open */}
+                  {selectedBarId === b.id ? (
+                    <Rect x={x - 3} y={y - 3} width={w + 6} height={BAR_H + 6} rx={9} ry={9} fill="none" stroke={c.selected} strokeWidth={2.5} />
+                  ) : null}
                   {w >= LABEL_MIN_W ? (
                     <SvgText x={x + 9} y={y + BAR_H / 2 + 4} fontSize={11} fontWeight="500" fill={c.barText}>
                       {b.label}
@@ -255,26 +263,25 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
                 const w = Math.max(xFor(b.endMs) - x, 6)
                 const y = AXIS_H + ri * LANE_H + BAR_TOP
                 return (
-                  <BarHit key={`hit${b.id}`} bar={b} x={x} y={y} width={w} onHover={showHover} onLeave={hideHover} onPress={togglePin} />
+                  <BarHit key={`hit${b.id}`} bar={b} x={x} y={y} width={w} onHover={showHover} onLeave={hideHover} onPress={selectBar} />
                 )
               })
             : null}
         </YStack>
       </ScrollView>
 
-      {/* Popover: hover preview / click-pinned detail, anchored under the bar (Portal escapes clipping) */}
-      {active && barDetail ? (
+      {/* Hover preview (Tier 1, web only) — transient, anchored under the bar, never
+          interactive (pointerEvents none). Native has no hover, so it never shows;
+          the click/tap panel carries every fact. Portal escapes the scroll clip. */}
+      {hover && barDetail ? (
         <Portal>
-          {active.pinned ? (
-            <YStack position="fixed" top={0} left={0} right={0} bottom={0} zIndex={260000} pointerEvents="auto" onPress={() => setActive(null)} />
-          ) : null}
           <YStack
             position="fixed"
-            top={active.anchor.y + active.anchor.height + 6}
-            left={active.anchor.x}
+            top={hover.anchor.y + hover.anchor.height + 6}
+            left={hover.anchor.x}
             maxWidth={300}
             zIndex={260001}
-            pointerEvents={active.pinned ? 'auto' : 'none'}
+            pointerEvents="none"
             backgroundColor="$surfaceRaised"
             borderColor="$borderColor"
             borderWidth={1}
@@ -282,7 +289,7 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
             padding="$3"
             elevation="$4"
           >
-            {barDetail(active.bar)}
+            {barDetail(hover.bar)}
           </YStack>
         </Portal>
       ) : null}

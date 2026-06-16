@@ -76,6 +76,19 @@ export interface ScheduleVersionDto {
   createdAt: string
 }
 
+/**
+ * Per-operation execution actual, surfaced on the board op so the bar detail panel
+ * can show planned-vs-actual without a second round-trip. A subset of the
+ * `learning` ExecutionActual (read-only); `null` until the version has actuals.
+ */
+export interface OperationActualDto {
+  actualStart: string
+  actualEnd: string
+  actualCycleTime: number | null
+  goodQty: number
+  scrapQty: number
+}
+
 export interface ScheduledOperationDto {
   id: string
   scheduleVersionId: string
@@ -98,6 +111,9 @@ export interface ScheduledOperationDto {
   cycleConfidence: number | null
   atRisk: boolean
   atRiskReason: string | null
+  /** This version's execution actual for the op (planned-vs-actual on the board);
+   *  `null` until the version has actuals. */
+  actual?: OperationActualDto | null
 }
 
 /** Board payload: a version header + its run + ordered scheduled operations. */

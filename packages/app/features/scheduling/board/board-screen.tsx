@@ -5,6 +5,7 @@ import { TriangleAlert } from '@tamagui/lucide-icons'
 import type { GanttBar, VarianceChip } from '@perduraflow/ui'
 import {
   AppButton,
+  BarDetailSheet,
   ContextSelectors,
   LearnedParamPanel,
   P,
@@ -201,6 +202,92 @@ export function BoardContent() {
     solve.mutate(plantId, { onSuccess: (v) => setVersionId(v.id) })
   }
 
+  // Self-contained bar detail (identity + learned/std + performance). Identity is
+  // repeated so the panel/sheet stands alone (the tap target never assumes a hover).
+  const scheduleRows = selectedOp
+    ? [
+        { label: t('board.tooltip.resource'), value: resourceName.get(selectedOp.resourceId) ?? '—' },
+        { label: t('board.tooltip.demandLine'), value: selectedOp.demandLineId ?? '—' },
+        {
+          label: t('board.tooltip.scheduled'),
+          value: `${fmtTime(new Date(selectedOp.plannedStart).getTime())} – ${fmtTime(new Date(selectedOp.plannedEnd).getTime())}`,
+        },
+        { label: t('board.tooltip.setup'), value: `${Math.round(selectedOp.setupTime)} min` },
+        { label: t('board.tooltip.run'), value: `${Math.round(selectedOp.cycleTime * selectedOp.plannedQty)} min` },
+      ]
+    : []
+
+  // Performance — planned-vs-actual for this op on THIS version (from the version's
+  // actuals). Undefined when no actuals → the panel renders "no actuals yet".
+  type PerfRow = { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }
+  let perfRows: PerfRow[] | undefined
+  if (selectedOp?.actual) {
+    const a = selectedOp.actual
+    const plannedRun = selectedOp.setupTime + selectedOp.cycleTime * selectedOp.plannedQty
+    const actualRun = (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000
+    const runDelta = plannedRun > 0 ? (actualRun - plannedRun) / plannedRun : 0
+    perfRows = [
+      {
+        label: t('board.perf.cycle'),
+        value: a.actualCycleTime != null ? `${selectedOp.cycleTime} → ${a.actualCycleTime} min` : '—',
+        tone: a.actualCycleTime == null ? undefined : a.actualCycleTime > selectedOp.cycleTime ? 'warn' : 'ok',
+      },
+      {
+        label: t('board.perf.run'),
+        value: `${Math.round(plannedRun)} → ${Math.round(actualRun)} min (${runDelta >= 0 ? '+' : ''}${Math.round(runDelta * 100)}%)`,
+        tone: runDelta > 0.02 ? 'warn' : runDelta < -0.02 ? 'ok' : undefined,
+      },
+      { label: t('board.perf.output'), value: `${a.goodQty} / ${a.scrapQty}`, tone: a.scrapQty > 0 ? 'bad' : 'ok' },
+    ]
+  }
+
+  const detailPanel = selectedOp ? (
+    selectedLearned && selectedLearned.status === 'held' && selectedLearned.learnedValue != null ? (
+      <LearnedParamPanel
+        title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
+        subtitle={`op ${selectedOp.opSeq}`}
+        status={selectedOp.atRisk ? { label: t('atRisk'), tone: 'danger' } : undefined}
+        scheduleRows={scheduleRows}
+        metricLabel={t('learned.cycle')}
+        sourceText={t('source.ml_adjusted')}
+        standardText={`${selectedLearned.stdBaseline}m`}
+        learned={{
+          learnedText: `${selectedLearned.learnedValue.toFixed(2)}m`,
+          deltaText: `${selectedLearned.learnedValue >= selectedLearned.stdBaseline ? '+' : ''}${Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)}%`,
+          confidence: selectedLearned.confidence ?? 0,
+          basisText: t('learned.basis', { count: selectedLearned.sampleCount }),
+          settledText: t('learned.settled'),
+          trigger:
+            (selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline >= WEAR_PCT
+              ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resourceName.get(selectedOp.resourceId) ?? '' }) }
+              : undefined,
+        }}
+        performanceLabel={t('board.perf.title')}
+        performanceRows={perfRows}
+        performanceEmptyText={t('board.perf.empty')}
+      />
+    ) : (
+      <LearnedParamPanel
+        title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
+        subtitle={`op ${selectedOp.opSeq}`}
+        status={selectedOp.atRisk ? { label: t('atRisk'), tone: 'danger' } : undefined}
+        scheduleRows={scheduleRows}
+        metricLabel={t('learned.cycleStd')}
+        sourceText={t('source.standard')}
+        standardText={`${selectedOp.cycleTime}m`}
+        secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
+        standardNote={
+          selectedLearned && selectedLearned.sampleCount > 0
+            ? t('learned.accruing', { count: selectedLearned.sampleCount })
+            : t('learned.noAdjustment')
+        }
+        performanceLabel={t('board.perf.title')}
+        performanceRows={perfRows}
+        performanceEmptyText={t('board.perf.empty')}
+      />
+    )
+  ) : null
+
   return (
     <>
       <PageHeader
@@ -302,47 +389,18 @@ export function BoardContent() {
             </YStack>
           )}
           onBarSelect={setSelectedBarId}
+          selectedBarId={selectedBarId}
           emptyText={t('board.noResources')}
         />
       ) : null}
 
+      {/* Click/tap detail — self-contained (identity + learned/std + performance).
+          Web: a persistent panel below the board (doesn't occlude the Gantt).
+          Native: a bottom sheet (BarDetailSheet) — no hover dependency anywhere. */}
       {selectedOp ? (
-        <YStack maxWidth={420}>
-          {selectedLearned && selectedLearned.status === 'held' && selectedLearned.learnedValue != null ? (
-            <LearnedParamPanel
-              title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
-              subtitle={`op ${selectedOp.opSeq}`}
-              metricLabel={t('learned.cycle')}
-              sourceText={t('source.ml_adjusted')}
-              standardText={`${selectedLearned.stdBaseline}m`}
-              learned={{
-                learnedText: `${selectedLearned.learnedValue.toFixed(2)}m`,
-                deltaText: `${selectedLearned.learnedValue >= selectedLearned.stdBaseline ? '+' : ''}${Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)}%`,
-                confidence: selectedLearned.confidence ?? 0,
-                basisText: t('learned.basis', { count: selectedLearned.sampleCount }),
-                settledText: t('learned.settled'),
-                trigger:
-                  (selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline >= WEAR_PCT
-                    ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resourceName.get(selectedOp.resourceId) ?? '' }) }
-                    : undefined,
-              }}
-            />
-          ) : (
-            <LearnedParamPanel
-              title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
-              subtitle={`op ${selectedOp.opSeq}`}
-              metricLabel={t('learned.cycleStd')}
-              sourceText={t('source.standard')}
-              standardText={`${selectedOp.cycleTime}m`}
-              secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
-              standardNote={
-                selectedLearned && selectedLearned.sampleCount > 0
-                  ? t('learned.accruing', { count: selectedLearned.sampleCount })
-                  : t('learned.noAdjustment')
-              }
-            />
-          )}
-        </YStack>
+        <BarDetailSheet open onClose={() => setSelectedBarId(null)}>
+          {detailPanel}
+        </BarDetailSheet>
       ) : null}
     </>
   )

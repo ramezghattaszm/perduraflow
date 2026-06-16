@@ -1,5 +1,6 @@
 import { TriangleAlert } from '@tamagui/lucide-icons'
 import { XStack, YStack } from 'tamagui'
+import { StatusPill, type StatusTone } from './StatusPill'
 import { H, P } from './typography'
 
 /** The learned (ml) settled-step detail — present only when a value has been adopted. */
@@ -22,6 +23,8 @@ export interface LearnedStep {
 export interface LearnedParamPanelProps {
   title: string
   subtitle?: string
+  /** Optional status (e.g. at-risk) → a {@link StatusPill} in the top-right of the header. */
+  status?: { label: string; tone: StatusTone }
   /** Section label, e.g. "Learned cycle time" (learned) or "Cycle time" (standard). */
   metricLabel: string
   /** The standard baseline value text (always shown — struck-through in the learned state). */
@@ -34,7 +37,18 @@ export interface LearnedParamPanelProps {
   standardNote?: string
   /** Standard state: an optional secondary row, e.g. { label: "Setup", value: "30m" }. */
   secondary?: { label: string; value: string }
+  /** Identity / schedule facts repeated at the top so the panel stands alone on
+   *  both platforms (the click/tap detail never assumes the hover preview was seen). */
+  scheduleRows?: { label: string; value: string }[]
+  /** Performance section label (e.g. "Performance — planned vs actual"). */
+  performanceLabel?: string
+  /** Planned-vs-actual rows; absent/empty → renders {@link performanceEmptyText}. */
+  performanceRows?: { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }[]
+  /** Shown in the performance section when the version has no actuals for this op. */
+  performanceEmptyText?: string
 }
+
+const PERF_TONE = { ok: '$success', warn: '$warning', bad: '$danger' } as const
 
 /**
  * LearnedParamPanel — the per-operation detail opened by selecting **any** board
@@ -50,24 +64,48 @@ export interface LearnedParamPanelProps {
 export function LearnedParamPanel({
   title,
   subtitle,
+  status,
   metricLabel,
   standardText,
   sourceText,
   learned,
   standardNote,
   secondary,
+  scheduleRows,
+  performanceLabel,
+  performanceRows,
+  performanceEmptyText,
 }: LearnedParamPanelProps) {
   const isLearned = Boolean(learned)
   return (
     <YStack backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
       <YStack padding="$4" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
-        <H level={4} color="$textPrimary">
-          {title}
-        </H>
-        {subtitle ? (
-          <P size={4} color="$textSecondary">
-            {subtitle}
-          </P>
+        <XStack justifyContent="space-between" alignItems="flex-start" gap="$2">
+          <YStack flex={1} gap="$1">
+            <H level={4} color="$textPrimary">
+              {title}
+            </H>
+            {subtitle ? (
+              <P size={4} color="$textSecondary">
+                {subtitle}
+              </P>
+            ) : null}
+          </YStack>
+          {status ? <StatusPill tone={status.tone}>{status.label}</StatusPill> : null}
+        </XStack>
+        {scheduleRows && scheduleRows.length > 0 ? (
+          <YStack gap="$1.5" marginTop="$2">
+            {scheduleRows.map((r) => (
+              <XStack key={r.label} justifyContent="space-between" gap="$3" alignItems="center">
+                <P size={5} weight="b" caps color="$textTertiary">
+                  {r.label}
+                </P>
+                <P size={3} weight="m" color="$textPrimary">
+                  {r.value}
+                </P>
+              </XStack>
+            ))}
+          </YStack>
         ) : null}
       </YStack>
       <YStack padding="$4" gap="$3">
@@ -163,6 +201,32 @@ export function LearnedParamPanel({
             ) : null}
           </>
         )}
+
+        {/* Performance — planned-vs-actual for this op (this version's actuals);
+            "no actuals yet" when none. Self-contained (shown on web + native). */}
+        {performanceLabel ? (
+          <YStack gap="$2" marginTop="$1" borderTopWidth={1} borderTopColor="$borderColor" paddingTop="$3">
+            <P size={5} weight="b" caps color="$textTertiary">
+              {performanceLabel}
+            </P>
+            {performanceRows && performanceRows.length > 0 ? (
+              performanceRows.map((r) => (
+                <XStack key={r.label} justifyContent="space-between" gap="$3" alignItems="center">
+                  <P size={4} color="$textSecondary">
+                    {r.label}
+                  </P>
+                  <P size={3} weight="m" color={r.tone ? PERF_TONE[r.tone] : '$textPrimary'}>
+                    {r.value}
+                  </P>
+                </XStack>
+              ))
+            ) : (
+              <P size={3} color="$textSecondary">
+                {performanceEmptyText}
+              </P>
+            )}
+          </YStack>
+        ) : null}
       </YStack>
     </YStack>
   )

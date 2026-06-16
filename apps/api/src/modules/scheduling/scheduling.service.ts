@@ -79,10 +79,28 @@ export class SchedulingService {
     }
     const run = await this.repo.findRun(tenantId, version.optimizerRunId)
     const ops = await this.repo.operationsForVersion(version.id)
+    // Attach this version's execution actuals (read-only, from learning) so the
+    // board's bar-detail panel can show planned-vs-actual without a second call.
+    const actuals = await this.learning.listActualsForVersion(tenantId, version.id)
+    const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
     return {
       version: toScheduleVersionDto(version),
       run: toOptimizerRunDto(run!),
-      operations: ops.map(toScheduledOperationDto),
+      operations: ops.map((o) => {
+        const a = actualByOp.get(o.id)
+        return {
+          ...toScheduledOperationDto(o),
+          actual: a
+            ? {
+                actualStart: a.actualStart,
+                actualEnd: a.actualEnd,
+                actualCycleTime: a.actualCycleTime,
+                goodQty: a.goodQty,
+                scrapQty: a.scrapQty,
+              }
+            : null,
+        }
+      }),
     }
   }
 

@@ -26,15 +26,23 @@ const PillFrame = styled(XStack, {
       active: { backgroundColor: '$successSoft' },
       inactive: { backgroundColor: '$hoverFill' },
       neutral: { backgroundColor: '$primarySoft' },
+      danger: { backgroundColor: '$dangerSoft' },
+      warning: { backgroundColor: '$warningSoft' },
     },
   } as const,
   defaultVariants: { tone: 'neutral' },
 })
 
 // Coloured text paired with each tone's soft tint (semantic tint, not a fill).
-const TEXT_COLOR = { active: '$success', inactive: '$textSecondary', neutral: '$primary' } as const
+const TEXT_COLOR = {
+  active: '$success',
+  inactive: '$textSecondary',
+  neutral: '$primary',
+  danger: '$danger',
+  warning: '$warning',
+} as const
 
-export type StatusTone = 'active' | 'inactive' | 'neutral'
+export type StatusTone = 'active' | 'inactive' | 'neutral' | 'danger' | 'warning'
 
 /**
  * Status pill. `tone` drives both the soft background tint and the text color.
