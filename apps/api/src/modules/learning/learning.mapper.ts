@@ -17,6 +17,7 @@ export const toParameterPredictionDto = (r: ParameterPrediction): ParameterPredi
   horizonMinutes: r.horizonMinutes,
   confidence: r.confidence,
   fitR2: r.fitR2,
+  sampleCount: r.sampleCount,
   proposedAction: r.proposedAction,
   actionTier: r.actionTier,
   disposition: r.disposition,

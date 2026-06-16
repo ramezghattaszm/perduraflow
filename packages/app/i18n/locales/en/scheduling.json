@@ -35,7 +35,18 @@
     },
     "predictedWear": "predicted wear ~{{time}}",
     "pred": {
-      "panel": "Predicted to cross threshold ~{{crossing}} · confidence {{conf}}% · {{horizon}} horizon"
+      "pointer": "{{resource}} predicted wear — see line",
+      "lineSubtitle": "Tool wear & forecast",
+      "wearPill": "Wear",
+      "confidence": "Confidence",
+      "horizon": "Predicted to cross the wear line in {{horizon}} (~{{time}})",
+      "horizonNone": "Predicted to cross within the horizon",
+      "trackCaption": "std → +{{pct}}% wear line",
+      "basis": "Forecast from the trend over {{count}} actuals — not yet measured",
+      "maintenance": "Maintenance recommended",
+      "downstream": "Downstream: {{count}} op(s) on {{resource}} — kept fed by the pre-emptive adjustment",
+      "downstreamNone": "No downstream ops affected this horizon",
+      "healthy": "No wear signal — running on standard."
     }
   },
   "legend": {
@@ -48,7 +59,7 @@
   "status": { "draft": "Draft", "committed": "Committed", "superseded": "Superseded" },
   "runStatus": { "success": "Success", "infeasible": "Infeasible", "failed": "Failed" },
   "atRisk": "At risk",
-  "source": { "standard": "std", "ml_adjusted": "ml" },
+  "source": { "standard": "std", "ml_adjusted": "ml", "ml_predicted": "predicted" },
   "variance": {
     "behindPlan": "{{pct}}% behind plan",
     "behind": "behind",

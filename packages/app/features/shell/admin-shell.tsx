@@ -114,7 +114,10 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', title, children }:
               bottom stay reachable (native; no-op on web). */}
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <ScrollView flex={1} keyboardShouldPersistTaps="handled">
-              <YStack flex={1} padding="$4" gap="$4" width="100%" paddingBottom={insets.bottom + 16}>
+              {/* flexGrow (not flex:1) — fills the viewport when short, but GROWS + scrolls
+                  when content is taller; flex:1's flexShrink clamps to the viewport and
+                  clips overflow (BAR-PANEL-FIX §5). */}
+              <YStack flexGrow={1} padding="$4" gap="$4" width="100%" paddingBottom={insets.bottom + 16}>
                 {children}
               </YStack>
             </ScrollView>
@@ -134,7 +137,7 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', title, children }:
               breadcrumb={breadcrumb}
             />
             <ScrollView flex={1}>
-              <YStack flex={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center" paddingBottom={insets.bottom + 24}>
+              <YStack flexGrow={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center" paddingBottom={insets.bottom + 24}>
                 {children}
               </YStack>
             </ScrollView>

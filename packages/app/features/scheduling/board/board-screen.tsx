@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { TriangleAlert } from '@tamagui/lucide-icons'
-import type { GanttBar, VarianceChip } from '@perduraflow/ui'
+import type { GanttBar, MeasuredDetail, ParamProvenance, VarianceChip, WearPrediction } from '@perduraflow/ui'
 import {
   AppButton,
   BarDetailSheet,
@@ -10,6 +10,7 @@ import {
   LearnedParamPanel,
   P,
   PageHeader,
+  ResourceWearPanel,
   ScheduleGantt,
   StatusPill,
   VarianceStrip,
@@ -59,6 +60,7 @@ export function BoardContent() {
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
+  const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const { showToast } = useToast()
   const wearShown = useRef<Set<string>>(new Set())
 
@@ -227,93 +229,131 @@ export function BoardContent() {
       ]
     : []
 
-  // Performance — planned-vs-actual for this op on THIS version (from the version's
-  // actuals). Undefined when no actuals → the panel renders "no actuals yet".
+  const r2 = (n: number) => Number(n.toFixed(2)) // round to ≤2 decimals (drops trailing zeros)
+  const fmtH = (min: number) => (min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`)
+
+  // ===== Operation panel (click a bar) — OPERATION-LEVEL ONLY =====
+  // Measured when this op adopted a learned cycle from actuals; else standard. No
+  // line-level wear/forecast/confidence here (that's the resource surface, below).
+  const opProvenance: ParamProvenance =
+    selectedLearned?.source === 'ml_adjusted' && selectedLearned.sampleCount > 0 && selectedLearned.learnedValue != null
+      ? 'measured'
+      : 'standard'
+
+  let opMeasured: MeasuredDetail | undefined
+  if (opProvenance === 'measured' && selectedLearned && selectedLearned.learnedValue != null) {
+    const std = selectedLearned.stdBaseline
+    const lv = selectedLearned.learnedValue
+    opMeasured = {
+      standardText: `${r2(std)}m`,
+      learnedText: `${r2(lv)}m`,
+      deltaText: `${lv >= std ? '+' : ''}${Math.round(((lv - std) / std) * 100)}%`,
+      basisText: t('learned.basis', { count: selectedLearned.sampleCount }),
+      settledText: t('learned.settled'),
+    }
+  }
+
+  // Performance — planned vs actual; shown WHENEVER the op has actuals (independent of any forecast).
   type PerfRow = { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }
   let perfRows: PerfRow[] | undefined
   if (selectedOp?.actual) {
     const a = selectedOp.actual
-    const r2 = (n: number) => Number(n.toFixed(2)) // round to ≤2 decimals (drops trailing zeros)
     const plannedRun = selectedOp.setupTime + selectedOp.cycleTime * selectedOp.plannedQty
     const actualRun = (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000
     const runDelta = plannedRun > 0 ? (actualRun - plannedRun) / plannedRun : 0
     perfRows = [
-      {
-        label: t('board.perf.cycle'),
-        value: a.actualCycleTime != null ? `${r2(selectedOp.cycleTime)} → ${r2(a.actualCycleTime)} min` : '—',
-        tone: a.actualCycleTime == null ? undefined : a.actualCycleTime > selectedOp.cycleTime ? 'warn' : 'ok',
-      },
-      {
-        label: t('board.perf.run'),
-        value: `${Math.round(plannedRun)} → ${Math.round(actualRun)} min (${runDelta >= 0 ? '+' : ''}${Math.round(runDelta * 100)}%)`,
-        tone: runDelta > 0.02 ? 'warn' : runDelta < -0.02 ? 'ok' : undefined,
-      },
+      { label: t('board.perf.cycle'), value: a.actualCycleTime != null ? `${r2(selectedOp.cycleTime)} → ${r2(a.actualCycleTime)} min` : '—', tone: a.actualCycleTime == null ? undefined : a.actualCycleTime > selectedOp.cycleTime ? 'warn' : 'ok' },
+      { label: t('board.perf.run'), value: `${Math.round(plannedRun)} → ${Math.round(actualRun)} min (${runDelta >= 0 ? '+' : ''}${Math.round(runDelta * 100)}%)`, tone: runDelta > 0.02 ? 'warn' : runDelta < -0.02 ? 'ok' : undefined },
       { label: t('board.perf.output'), value: `${a.goodQty} / ${a.scrapQty}`, tone: a.scrapQty > 0 ? 'bad' : 'ok' },
     ]
   }
 
-  // Forward-looking prediction block for the selected op (phase 4, FS18) — a settled
-  // statement when this (resource, op) has a live cycle forecast.
-  const selPred = selectedOp
-    ? predictions.find((p) => p.resourceId === selectedOp.resourceId && p.routingOperationId === selectedOp.routingOperationId && p.param === 'cycle')
-    : undefined
-  const predictionText =
-    selPred && selPred.crossingAt
-      ? t('board.pred.panel', {
-          crossing: fmtTime(new Date(selPred.crossingAt).getTime()),
-          conf: Math.round(selPred.confidence * 100),
-          horizon: selPred.horizonMinutes >= 60 ? `${Math.round((selPred.horizonMinutes / 60) * 10) / 10}h` : `${selPred.horizonMinutes}m`,
-        })
-      : undefined
+  // A pointer to the line surface when the op's resource has a live forecast (the
+  // prediction itself lives on the resource panel, never the op panel).
+  const opResourceHasPrediction = selectedOp ? predictions.some((p) => p.resourceId === selectedOp.resourceId) : false
 
-  const detailPanel = selectedOp ? (
-    selectedLearned && selectedLearned.status === 'held' && selectedLearned.learnedValue != null ? (
-      <LearnedParamPanel
-        title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
-        subtitle={`op ${selectedOp.opSeq}`}
-        status={selectedOp.atRisk ? { label: t('atRisk'), tone: 'danger' } : undefined}
-        scheduleRows={scheduleRows}
-        metricLabel={t('learned.cycle')}
-        sourceText={t('source.ml_adjusted')}
-        standardText={`${selectedLearned.stdBaseline}m`}
-        learned={{
-          learnedText: `${selectedLearned.learnedValue.toFixed(2)}m`,
-          deltaText: `${selectedLearned.learnedValue >= selectedLearned.stdBaseline ? '+' : ''}${Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)}%`,
-          confidence: selectedLearned.confidence ?? 0,
-          basisText: t('learned.basis', { count: selectedLearned.sampleCount }),
-          settledText: t('learned.settled'),
-          trigger:
-            (selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline >= WEAR_PCT
-              ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resourceName.get(selectedOp.resourceId) ?? '' }) }
-              : undefined,
-        }}
-        performanceLabel={t('board.perf.title')}
-        performanceRows={perfRows}
-        performanceEmptyText={t('board.perf.empty')}
-        prediction={predictionText}
-      />
-    ) : (
-      <LearnedParamPanel
-        title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
-        subtitle={`op ${selectedOp.opSeq}`}
-        status={selectedOp.atRisk ? { label: t('atRisk'), tone: 'danger' } : undefined}
-        scheduleRows={scheduleRows}
-        metricLabel={t('learned.cycleStd')}
-        sourceText={t('source.standard')}
-        standardText={`${selectedOp.cycleTime}m`}
-        secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
-        standardNote={
-          selectedLearned && selectedLearned.sampleCount > 0
-            ? t('learned.accruing', { count: selectedLearned.sampleCount })
-            : t('learned.noAdjustment')
-        }
-        performanceLabel={t('board.perf.title')}
-        performanceRows={perfRows}
-        performanceEmptyText={t('board.perf.empty')}
-        prediction={predictionText}
-      />
-    )
+  const opPanel = selectedOp ? (
+    <LearnedParamPanel
+      title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
+      subtitle={`op ${selectedOp.opSeq}`}
+      status={selectedOp.atRisk ? { label: t('atRisk'), tone: 'danger' } : undefined}
+      scheduleRows={scheduleRows}
+      metricLabel={opProvenance === 'measured' ? t('learned.cycle') : t('learned.cycleStd')}
+      sourceText={opProvenance === 'measured' ? t('source.ml_adjusted') : t('source.standard')}
+      provenance={opProvenance}
+      standardText={`${r2(selectedOp.cycleTime)}m`}
+      secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
+      standardNote={selectedLearned && selectedLearned.sampleCount > 0 ? t('learned.accruing', { count: selectedLearned.sampleCount }) : t('learned.noAdjustment')}
+      measured={opMeasured}
+      performance={selectedOp.actual ? { label: t('board.perf.title'), rows: perfRows, emptyText: t('board.perf.empty') } : undefined}
+      wearPointer={
+        opResourceHasPrediction
+          ? {
+              label: t('board.pred.pointer', { resource: resourceName.get(selectedOp.resourceId) ?? '' }),
+              onPress: () => {
+                setSelectedResourceId(selectedOp.resourceId)
+                setSelectedBarId(null)
+              },
+            }
+          : undefined
+      }
+    />
   ) : null
+
+  // ===== Resource / line wear surface (click a lane) — RESOURCE-LEVEL ONLY =====
+  const resName = selectedResourceId ? (resourceName.get(selectedResourceId) ?? '') : ''
+  // The line's most relevant cycle forecast (earliest crossing).
+  const linePred = selectedResourceId
+    ? predictions
+        .filter((p) => p.resourceId === selectedResourceId && p.param === 'cycle' && p.crossingAt)
+        .sort((a, b) => new Date(a.crossingAt!).getTime() - new Date(b.crossingAt!).getTime())[0]
+    : undefined
+  // A held/predicted cycle materially above std on the line → the D56 wear signal.
+  const lineWear = selectedResourceId
+    ? learned.find((l) => l.resourceId === selectedResourceId && l.param === 'cycle' && l.learnedValue != null && (l.learnedValue - l.stdBaseline) / l.stdBaseline >= WEAR_PCT)
+    : undefined
+
+  let wearPrediction: WearPrediction | undefined
+  if (linePred) {
+    const lpStd = learnedCycleByKey.get(`${linePred.resourceId}:${linePred.routingOperationId}`)?.stdBaseline ?? linePred.threshold
+    const band = linePred.threshold - lpStd
+    const span = band > 0 ? band * 2 : 1
+    wearPrediction = {
+      statement: linePred.crossingAt
+        ? t('board.pred.horizon', { horizon: fmtH(linePred.horizonMinutes), time: fmtTime(new Date(linePred.crossingAt).getTime()) })
+        : t('board.pred.horizonNone'),
+      proximity: {
+        valueFrac: (linePred.predictedValue - lpStd) / span,
+        notchFrac: band / span,
+        caption: t('board.pred.trackCaption', { pct: Math.round((band / lpStd) * 100) }),
+      },
+      confidence: linePred.confidence,
+      confidenceLabel: t('board.pred.confidence'),
+      basisText: t('board.pred.basis', { count: linePred.sampleCount }),
+    }
+  }
+
+  const lineOpsN = selectedResourceId ? (detail?.operations ?? []).filter((o) => o.resourceId === selectedResourceId).length : 0
+  const resourcePanel = selectedResourceId ? (
+    <ResourceWearPanel
+      title={resName}
+      subtitle={t('board.pred.lineSubtitle')}
+      status={linePred || lineWear ? { label: t('board.pred.wearPill'), tone: 'warning' } : undefined}
+      warning={linePred || lineWear ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resName }) } : undefined}
+      prediction={wearPrediction}
+      consequence={
+        linePred || lineWear
+          ? {
+              maintenance: t('board.pred.maintenance'),
+              downstream: lineOpsN > 0 ? t('board.pred.downstream', { count: lineOpsN, resource: resName }) : t('board.pred.downstreamNone'),
+            }
+          : undefined
+      }
+      emptyText={t('board.pred.healthy')}
+    />
+  ) : null
+
+  const detailPanel = opPanel ?? resourcePanel
 
   return (
     <>
@@ -415,17 +455,31 @@ export function BoardContent() {
               ) : null}
             </YStack>
           )}
-          onBarSelect={setSelectedBarId}
+          onBarSelect={(id) => {
+            setSelectedBarId(id)
+            setSelectedResourceId(null)
+          }}
           selectedBarId={selectedBarId}
+          onResourceSelect={(id) => {
+            setSelectedResourceId(id)
+            setSelectedBarId(null)
+          }}
+          selectedResourceId={selectedResourceId}
           emptyText={t('board.noResources')}
         />
       ) : null}
 
-      {/* Click/tap detail — self-contained (identity + learned/std + performance).
-          Web: a persistent panel below the board (doesn't occlude the Gantt).
-          Native: a bottom sheet (BarDetailSheet) — no hover dependency anywhere. */}
-      {selectedOp ? (
-        <BarDetailSheet open onClose={() => setSelectedBarId(null)}>
+      {/* Click/tap detail — two surfaces (BAR-PANEL-FIX): the operation panel (a bar)
+          or the resource wear surface (a lane). Web: a persistent panel below the
+          board; native: a bottom sheet. */}
+      {detailPanel ? (
+        <BarDetailSheet
+          open
+          onClose={() => {
+            setSelectedBarId(null)
+            setSelectedResourceId(null)
+          }}
+        >
           {detailPanel}
         </BarDetailSheet>
       ) : null}

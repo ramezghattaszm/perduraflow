@@ -80,6 +80,11 @@ export interface ScheduleGanttProps {
   /** The currently selected bar (its detail panel/sheet is open) — drawn with a
    *  selected outline on both platforms. */
   selectedBarId?: string | null
+  /** Notified when a resource lane is selected (its id) or deselected (null) — drives
+   *  the resource/line wear surface (separate from the operation panel). */
+  onResourceSelect?: (resourceId: string | null) => void
+  /** The currently selected resource lane (its wear surface is open) — highlighted. */
+  selectedResourceId?: string | null
   emptyText?: string
 }
 
@@ -109,7 +114,7 @@ const DISPLAY_MIN_HOURS = 14
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, onBarSelect, selectedBarId, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
   // Hover preview only (web). The selected/open bar is owned by the parent
@@ -170,8 +175,20 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
           </P>
         </XStack>
         {resources.map((r) => (
-          <YStack key={r.id} height={LANE_H} justifyContent="center" paddingHorizontal="$3" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
-            <P size={3} weight="m" numberOfLines={1}>
+          <YStack
+            key={r.id}
+            height={LANE_H}
+            justifyContent="center"
+            paddingHorizontal="$3"
+            borderBottomWidth={1}
+            borderBottomColor="$borderColor"
+            gap="$1"
+            backgroundColor={selectedResourceId === r.id ? '$primarySoft' : undefined}
+            cursor={onResourceSelect ? 'pointer' : undefined}
+            hoverStyle={onResourceSelect ? { backgroundColor: selectedResourceId === r.id ? '$primarySoft' : '$hoverFill' } : undefined}
+            onPress={onResourceSelect ? () => onResourceSelect(selectedResourceId === r.id ? null : r.id) : undefined}
+          >
+            <P size={3} weight="m" numberOfLines={1} color={selectedResourceId === r.id ? '$primary' : '$textPrimary'}>
               {r.label}
             </P>
             {r.behind ? (

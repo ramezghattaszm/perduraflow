@@ -6,42 +6,48 @@ const meta: Meta<typeof LearnedParamPanel> = { title: 'Metrics/LearnedParamPanel
 export default meta
 type Story = StoryObj<typeof LearnedParamPanel>
 
-/** Learned (ml) state — the std→learned settled step + confidence + tool-wear trigger. */
-export const Learned: Story = {
+/** Measured (ml_adjusted) — the op's settled std→learned step + actuals + performance. */
+export const Measured: Story = {
   render: () => (
-    <YStack maxWidth={360}>
+    <YStack maxWidth={400}>
       <LearnedParamPanel
         title="FG-1003 · Press Line A"
-        subtitle="op 30 · stamping"
-        metricLabel="Learned cycle time"
+        subtitle="op 30"
+        provenance="measured"
+        metricLabel="Cycle time"
         sourceText="ml"
-        standardText="70m"
-        learned={{
-          learnedText: '76m',
+        measured={{
+          standardText: '0.70m',
+          learnedText: '0.76m',
           deltaText: '+8%',
-          confidence: 0.86,
-          basisText: 'Learned from 12 actuals.',
+          basisText: 'Learned from 12 actuals',
           settledText: 'settled — holding steady',
-          trigger: {
-            title: 'Tool-wear signal',
-            body: 'Cycle drift on Press Line A crossed threshold — flagged. Schedule re-sequenced to protect downstream.',
-          },
         }}
+        performance={{
+          label: 'Performance — planned vs actual',
+          rows: [
+            { label: 'Cycle / unit', value: '0.7 → 0.76 min', tone: 'warn' },
+            { label: 'Good / scrap', value: '68 / 2', tone: 'bad' },
+          ],
+          emptyText: 'No actuals yet.',
+        }}
+        wearPointer={{ label: 'Press Line A predicted wear — see line', onPress: () => {} }}
       />
     </YStack>
   ),
 }
 
-/** Standard (std) state — standard times + an explicit "no learned adjustment yet" note. */
+/** Standard (std) — standard times + an explicit "no learned adjustment yet" note. */
 export const Standard: Story = {
   render: () => (
-    <YStack maxWidth={360}>
+    <YStack maxWidth={400}>
       <LearnedParamPanel
         title="FG-1002 · Weld Cell 2"
-        subtitle="op 20 · welding"
+        subtitle="op 20"
+        provenance="standard"
         metricLabel="Cycle time"
         sourceText="std"
-        standardText="95m"
+        standardText="0.95m"
         secondary={{ label: 'Setup', value: '30m' }}
         standardNote="Running on standard times — not enough actuals to adopt a learned value."
       />

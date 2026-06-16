@@ -111,6 +111,8 @@ export interface ParameterPredictionDto {
   confidence: number
   /** Fit quality (R²) — the explainable basis (A19 hook). */
   fitR2: number
+  /** Number of actuals the trend was fitted over (the forecast basis). */
+  sampleCount: number
   proposedAction: ProposedAction
   actionTier: ActionTier
   disposition: PredictionDisposition
