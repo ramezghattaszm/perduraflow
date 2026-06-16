@@ -42,8 +42,8 @@ export function CoverageProposal({
 }: CoverageProposalProps) {
   return (
     <YStack backgroundColor="$surfaceRaised" borderWidth={1} borderColor="$warning" borderRadius="$4" padding="$3" gap="$2">
-      <P size={5} weight="b" color="$warning">
-        {heading.toUpperCase()}
+      <P size={5} weight="b" caps color="$warning">
+        {heading}
       </P>
       <P size={4} color="$textPrimary">
         {gapText}

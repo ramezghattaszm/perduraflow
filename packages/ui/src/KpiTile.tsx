@@ -47,8 +47,8 @@ export function KpiTile({ value, label, caption, trend, upIsGood = true }: KpiTi
           </P>
         ) : null}
       </XStack>
-      <P size={5} weight="b" color="$textSecondary">
-        {label.toUpperCase()}
+      <P size={5} weight="b" caps color="$textSecondary">
+        {label}
       </P>
       {caption ? (
         <P size={4} color="$textSecondary">

@@ -66,6 +66,8 @@ const palette = {
   mlSoftDark: 'rgba(124,92,255,0.16)',
   dangerSoftLight: 'rgba(220,38,38,0.12)', // cert-gap cell / behind-plan tint
   dangerSoftDark: 'rgba(248,113,113,0.16)',
+  successSoftLight: 'rgba(22,163,74,0.12)', // active/approved badge tint
+  successSoftDark: 'rgba(74,222,128,0.16)',
   warningSoftLight: 'rgba(217,119,6,0.14)', // tool-wear / caution tint
   warningSoftDark: 'rgba(245,180,84,0.16)',
   hoverFillLight: 'rgba(0,0,0,0.045)', // row / nav-item / icon-button hover
@@ -98,6 +100,7 @@ const lightColors = {
   mlSoft: palette.mlSoftLight,
   dangerSoft: palette.dangerSoftLight,
   warningSoft: palette.warningSoftLight,
+  successSoft: palette.successSoftLight,
 } as const
 
 const darkColors = {
@@ -125,6 +128,7 @@ const darkColors = {
   mlSoft: palette.mlSoftDark,
   dangerSoft: palette.dangerSoftDark,
   warningSoft: palette.warningSoftDark,
+  successSoft: palette.successSoftDark,
 } as const
 
 export const config = createTamagui({

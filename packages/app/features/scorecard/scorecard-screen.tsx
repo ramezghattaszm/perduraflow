@@ -1,10 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { AtRiskOrderDto } from '@perduraflow/contracts'
 import {
   ContextSelectors,
-  DataTable,
   KpiTile,
   KpiTileRow,
   MetricBars,
@@ -184,8 +182,8 @@ export function ScorecardContent() {
               overflow="hidden"
             >
               <YStack padding="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
-                <P size={5} weight="b" color="$textSecondary">
-                  {t('oee.title').toUpperCase()}
+                <P size={5} weight="b" caps color="$textSecondary">
+                  {t('oee.title')}
                 </P>
               </YStack>
               <YStack padding="$4" gap="$3">
@@ -230,52 +228,57 @@ export function ScorecardContent() {
               overflow="hidden"
             >
               <YStack padding="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
-                <P size={5} weight="b" color="$textSecondary">
-                  {t('atRisk.title').toUpperCase()}
+                <P size={5} weight="b" caps color="$textSecondary">
+                  {t('atRisk.title')}
                 </P>
               </YStack>
-              <YStack padding="$2">
-                <DataTable<AtRiskOrderDto & { id: string }>
-                  rows={sc.atRisk.map((a) => ({ ...a, id: a.demandLineId }))}
-                  emptyTitle={t('atRisk.empty')}
-                  stackOnSmall
-                  onRowPress={(a) => setResourceId(a.resourceId)}
-                  columns={[
-                    {
-                      key: 'label',
-                      label: t('atRisk.orderCol'),
-                      flex: 2,
-                      render: (a) => (
-                        <YStack>
-                          <P size={3} color="$textPrimary">
-                            {a.label}
-                          </P>
-                          <P size={4} color="$textSecondary">
-                            {a.detail}
-                          </P>
-                        </YStack>
-                      ),
-                    },
-                    {
-                      key: 'reason',
-                      label: t('atRisk.reasonCol'),
-                      render: (a) => (
-                        <XStack
-                          alignSelf="flex-start"
-                          backgroundColor="$dangerSoft"
-                          borderRadius="$2"
-                          paddingHorizontal="$2"
-                          paddingVertical="$0.5"
-                        >
-                          <P size={5} weight="b" color="$danger">
-                            {a.reason}
-                          </P>
-                        </XStack>
-                      ),
-                    },
-                  ]}
-                />
-              </YStack>
+              {/* Plain divided list (not a DataTable): no column header, card
+                  background, a divider between orders, no hover. Each row still
+                  drills to its line on press (Item 4). */}
+              {sc.atRisk.length === 0 ? (
+                <YStack padding="$4">
+                  <P size={3} color="$textSecondary">
+                    {t('atRisk.empty')}
+                  </P>
+                </YStack>
+              ) : (
+                <YStack>
+                  {sc.atRisk.map((a, i) => (
+                    <XStack
+                      key={a.demandLineId}
+                      gap="$3"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      paddingVertical="$3"
+                      paddingHorizontal="$4"
+                      borderTopWidth={i === 0 ? 0 : 1}
+                      borderTopColor="$borderColor"
+                      cursor="pointer"
+                      onPress={() => setResourceId(a.resourceId)}
+                    >
+                      <YStack flex={1}>
+                        <P size={3} color="$textPrimary">
+                          {a.label}
+                        </P>
+                        <P size={4} color="$textSecondary">
+                          {a.detail}
+                        </P>
+                      </YStack>
+                      <XStack
+                        alignSelf="flex-start"
+                        backgroundColor="$dangerSoft"
+                        borderRadius="$2"
+                        paddingHorizontal="$2"
+                        paddingVertical="$0.5"
+                      >
+                        <P size={5} weight="b" color="$danger">
+                          {a.reason}
+                        </P>
+                      </XStack>
+                    </XStack>
+                  ))}
+                </YStack>
+              )}
             </YStack>
           </XStack>
         </>

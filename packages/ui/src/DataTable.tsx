@@ -20,6 +20,10 @@ export interface Column<T> {
   render?: (row: T) => ReactNode
   width?: number
   flex?: number
+  /** The primary identifier column (order no / name / part no): its default-rendered
+   *  cells are weight 500 so the eye scans the key column down the rows (UI §4
+   *  read/scan/glance). Defaults to the first column; set `false` to opt out. */
+  primary?: boolean
   /** Allow clicking this column's header to sort by it. */
   sortable?: boolean
   /** Value to sort by when `sortable` (defaults to `row[key]`). Use when the
@@ -148,8 +152,8 @@ export function DataTable<T extends { id: string }>({
                 : String((row as Record<string, unknown>)[c.key] ?? '—')
               return (
                 <XStack key={c.key} justifyContent="space-between" gap="$3" alignItems="center">
-                  <P size={5} weight="b" color="$textSecondary">
-                    {c.label.toUpperCase()}
+                  <P size={5} weight="b" caps color="$textSecondary">
+                    {c.label}
                   </P>
                   {typeof content === 'string' || typeof content === 'number' ? (
                     <P size={3} color="$textPrimary" style={{ textAlign: 'right' }}>
@@ -198,8 +202,8 @@ export function DataTable<T extends { id: string }>({
                 hoverStyle={c.sortable ? { opacity: 0.7 } : undefined}
                 onPress={c.sortable ? () => toggleSort(c.key) : undefined}
               >
-                <P size={4} weight="b" color={active ? '$primary' : '$textSecondary'}>
-                  {c.label.toUpperCase()}
+                <P size={5} weight="b" caps color={active ? '$primary' : '$textSecondary'}>
+                  {c.label}
                   {indicator}
                 </P>
               </XStack>
@@ -223,6 +227,8 @@ export function DataTable<T extends { id: string }>({
               const content: ReactNode = c.render
                 ? c.render(row)
                 : String((row as Record<string, unknown>)[c.key] ?? '—')
+              // Primary identifier column (default: first) reads at weight 500.
+              const isPrimary = c.primary ?? i === 0
               return (
                 <YStack
                   key={c.key}
@@ -232,7 +238,7 @@ export function DataTable<T extends { id: string }>({
                 >
                   {/* Wrap raw text so a string-returning `render` never lands directly in a View. */}
                   {typeof content === 'string' || typeof content === 'number' ? (
-                    <P size={3} color="$textPrimary">
+                    <P size={3} weight={isPrimary ? 'm' : 'r'} color="$textPrimary">
                       {content}
                     </P>
                   ) : (

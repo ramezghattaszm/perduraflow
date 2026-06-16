@@ -72,8 +72,8 @@ export function LearnedParamPanel({
       </YStack>
       <YStack padding="$4" gap="$3">
         <XStack alignItems="center" justifyContent="space-between" gap="$2">
-          <P size={5} weight="b" color="$textSecondary">
-            {metricLabel.toUpperCase()}
+          <P size={5} weight="b" caps color="$textSecondary">
+            {metricLabel}
           </P>
           <XStack
             backgroundColor={isLearned ? '$mlSoft' : '$surfaceRaised'}

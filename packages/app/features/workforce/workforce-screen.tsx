@@ -79,8 +79,8 @@ export function WorkforceContent() {
 
           <YStack flexGrow={1} flexBasis={300} minWidth={260} gap="$3">
             <YStack>
-              <P size={5} weight="b" color="$textSecondary">
-                {t('readiness.title').toUpperCase()}
+              <P size={5} weight="b" caps color="$textSecondary">
+                {t('readiness.title')}
               </P>
               <H level={1} color={cov.certGapCount > 0 ? '$warning' : '$success'}>
                 {Math.round(cov.readinessPct * 100)}%

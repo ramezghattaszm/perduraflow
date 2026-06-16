@@ -383,6 +383,42 @@ export const H = styled(Text, {
 > not the typography scale — they pass numeric sizes directly and are exempt from "no raw px". All
 > *prose* text goes through `H`/`P`.
 
+### Read / scan / glance — which size for which job
+
+Pick the body size by the verb the user is doing:
+
+| size | verb | where |
+|---|---|---|
+| **16** (`size={2}`) | **read** | prose, form inputs + values, primary list/menu items, default UI text — the most common size app-wide, **but not in dense tables** |
+| **14** (`size={3}`) | **scan** | table data cells, secondary text, dense lists |
+| **11** (`size={5}`) | **glance** | table headers, captions, badges, meta labels |
+
+**Caps:** uppercase is used **only at 11px** and is **always letter-spaced** — both come from the
+`caps` variant on `P` (`<P size={5} weight="b" caps>` → uppercase + ~0.05em tracking). Never set
+`textTransform`/`toUpperCase()` inline, and never caps at 14px+ (reads as shouting).
+
+### Data tables (`DataTable`, and any bespoke table e.g. `QualificationMatrix`)
+
+- **Column headers** — 11 (`size={5}`) · weight 600 · `caps` (uppercase + tracking) · muted
+  (`$textSecondary`). Headers are scaffolding: small and quiet, they recede behind the data.
+  **A header is never larger than its column's data** (inverted hierarchy is a bug).
+- **Data cells** — 14 (`size={3}`) · normal case · `$textPrimary` for primary, `$textSecondary` for
+  secondary/meta. Weight 400, **except the primary identifier column** (order no / name / part no) at
+  **500** so the eye scans the key column down the rows. `DataTable` defaults the **first column** to
+  primary; opt out with `primary={false}`.
+
+### Badges / status pills (`StatusPill`)
+
+- 11 (`size={5}`) · weight 600.
+- **Semantic tint, never a full-saturation fill** — coloured text on a soft tinted background
+  (`$success` on `$successSoft`, `$primary` on `$primarySoft`, `$danger` on `$dangerSoft`, …). Pill
+  radius, padding ~2–3px vertical / ~8–10px horizontal.
+- Case: **sentence case** for words ("Late", "Approved"); ALL-CAPS only for very short codes
+  ("OUT", "T1") — the component renders the label verbatim, so the caller passes the right case.
+
+**Visual-weight order in a row, loudest → quietest:** primary cell (14 / 500 / ink) → secondary cell
+(14 / 400) → header (11 / 600 / caps-tracked / muted) → badge (11 / 600 / semantic tint).
+
 ---
 
 ## 5. Component Architecture (Tamagui)

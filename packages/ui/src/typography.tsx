@@ -49,6 +49,13 @@ const weight = {
   h: { fontWeight: '700' },
 } as const
 
+// `caps` bundles UPPERCASE with positive tracking (~0.05em at 11px). The two
+// always travel together (UI §4 lock: caps are always letter-spaced, and only
+// used at the micro 11px size — table headers, badge codes, meta labels).
+const caps = {
+  true: { textTransform: 'uppercase', letterSpacing: 0.5 },
+} as const
+
 /**
  * Heading text. `level` (`display` | 1–4) sets size + line-height (the large end
  * shrinks on small screens — one responsive scale); `weight` (r/m/b/h) overrides
@@ -78,6 +85,7 @@ export const H = styled(Text, {
  * @example
  * <P>Body copy.</P>
  * <P size={5} weight="b" color="$primary">Dense label</P>
+ * <P size={5} weight="b" caps color="$textSecondary">Column header</P>
  */
 export const P = styled(Text, {
   name: 'P',
@@ -86,6 +94,7 @@ export const P = styled(Text, {
   variants: {
     size: BODY,
     weight,
+    caps,
   } as const,
   defaultVariants: { size: 2, weight: 'r' },
 })
