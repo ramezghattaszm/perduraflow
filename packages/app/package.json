@@ -12,6 +12,7 @@
   "dependencies": {
     "@perduraflow/contracts": "0.0.1",
     "@perduraflow/ui": "0.0.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^6.1.17",
     "@tamagui/animations-react-native": "2.0.0-rc.16",
     "@tamagui/colors": "2.0.0-rc.16",
