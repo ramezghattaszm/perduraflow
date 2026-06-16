@@ -822,9 +822,12 @@ All through the coordinator; no cross-module **write** (O8) — scheduling only 
 
 ---
 
-# Phase 4 — Parameter prediction (anticipatory, confidence-gated, tier-bounded) (DRAFT — pending sign-off)
+# Phase 4 — Parameter prediction (anticipatory, confidence-gated, tier-bounded) (BUILT — gates green; 7 API proofs)
 
-> **STATUS: DRAFT for `docs/CLAUDE-CODE-BRIEF-PHASE-4.md` §4 step 1. Nothing implemented yet.**
+> **STATUS: BUILT** (migration `0006`; predictor + confidence×tier gate in `learning`, new `policy` module;
+> `bun run check` + `next build` + expo tsc green; the seven §6 proofs demonstrated via the real API path —
+> predict-from-drift, gate auto/propose + tier-3 bound, reversible, transparent, determinism, horizon-decay,
+> boundary). AS19–AS22 implemented as proposed.
 > **A18 governs** — this operationalizes the **predictive** case of the trust envelope: every prediction is
 > **reproducible** (D2; OLS on the seeded actuals series), **explainable** (the fitted window + slope + R²
 > are the retrievable basis, A19 hook), and **bounded** (confidence×tier gate; D44 stability; reversible by

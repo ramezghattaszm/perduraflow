@@ -421,9 +421,11 @@ toast); extend `errors.json` with api-spec §12.11 codes. **No hardcoded user-fa
 
 ---
 
-# Phase 4 — Parameter prediction: Exception Queue + Objective Policy (DRAFT — pending sign-off)
+# Phase 4 — Parameter prediction: Exception Queue + Objective Policy (BUILT — gates green; web-verified)
 
-> **STATUS: DRAFT for `docs/CLAUDE-CODE-BRIEF-PHASE-4.md` §4 step 1. Nothing implemented yet.** Phase 4 lights
+> **STATUS: BUILT** (`next build` + expo tsc green; web-verified both themes — Exception Queue auto-handled +
+> needs-you, Objective Policy threshold round-trip, board prediction block + lane flag). FS16–FS19 as proposed.
+> _(superseded draft note:)_ Phase 4 lights
 > up **View 4 · Exception Queue** (the *autonomy-demonstrated* screen) and the autonomy half of **View 5 ·
 > Objective Policy** (the confidence threshold + tier config), and adds a **forward-looking predicted-crossing
 > flag** to the board. **All numbers compute from rows** (predictions/confidence/horizon from `learning.read

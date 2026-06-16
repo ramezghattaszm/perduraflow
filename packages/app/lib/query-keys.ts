@@ -32,8 +32,12 @@ export const QUERY_KEYS = {
   },
   learning: {
     parameters: () => ['learning', 'parameters'] as const,
+    predictions: () => ['learning', 'predictions'] as const,
   },
   workforce: {
     coverage: (plantId: string) => ['workforce', 'coverage', plantId] as const,
+  },
+  policy: {
+    autonomy: () => ['policy', 'autonomy'] as const,
   },
 }

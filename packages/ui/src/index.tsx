@@ -44,6 +44,7 @@ export * from './VarianceStrip'
 export * from './LearnedParamPanel'
 export * from './CoverageProposal'
 export * from './BarDetailSheet'
+export * from './ExceptionRow'
 export * from './Panel'
 export * from './ContextSelectors'
 

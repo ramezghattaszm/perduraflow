@@ -46,6 +46,9 @@ export interface LearnedParamPanelProps {
   performanceRows?: { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }[]
   /** Shown in the performance section when the version has no actuals for this op. */
   performanceEmptyText?: string
+  /** Forward-looking prediction statement (phase 4) — e.g. "Predicted to cross
+   *  ~14:00 · conf 0.8 · 2h"; rendered as a settled warning block (FS18). */
+  prediction?: string
 }
 
 const PERF_TONE = { ok: '$success', warn: '$warning', bad: '$danger' } as const
@@ -75,6 +78,7 @@ export function LearnedParamPanel({
   performanceLabel,
   performanceRows,
   performanceEmptyText,
+  prediction,
 }: LearnedParamPanelProps) {
   const isLearned = Boolean(learned)
   return (
@@ -109,6 +113,13 @@ export function LearnedParamPanel({
         ) : null}
       </YStack>
       <YStack padding="$4" gap="$3">
+        {prediction ? (
+          <YStack backgroundColor="$warningSoft" borderRadius="$4" padding="$3" gap="$1">
+            <P size={3} color="$textPrimary">
+              {prediction}
+            </P>
+          </YStack>
+        ) : null}
         <XStack alignItems="center" justifyContent="space-between" gap="$2">
           <P size={5} weight="b" caps color="$textTertiary">
             {metricLabel}

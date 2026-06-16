@@ -28,7 +28,7 @@ import {
   useScheduleVersions,
   useSolveSchedule,
 } from '../../../hooks/useScheduling'
-import { useLearnedParameters, useVariance } from '../../../hooks/useLearning'
+import { useLearnedParameters, usePredictions, useVariance } from '../../../hooks/useLearning'
 import { useToast } from '../../../hooks/useToast'
 import { AdminShell } from '../../shell/admin-shell'
 
@@ -55,6 +55,7 @@ export function BoardContent() {
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
   const { data: variance } = useVariance(versionId ?? undefined)
   const { data: learned = [] } = useLearnedParameters()
+  const { data: predictions = [] } = usePredictions()
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
@@ -126,12 +127,21 @@ export function BoardContent() {
       .filter((r) => r.behindPlanPct >= BEHIND_PCT)
       .map((r) => [r.resourceId, t('variance.behindPlan', { pct: Math.round(r.behindPlanPct * 100) })]),
   )
+  // Forward-looking lane flag (phase 4, FS18): a live predicted threshold-crossing on
+  // the resource → a calm settled "predicted wear ~HH:MM" chip (when not already behind).
+  const predByResource = new Map<string, string>()
+  for (const p of predictions) {
+    if (p.crossingAt && !predByResource.has(p.resourceId)) {
+      predByResource.set(p.resourceId, t('board.predictedWear', { time: fmtTime(new Date(p.crossingAt).getTime()) }))
+    }
+  }
   // Lane sub-label: don't echo the raw resource_type enum ("Line"); the behind chip
-  // (when present) is the meaningful secondary, else just the resource name.
+  // (when present) is the meaningful secondary, else the predicted flag, else the name.
   const ganttResources = resources.map((r) => ({
     id: r.id,
     label: r.name,
     behind: behindByResource.get(r.id),
+    predicted: predByResource.get(r.id),
   }))
   const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
 
@@ -241,6 +251,20 @@ export function BoardContent() {
     ]
   }
 
+  // Forward-looking prediction block for the selected op (phase 4, FS18) — a settled
+  // statement when this (resource, op) has a live cycle forecast.
+  const selPred = selectedOp
+    ? predictions.find((p) => p.resourceId === selectedOp.resourceId && p.routingOperationId === selectedOp.routingOperationId && p.param === 'cycle')
+    : undefined
+  const predictionText =
+    selPred && selPred.crossingAt
+      ? t('board.pred.panel', {
+          crossing: fmtTime(new Date(selPred.crossingAt).getTime()),
+          conf: Math.round(selPred.confidence * 100),
+          horizon: selPred.horizonMinutes >= 60 ? `${Math.round((selPred.horizonMinutes / 60) * 10) / 10}h` : `${selPred.horizonMinutes}m`,
+        })
+      : undefined
+
   const detailPanel = selectedOp ? (
     selectedLearned && selectedLearned.status === 'held' && selectedLearned.learnedValue != null ? (
       <LearnedParamPanel
@@ -265,6 +289,7 @@ export function BoardContent() {
         performanceLabel={t('board.perf.title')}
         performanceRows={perfRows}
         performanceEmptyText={t('board.perf.empty')}
+        prediction={predictionText}
       />
     ) : (
       <LearnedParamPanel
@@ -284,6 +309,7 @@ export function BoardContent() {
         performanceLabel={t('board.perf.title')}
         performanceRows={perfRows}
         performanceEmptyText={t('board.perf.empty')}
+        prediction={predictionText}
       />
     )
   ) : null

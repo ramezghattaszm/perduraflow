@@ -31,6 +31,9 @@ export interface GanttResource {
   subLabel?: string
   /** Calm settled signal under the lane name, e.g. "11% behind plan" (BOARD-SIGNALS item 2). */
   behind?: string
+  /** Forward-looking settled flag, e.g. "predicted wear ~14:00" (phase 4, FS18) — a
+   *  statement, not a live gauge. Shown when there's no `behind` signal. */
+  predicted?: string
 }
 
 /**
@@ -175,6 +178,12 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
               <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
                 <P size={5} weight="b" color="$danger" numberOfLines={1}>
                   {r.behind}
+                </P>
+              </XStack>
+            ) : r.predicted ? (
+              <XStack alignSelf="flex-start" backgroundColor="$warningSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
+                <P size={5} weight="b" color="$warning" numberOfLines={1}>
+                  {r.predicted}
                 </P>
               </XStack>
             ) : r.subLabel ? (

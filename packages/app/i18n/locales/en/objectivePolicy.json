@@ -1,0 +1,25 @@
+{
+  "title": "Objective policy",
+  "subtitle": "How much the system decides on its own — the autonomy boundary.",
+  "autonomy": { "title": "Autonomy" },
+  "tier1": {
+    "label": "Tier-1 auto-commit confidence (%)",
+    "read": "Auto-apply predicted parameter changes at ≥ {{pct}}% confidence; below, queue for review.",
+    "invalid": "Enter a value between 0 and 100."
+  },
+  "tier2": {
+    "label": "Tier 2 — soft policies",
+    "advisoryRead": "Advisory-first: proposes adjustments for a human to accept.",
+    "boundedRead": "Bounded auto: high-confidence changes apply within configured bounds (still audited)."
+  },
+  "tier3": {
+    "label": "Tier 3 — hard / commercial / safety",
+    "read": "Always human, regardless of confidence — the trust-envelope floor.",
+    "locked": "Locked"
+  },
+  "save": "Save",
+  "objectives": {
+    "title": "Objective weights & priority",
+    "seam": "Service floor · max OT · churn tolerance · expedite premium, and customer priority tiers — Phase 5."
+  }
+}

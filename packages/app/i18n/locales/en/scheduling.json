@@ -32,6 +32,10 @@
       "run": "Run",
       "output": "Good / scrap",
       "empty": "No actuals yet — recorded after this version runs."
+    },
+    "predictedWear": "predicted wear ~{{time}}",
+    "pred": {
+      "panel": "Predicted to cross threshold ~{{crossing}} · confidence {{conf}}% · {{horizon}} horizon"
     }
   },
   "legend": {

@@ -1,6 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
+  AutonomyConfigDto,
+  AutonomyConfigUpdate,
   LearnedParameterDto,
+  ParameterPredictionDto,
   PerformanceVarianceDto,
   ScorecardDto,
   SimulateActualsRequest,
@@ -12,6 +15,7 @@ import { QUERY_KEYS } from '../lib/query-keys'
 
 const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
 const post = <T, B>(url: string, body: B) => apiClient.post<T>(url, body).then((r) => r.data)
+const put = <T, B>(url: string, body: B) => apiClient.put<T>(url, body).then((r) => r.data)
 
 /** All learned parameter overlays for the tenant (board panel + ml bars + wear flag). */
 export function useLearnedParameters() {
@@ -70,6 +74,57 @@ export function useSimulateActuals() {
     mutationFn: (req: SimulateActualsRequest) => post<{ emitted: number }, SimulateActualsRequest>('/dev/scheduling/simulate', req),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.parameters() })
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.predictions() })
+    },
+  })
+}
+
+// --- phase 4: predictions + autonomy policy ----------------------------------
+
+/** Live parameter forecasts + dispositions (Exception Queue + board flags, View 4). */
+export function usePredictions() {
+  return useQuery({
+    queryKey: QUERY_KEYS.learning.predictions(),
+    queryFn: () => get<ParameterPredictionDto[]>('/learning/predictions'),
+  })
+}
+
+const invalidatePredictions = () => {
+  void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.predictions() })
+  void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.parameters() })
+}
+
+/** Human-approve a queued prediction (applies the pre-adjust; ConfigureGuard). */
+export function useApprovePrediction() {
+  return useMutation({
+    mutationFn: (id: string) => post<{ ok: boolean }, undefined>(`/learning/predictions/${id}/approve`, undefined),
+    onSuccess: invalidatePredictions,
+  })
+}
+
+/** Human-dismiss a queued prediction (no action taken; ConfigureGuard). */
+export function useDismissPrediction() {
+  return useMutation({
+    mutationFn: (id: string) => post<{ ok: boolean }, undefined>(`/learning/predictions/${id}/dismiss`, undefined),
+    onSuccess: invalidatePredictions,
+  })
+}
+
+/** The tenant's autonomy config — the confidence threshold + tier modes (View 5). */
+export function useAutonomyConfig() {
+  return useQuery({
+    queryKey: QUERY_KEYS.policy.autonomy(),
+    queryFn: () => get<AutonomyConfigDto>('/policy/autonomy'),
+  })
+}
+
+/** Set the autonomy config (ConfigureGuard, D42 audited). */
+export function useUpdateAutonomyConfig() {
+  return useMutation({
+    mutationFn: (body: AutonomyConfigUpdate) => put<AutonomyConfigDto, AutonomyConfigUpdate>('/policy/autonomy', body),
+    onSuccess: (data) => {
+      queryClient.setQueryData(QUERY_KEYS.policy.autonomy(), data)
+      invalidatePredictions()
     },
   })
 }

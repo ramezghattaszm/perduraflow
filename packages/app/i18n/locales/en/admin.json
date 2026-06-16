@@ -16,8 +16,10 @@
     "operators": "Operators",
     "qualifications": "Qualifications",
     "board": "Board",
+    "exceptions": "Exception queue",
     "scorecard": "Scorecard",
     "workforce": "Workforce",
+    "objectivePolicy": "Objective policy",
     "section": "Administration",
     "sections": {
       "operations": "Operations",

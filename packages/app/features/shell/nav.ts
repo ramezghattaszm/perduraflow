@@ -13,9 +13,11 @@ import {
   Handshake,
   Layers,
   LayoutDashboard,
+  ListChecks,
   Network,
   Package,
   ShieldCheck,
+  SlidersHorizontal,
   UserCheck,
   Users,
   Workflow,
@@ -53,8 +55,10 @@ export const OPERATIONAL_NAV: NavConfigSection[] = [
     sectionLabelKey: 'nav.sections.scheduling',
     items: [
       { id: 'board', labelKey: 'nav.board', path: '/scheduling/board', icon: CalendarClock },
+      { id: 'exceptions', labelKey: 'nav.exceptions', path: '/scheduling/exceptions', icon: ListChecks },
       { id: 'scorecard', labelKey: 'nav.scorecard', path: '/scorecard', icon: Gauge },
       { id: 'workforce', labelKey: 'nav.workforce', path: '/workforce', icon: UserCheck },
+      { id: 'objective-policy', labelKey: 'nav.objectivePolicy', path: '/objective-policy', icon: SlidersHorizontal },
     ],
   },
 ]

@@ -1,0 +1,20 @@
+{
+  "title": "Exception queue",
+  "subtitle": "What needs you — and what the system already handled.",
+  "plant": "Plant",
+  "needYou": "Need you",
+  "needYouCaption": "awaiting a human decision",
+  "autoHandled": "Auto-handled",
+  "autoHandledCaption": "acted within the confidence×tier gate",
+  "needYouEmpty": "Nothing needs you right now.",
+  "autoHandledEmpty": "Nothing auto-handled yet.",
+  "approve": "Approve",
+  "dismiss": "Dismiss",
+  "autoBadge": "Auto",
+  "param": { "cycle": "cycle", "setup": "setup" },
+  "tier": { "t1": "Tier 1", "t2": "Tier 2", "t3": "Tier 3" },
+  "pred": {
+    "statement": "Predicted to cross threshold ~{{crossing}} · confidence {{conf}}% · {{horizon}} horizon",
+    "autoStatement": "Pre-emptively adjusted for predicted wear · cross ~{{crossing}} · confidence {{conf}}% · {{horizon}} horizon"
+  }
+}
