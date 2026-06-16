@@ -10,10 +10,10 @@ type Story = StoryObj<typeof TextLink>
 export const Inline: Story = {
   render: () => (
     <XStack gap="$2" alignItems="center">
-      <P size={4} color="$textSecondary">
+      <P size={3} color="$textSecondary">
         Don't have an account?
       </P>
-      <TextLink size={4} weight="b" onPress={() => {}}>
+      <TextLink size={3} weight="b" onPress={() => {}}>
         Sign up
       </TextLink>
     </XStack>
@@ -22,7 +22,7 @@ export const Inline: Story = {
 
 export const Standalone: Story = {
   render: () => (
-    <TextLink size={4} weight="m" onPress={() => {}}>
+    <TextLink size={3} weight="m" onPress={() => {}}>
       Forgot password?
     </TextLink>
   ),

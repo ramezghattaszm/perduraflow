@@ -22,7 +22,7 @@ export function OnboardingScreen() {
     <Screen justifyContent="center">
       <YStack gap="$6" width="100%" maxWidth={460} alignSelf="center" flex={1} justifyContent="center">
         <YStack gap="$3">
-          <H level={0}>{slide.title}</H>
+          <H level="display">{slide.title}</H>
           <P size={2} color="$textSecondary">
             {slide.body}
           </P>

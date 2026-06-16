@@ -234,7 +234,7 @@ export function BoardContent() {
       />
 
       {errorMsg ? (
-        <P size={4} color="$danger">
+        <P size={3} color="$danger">
           {errorMsg}
         </P>
       ) : null}
@@ -251,7 +251,7 @@ export function BoardContent() {
           paddingVertical="$2.5"
         >
           <TriangleAlert size={16} color="$warning" />
-          <P size={5} color="$textPrimary">
+          <P size={4} color="$textPrimary">
             {t('board.stale.banner')}
           </P>
         </XStack>
@@ -262,7 +262,7 @@ export function BoardContent() {
           <StatusPill tone={detail.version.status === 'committed' ? 'active' : detail.version.status === 'draft' ? 'neutral' : 'inactive'}>
             {t(`status.${detail.version.status}`)}
           </StatusPill>
-          <P size={5} color="$textSecondary">
+          <P size={4} color="$textSecondary">
             {t('board.run.status')}: {t(`runStatus.${detail.run.status}`)} · {t('board.run.ops')}: {detail.operations.length} ·{' '}
             {t('board.run.demand')}: {detail.run.inputDemandCount}
           </P>
@@ -274,7 +274,7 @@ export function BoardContent() {
       {detail ? <GanttLegend /> : null}
 
       {versions.length === 0 ? (
-        <P size={4} color="$textSecondary">
+        <P size={3} color="$textSecondary">
           {t('board.empty')}
         </P>
       ) : detail ? (
@@ -285,7 +285,7 @@ export function BoardContent() {
           horizonEndMs={new Date(detail.version.horizonEnd).getTime()}
           barDetail={(bar) => (
             <YStack gap="$2" minWidth={210}>
-              <P size={4} weight="b" color="$textPrimary">
+              <P size={3} weight="b" color="$textPrimary">
                 {bar.label}
               </P>
               <DetailRow label={t('board.tooltip.resource')} value={resourceName.get(bar.resourceId) ?? '—'} />
@@ -295,7 +295,7 @@ export function BoardContent() {
               <DetailRow label={t('board.tooltip.run')} value={`${Math.round(bar.runMin)} min`} />
               <DetailRow label={t('board.tooltip.source')} value={bar.sourceTag} />
               {bar.atRisk ? (
-                <P size={5} weight="b" color="$danger">
+                <P size={4} weight="b" color="$danger">
                   {t('atRisk')}
                 </P>
               ) : null}
@@ -352,10 +352,10 @@ export function BoardContent() {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <XStack justifyContent="space-between" gap="$4">
-      <P size={4} color="$textSecondary">
+      <P size={3} color="$textSecondary">
         {label}
       </P>
-      <P size={4} weight="m" color="$textPrimary">
+      <P size={3} weight="m" color="$textPrimary">
         {value}
       </P>
     </XStack>
@@ -374,7 +374,7 @@ function GanttLegend() {
   const Entry = ({ swatch, label }: { swatch: ReactNode; label: string }) => (
     <XStack alignItems="center" gap="$2">
       {swatch}
-      <P size={6} color="$textSecondary">
+      <P size={4} color="$textSecondary">
         {label}
       </P>
     </XStack>
@@ -396,7 +396,7 @@ function GanttLegend() {
         swatch={<YStack width={22} height={12} borderRadius="$2" backgroundColor="$primary" borderWidth={2} borderColor="$danger" />}
         label={t('legend.atRisk')}
       />
-      <P size={7} color="$textSecondary">
+      <P size={5} color="$textSecondary">
         {t('legend.sourceNote')}
       </P>
     </XStack>

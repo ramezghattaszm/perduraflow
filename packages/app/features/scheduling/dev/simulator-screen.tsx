@@ -71,7 +71,7 @@ export function SimulatorContent() {
           <AppButton variant={driftOn ? 'primary' : 'light'} size="$3" onPress={() => setDriftOn((d) => !d)}>
             {t('simulator.drift')}
           </AppButton>
-          <P size={6} color="$textSecondary">
+          <P size={4} color="$textSecondary">
             {driftOn ? '' : 'off'}
           </P>
         </XStack>
@@ -92,7 +92,7 @@ export function SimulatorContent() {
           </AppButton>
         </XStack>
         {simulate.data ? (
-          <P size={5} color="$success">
+          <P size={4} color="$success">
             {t('simulator.emitted', { count: simulate.data.emitted })}
           </P>
         ) : null}

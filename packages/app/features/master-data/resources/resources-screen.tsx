@@ -133,7 +133,7 @@ export function ResourcesScreen() {
             key: 'plantId',
             label: t('resources.fields.plantId'),
             flex: 2,
-            render: (r) => <P size={4}>{plantName.get(r.plantId) ?? '—'}</P>,
+            render: (r) => <P size={3}>{plantName.get(r.plantId) ?? '—'}</P>,
           },
           {
             key: 'status',

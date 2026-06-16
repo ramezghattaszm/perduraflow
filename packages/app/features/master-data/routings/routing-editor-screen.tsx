@@ -86,7 +86,7 @@ export function RoutingEditorScreen() {
 
   return (
     <AdminShell activeId="routings" maxWidth="large">
-      <TextLink size={4} weight="m" onPress={() => router.push('/admin/master-data/routings')}>
+      <TextLink size={3} weight="m" onPress={() => router.push('/admin/master-data/routings')}>
         ← {t('routings.back')}
       </TextLink>
       {isLoading || !routing ? (
@@ -107,7 +107,7 @@ export function RoutingEditorScreen() {
             }
           />
           {formError ? (
-            <P size={4} color="$danger">
+            <P size={3} color="$danger">
               {formError}
             </P>
           ) : null}
@@ -119,7 +119,7 @@ export function RoutingEditorScreen() {
             padding="$4"
             gap="$3"
           >
-            <H level={5}>{t('routings.title')}</H>
+            <H level={4}>{t('routings.title')}</H>
             <AppInput label={t('routings.fields.name')} value={name} onChangeText={setName} />
             <FormField label={t('routings.fields.isPrimary')}>
               <AppSwitch checked={isPrimary} onCheckedChange={setIsPrimary} />

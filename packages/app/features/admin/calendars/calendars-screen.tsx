@@ -126,7 +126,7 @@ export function CalendarsScreen() {
             label: t('calendars.fields.plantId'),
             flex: 2,
             render: (c) => (
-              <P size={4}>{c.plantId ? (plantName.get(c.plantId) ?? '—') : t('common.none')}</P>
+              <P size={3}>{c.plantId ? (plantName.get(c.plantId) ?? '—') : t('common.none')}</P>
             ),
           },
           {

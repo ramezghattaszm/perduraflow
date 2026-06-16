@@ -40,7 +40,7 @@ export type StatusTone = 'active' | 'inactive' | 'neutral'
 export function StatusPill({ tone = 'neutral', children }: { tone?: StatusTone; children: string }) {
   return (
     <PillFrame tone={tone}>
-      <P size={6} weight="m" color={TEXT_COLOR[tone]}>
+      <P size={4} weight="m" color={TEXT_COLOR[tone]}>
         {children}
       </P>
     </PillFrame>

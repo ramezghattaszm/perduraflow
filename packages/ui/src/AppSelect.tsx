@@ -69,7 +69,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…' 
         role="button"
         aria-label={selected?.label ?? placeholder}
       >
-        <P size={4} color={selected ? '$textPrimary' : '$textSecondary'} numberOfLines={1}>
+        <P size={3} color={selected ? '$textPrimary' : '$textSecondary'} numberOfLines={1}>
           {selected?.label ?? placeholder}
         </P>
         <ChevronDown size={16} color="$textSecondary" />
@@ -118,7 +118,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…' 
                   role="button"
                   aria-label={o.label}
                 >
-                  <P size={4} weight={o.value === value ? 'b' : 'r'} color={o.value === value ? '$primary' : '$textPrimary'} numberOfLines={1}>
+                  <P size={3} weight={o.value === value ? 'b' : 'r'} color={o.value === value ? '$primary' : '$textPrimary'} numberOfLines={1}>
                     {o.label}
                   </P>
                 </XStack>

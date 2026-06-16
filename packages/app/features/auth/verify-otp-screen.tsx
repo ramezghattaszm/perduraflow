@@ -44,7 +44,7 @@ export function VerifyOtpScreen({ email, type }: { email: string; type: OtpPurpo
           {t('auth:verifyOtp.submit')}
         </AppButton>
         <P
-          size={4}
+          size={3}
           weight="b"
           color="$primary"
           textAlign="center"

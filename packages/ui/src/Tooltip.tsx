@@ -50,7 +50,7 @@ export function AppTooltip({ label, placement = 'right', disabled, children }: A
           paddingVertical="$1.5"
           elevation="$2"
         >
-          <P size={6} color="$textPrimary" style={{ whiteSpace: 'nowrap' }}>
+          <P size={4} color="$textPrimary" style={{ whiteSpace: 'nowrap' }}>
             {label}
           </P>
         </YStack>

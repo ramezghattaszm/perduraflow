@@ -26,7 +26,7 @@ export const Unpadded: Story = {
   render: () => (
     <Screen minHeight={320} padded={false} gap="$3">
       <H level={3}>No padding</H>
-      <P size={4} color="$textSecondary">
+      <P size={3} color="$textSecondary">
         `padded={false}` removes the default inset.
       </P>
     </Screen>

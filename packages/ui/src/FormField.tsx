@@ -25,14 +25,14 @@ export function FormField({
   return (
     <YStack gap="$2" width="100%">
       {label ? (
-        <P size={5} weight="m" color="$textSecondary">
+        <P size={4} weight="m" color="$textSecondary">
           {label}
           {required ? ' *' : ''}
         </P>
       ) : null}
       {children}
       {error ? (
-        <P size={5} color="$danger">
+        <P size={4} color="$danger">
           {error}
         </P>
       ) : null}

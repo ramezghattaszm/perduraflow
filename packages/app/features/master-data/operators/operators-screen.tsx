@@ -109,12 +109,12 @@ export function OperatorsScreen() {
             key: 'homePlantId',
             label: t('operators.fields.homePlantId'),
             flex: 2,
-            render: (o) => <P size={4}>{plantName.get(o.homePlantId) ?? '—'}</P>,
+            render: (o) => <P size={3}>{plantName.get(o.homePlantId) ?? '—'}</P>,
           },
           {
             key: 'certificationIds',
             label: t('qualifications.title'),
-            render: (o) => <P size={4}>{o.certificationIds.length}</P>,
+            render: (o) => <P size={3}>{o.certificationIds.length}</P>,
           },
           {
             key: 'isActive',

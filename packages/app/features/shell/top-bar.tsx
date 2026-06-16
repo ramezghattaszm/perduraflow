@@ -93,7 +93,7 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onO
           {breadcrumb.map((seg, i) => (
             <XStack key={seg} alignItems="center" gap="$1.5">
               {i > 0 ? <ChevronRight size={14} color="$textSecondary" /> : null}
-              <P size={4} weight={i === breadcrumb.length - 1 ? 'b' : 'r'} color={i === breadcrumb.length - 1 ? '$textPrimary' : '$textSecondary'}>
+              <P size={3} weight={i === breadcrumb.length - 1 ? 'b' : 'r'} color={i === breadcrumb.length - 1 ? '$textPrimary' : '$textSecondary'}>
                 {seg}
               </P>
             </XStack>
@@ -119,7 +119,7 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onO
           aria-label={t('shell.search')}
         >
           <Search size={16} color="$textSecondary" />
-          <P size={5} color="$textSecondary">
+          <P size={4} color="$textSecondary">
             {t('shell.search')}
           </P>
           <XStack
@@ -131,7 +131,7 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onO
             borderWidth={1}
             borderColor="$borderColor"
           >
-            <P size={7} color="$textSecondary">
+            <P size={5} color="$textSecondary">
               ⌘K
             </P>
           </XStack>
@@ -189,10 +189,10 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onO
               <XStack gap="$3" alignItems="center" padding="$4" borderBottomWidth={1} borderBottomColor="$borderColor">
                 <UserAvatar id={user?.id} name={user?.name} src={user?.avatarUrl} size={38} />
                 <YStack flex={1}>
-                  <P size={4} weight="b" numberOfLines={1}>
+                  <P size={3} weight="b" numberOfLines={1}>
                     {user?.name}
                   </P>
-                  <P size={6} color="$textSecondary" numberOfLines={1}>
+                  <P size={4} color="$textSecondary" numberOfLines={1}>
                     {user?.email}
                   </P>
                 </YStack>
@@ -220,7 +220,7 @@ function MenuRow({ label, onPress, danger }: { label: string; onPress: () => voi
       role="button"
       aria-label={label}
     >
-      <P size={4} color={danger ? '$danger' : '$textPrimary'}>
+      <P size={3} color={danger ? '$danger' : '$textPrimary'}>
         {label}
       </P>
     </XStack>

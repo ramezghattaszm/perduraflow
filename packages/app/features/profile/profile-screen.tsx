@@ -22,7 +22,7 @@ export function ProfileScreen() {
         <AppAvatar size="$6" name={user?.name} src={user?.avatarUrl ?? undefined} />
         <YStack>
           <H level={4}>{user?.name ?? '—'}</H>
-          <P size={4} color="$textSecondary">
+          <P size={3} color="$textSecondary">
             {user?.email ?? ''}
           </P>
         </YStack>

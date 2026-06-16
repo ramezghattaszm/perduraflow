@@ -75,15 +75,15 @@ export function QualificationMatrix({
         {/* header row */}
         <XStack backgroundColor="$background">
           <XStack width={rowLabelW} paddingVertical="$3" paddingHorizontal="$4">
-            <P size={6} weight="b" color="$textSecondary">
+            <P size={4} weight="b" color="$textSecondary">
               {rowHeader.toUpperCase()}
             </P>
           </XStack>
           {cols.map((c) => (
             <XStack key={c.id} width={cellW} paddingVertical="$3" paddingHorizontal="$2" justifyContent="center">
-              <P size={6} weight="b" color="$textSecondary" style={{ textAlign: 'center' }}>
+              <P size={4} weight="b" color="$textSecondary" style={{ textAlign: 'center' }}>
                 {c.label}
-                {c.marked ? <P size={6} weight="b" color="$warning"> *</P> : null}
+                {c.marked ? <P size={4} weight="b" color="$warning"> *</P> : null}
               </P>
             </XStack>
           ))}
@@ -92,12 +92,12 @@ export function QualificationMatrix({
         {rows.map((r) => (
           <XStack key={r.id} borderTopWidth={1} borderTopColor="$borderColor" backgroundColor="$surface">
             <XStack width={rowLabelW} paddingVertical="$3" paddingHorizontal="$4" alignItems="center" gap="$2">
-              <P size={4} color={r.out ? '$textSecondary' : '$textPrimary'}>
+              <P size={3} color={r.out ? '$textSecondary' : '$textPrimary'}>
                 {r.label}
               </P>
               {r.out ? (
                 <XStack borderWidth={1} borderColor="$borderColor" borderRadius="$2" paddingHorizontal="$1.5">
-                  <P size={8} weight="b" color="$textSecondary">
+                  <P size={5} weight="b" color="$textSecondary">
                     OUT
                   </P>
                 </XStack>

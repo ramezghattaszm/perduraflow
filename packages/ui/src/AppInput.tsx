@@ -61,7 +61,7 @@ export function AppInput({
   return (
     <YStack gap="$2" width="100%">
       {label ? (
-        <P size={5} weight="m" color="$textSecondary">
+        <P size={4} weight="m" color="$textSecondary">
           {label}
         </P>
       ) : null}
@@ -94,7 +94,7 @@ export function AppInput({
             {...props}
           />
           <P
-            size={5}
+            size={4}
             weight="m"
             color="$primary"
             position="absolute"
@@ -116,7 +116,7 @@ export function AppInput({
       )}
 
       {error ? (
-        <P size={5} color="$danger">
+        <P size={4} color="$danger">
           {error}
         </P>
       ) : null}

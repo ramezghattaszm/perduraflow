@@ -22,7 +22,7 @@ export function AdminLandingScreen() {
       <YStack gap="$5">
         {ADMIN_NAV.map((section) => (
           <YStack key={section.id} gap="$2">
-            <P size={7} weight="b" color="$textSecondary" paddingHorizontal="$1">
+            <P size={5} weight="b" color="$textSecondary" paddingHorizontal="$1">
               {t(section.sectionLabelKey).toUpperCase()}
             </P>
             <YStack borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden">
@@ -45,7 +45,7 @@ export function AdminLandingScreen() {
                     aria-label={t(it.labelKey)}
                   >
                     <Icon size={20} color="$textSecondary" />
-                    <P size={4} color="$textPrimary" flex={1}>
+                    <P size={3} color="$textPrimary" flex={1}>
                       {t(it.labelKey)}
                     </P>
                     <ChevronRight size={18} color="$textSecondary" />

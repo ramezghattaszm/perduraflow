@@ -29,7 +29,7 @@ export function EmptyState({ icon, title, subtitle, actionLabel, onAction }: Emp
         {title}
       </H>
       {subtitle ? (
-        <P size={4} color="$textSecondary" textAlign="center">
+        <P size={3} color="$textSecondary" textAlign="center">
           {subtitle}
         </P>
       ) : null}

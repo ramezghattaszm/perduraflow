@@ -24,7 +24,7 @@ export const Top: Story = {
   render: () => (
     <YStack padding="$10" alignItems="center">
       <AppTooltip label="Above the trigger" placement="top">
-        <P size={4}>Hover me</P>
+        <P size={3}>Hover me</P>
       </AppTooltip>
     </YStack>
   ),

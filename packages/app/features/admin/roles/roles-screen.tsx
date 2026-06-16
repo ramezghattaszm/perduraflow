@@ -130,7 +130,7 @@ export function RolesScreen() {
             key: 'approvalTierId',
             label: t('roles.fields.approvalTierId'),
             render: (r) => (
-              <P size={4}>{r.approvalTierId ? (tierName.get(r.approvalTierId) ?? '—') : '—'}</P>
+              <P size={3}>{r.approvalTierId ? (tierName.get(r.approvalTierId) ?? '—') : '—'}</P>
             ),
           },
           {
@@ -140,7 +140,7 @@ export function RolesScreen() {
               r.canConfigure ? (
                 <StatusPill tone="active">✓</StatusPill>
               ) : (
-                <P size={4} color="$textSecondary">
+                <P size={3} color="$textSecondary">
                   —
                 </P>
               ),
@@ -211,7 +211,7 @@ export function RolesScreen() {
         <FormField label={t('roles.fields.canConfigure')}>
           <XStack alignItems="center" gap="$3">
             <AppSwitch checked={canConfigure} onCheckedChange={setCanConfigure} />
-            <P size={4} color="$textSecondary">
+            <P size={3} color="$textSecondary">
               {canConfigure ? t('common.active') : t('common.inactive')}
             </P>
           </XStack>

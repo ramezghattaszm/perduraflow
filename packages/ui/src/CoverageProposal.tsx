@@ -42,22 +42,22 @@ export function CoverageProposal({
 }: CoverageProposalProps) {
   return (
     <YStack backgroundColor="$surfaceRaised" borderWidth={1} borderColor="$warning" borderRadius="$4" padding="$3" gap="$2">
-      <P size={8} weight="b" color="$warning">
+      <P size={5} weight="b" color="$warning">
         {heading.toUpperCase()}
       </P>
-      <P size={5} color="$textPrimary">
+      <P size={4} color="$textPrimary">
         {gapText}
       </P>
-      <P size={5} color="$primary">
+      <P size={4} color="$primary">
         {actionText}
       </P>
-      <P size={6} color="$textSecondary">
+      <P size={4} color="$textSecondary">
         {detailText}
       </P>
       {confirmed ? (
         <XStack alignItems="center" gap="$2" paddingTop="$1">
           <YStack width={8} height={8} borderRadius={999} backgroundColor="$success" />
-          <P size={5} weight="b" color="$success">
+          <P size={4} weight="b" color="$success">
             {confirmedLabel}
           </P>
         </XStack>

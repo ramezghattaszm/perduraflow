@@ -50,10 +50,10 @@ export function RegisterScreen() {
           {t('auth:register.submit')}
         </AppButton>
         <XStack justifyContent="center" gap="$2">
-          <P size={4} color="$textSecondary">
+          <P size={3} color="$textSecondary">
             {t('auth:register.haveAccount')}
           </P>
-          <TextLink size={4} weight="b" onPress={() => router.push('/login')}>
+          <TextLink size={3} weight="b" onPress={() => router.push('/login')}>
             {t('auth:register.signIn')}
           </TextLink>
         </XStack>

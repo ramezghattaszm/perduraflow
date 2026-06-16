@@ -22,7 +22,7 @@ export const Default: Story = {
         ]}
         horizonStartMs={origin}
         horizonEndMs={end}
-        barDetail={(b) => <YStack padding="$1"><P size={4}>{b.label}</P></YStack>}
+        barDetail={(b) => <YStack padding="$1"><P size={3}>{b.label}</P></YStack>}
         bars={[
           { id: '1', resourceId: 'press', label: 'FG-1001', sourceTag: 'std', startMs: origin, endMs: origin + 90 * m, setupMin: 20, runMin: 70, atRisk: false, changeover: false },
           { id: '2', resourceId: 'press', label: 'FG-1001', sourceTag: 'std', startMs: origin + 90 * m, endMs: origin + 150 * m, setupMin: 0, runMin: 60, atRisk: false, changeover: false },

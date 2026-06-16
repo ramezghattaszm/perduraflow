@@ -113,7 +113,7 @@ export function UsersScreen() {
           {
             key: 'roleId',
             label: t('users.fields.roleId'),
-            render: (u) => <P size={4}>{u.roleId ? (roleName.get(u.roleId) ?? '—') : '—'}</P>,
+            render: (u) => <P size={3}>{u.roleId ? (roleName.get(u.roleId) ?? '—') : '—'}</P>,
           },
           {
             key: 'isVerified',
@@ -122,7 +122,7 @@ export function UsersScreen() {
               u.isVerified ? (
                 <StatusPill tone="active">✓</StatusPill>
               ) : (
-                <P size={4} color="$textSecondary">
+                <P size={3} color="$textSecondary">
                   —
                 </P>
               ),
@@ -185,7 +185,7 @@ export function UsersScreen() {
         <FormField label={t('users.fields.isVerified')}>
           <XStack alignItems="center" gap="$3">
             <AppSwitch checked={verified} onCheckedChange={setVerified} />
-            <P size={4} color="$textSecondary">
+            <P size={3} color="$textSecondary">
               {verified ? t('common.active') : t('common.inactive')}
             </P>
           </XStack>

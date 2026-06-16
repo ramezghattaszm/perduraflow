@@ -71,7 +71,7 @@ export function WorkforceContent() {
               <Legend tone="$primary" label={t('legend.qualified')} />
               <Legend tone="$borderColor" label={t('legend.notQualified')} outline />
               <Legend tone="$dangerSoft" label={t('legend.gap')} />
-              <P size={7} color="$textSecondary">
+              <P size={5} color="$textSecondary">
                 {t('legend.certRequired')}
               </P>
             </XStack>
@@ -79,18 +79,18 @@ export function WorkforceContent() {
 
           <YStack flexGrow={1} flexBasis={300} minWidth={260} gap="$3">
             <YStack>
-              <P size={8} weight="b" color="$textSecondary">
+              <P size={5} weight="b" color="$textSecondary">
                 {t('readiness.title').toUpperCase()}
               </P>
               <H level={1} color={cov.certGapCount > 0 ? '$warning' : '$success'}>
                 {Math.round(cov.readinessPct * 100)}%
               </H>
-              <P size={6} color="$textSecondary">
+              <P size={4} color="$textSecondary">
                 {t('readiness.effective')} · {t('readiness.gaps', { count: cov.certGapCount })}
               </P>
             </YStack>
             {cov.proposals.length === 0 ? (
-              <P size={5} color="$textSecondary">
+              <P size={4} color="$textSecondary">
                 {t('proposal.none')}
               </P>
             ) : (
@@ -128,7 +128,7 @@ function Legend({ tone, label, outline }: { tone: ColorTokens; label: string; ou
         borderWidth={outline ? 1 : 0}
         borderColor="$borderColor"
       />
-      <P size={7} color="$textSecondary">
+      <P size={5} color="$textSecondary">
         {label}
       </P>
     </XStack>

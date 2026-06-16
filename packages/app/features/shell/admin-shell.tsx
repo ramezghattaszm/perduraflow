@@ -257,7 +257,7 @@ function BrandZone({
           <P size={3} weight="b" numberOfLines={1}>
             {name}
           </P>
-          <P size={7} color="$textSecondary" numberOfLines={1}>
+          <P size={5} color="$textSecondary" numberOfLines={1}>
             {subtitle}
           </P>
         </YStack>
@@ -270,7 +270,7 @@ function BrandZone({
 function PoweredBy({ collapsed, label }: { collapsed: boolean; label: string }) {
   const mark = (
     <XStack width={24} height={24} borderRadius="$3" backgroundColor="$primary" alignItems="center" justifyContent="center">
-      <P size={8} weight="h" color="$surface">
+      <P size={5} weight="h" color="$surface">
         PF
       </P>
     </XStack>
@@ -282,7 +282,7 @@ function PoweredBy({ collapsed, label }: { collapsed: boolean; label: string }) 
   ) : (
     <XStack alignItems="center" gap="$2" paddingHorizontal="$2" paddingVertical="$2">
       {mark}
-      <P size={7} color="$textSecondary">
+      <P size={5} color="$textSecondary">
         {label}
       </P>
     </XStack>

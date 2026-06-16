@@ -80,7 +80,7 @@ export function OperationsEditor({
   return (
     <YStack gap="$3">
       <XStack alignItems="center" justifyContent="space-between">
-        <H level={5}>{labels.heading}</H>
+        <H level={4}>{labels.heading}</H>
         <AppButton variant="ghost" size="$3" icon={Plus} onPress={add}>
           {labels.add}
         </AppButton>
@@ -100,7 +100,7 @@ export function OperationsEditor({
             gap="$3"
           >
             <XStack alignItems="center" justifyContent="space-between">
-              <P size={4} weight="b" color="$primary">
+              <P size={3} weight="b" color="$primary">
                 {labels.opSeq} {(i + 1) * 10}
               </P>
               <XStack gap="$1">

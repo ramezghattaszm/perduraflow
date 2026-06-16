@@ -31,7 +31,7 @@ const header = (collapsed: boolean) => (
   <OrgAvatar name="Saltillo Industrial Group" size={collapsed ? 30 : 34} />
 )
 const footer = (collapsed: boolean) =>
-  collapsed ? null : <P size={7} color="$textSecondary">Powered by PerduraFlow</P>
+  collapsed ? null : <P size={5} color="$textSecondary">Powered by PerduraFlow</P>
 
 export const Expanded: Story = { args: { activeId: 'plants', sections, header, footer } }
 export const Collapsed: Story = { args: { activeId: 'plants', collapsed: true, sections, header, footer } }

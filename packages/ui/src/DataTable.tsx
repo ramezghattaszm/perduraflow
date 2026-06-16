@@ -148,11 +148,11 @@ export function DataTable<T extends { id: string }>({
                 : String((row as Record<string, unknown>)[c.key] ?? '—')
               return (
                 <XStack key={c.key} justifyContent="space-between" gap="$3" alignItems="center">
-                  <P size={7} weight="b" color="$textSecondary">
+                  <P size={5} weight="b" color="$textSecondary">
                     {c.label.toUpperCase()}
                   </P>
                   {typeof content === 'string' || typeof content === 'number' ? (
-                    <P size={4} color="$textPrimary" style={{ textAlign: 'right' }}>
+                    <P size={3} color="$textPrimary" style={{ textAlign: 'right' }}>
                       {content}
                     </P>
                   ) : (
@@ -198,7 +198,7 @@ export function DataTable<T extends { id: string }>({
                 hoverStyle={c.sortable ? { opacity: 0.7 } : undefined}
                 onPress={c.sortable ? () => toggleSort(c.key) : undefined}
               >
-                <P size={6} weight="b" color={active ? '$primary' : '$textSecondary'}>
+                <P size={4} weight="b" color={active ? '$primary' : '$textSecondary'}>
                   {c.label.toUpperCase()}
                   {indicator}
                 </P>
@@ -232,7 +232,7 @@ export function DataTable<T extends { id: string }>({
                 >
                   {/* Wrap raw text so a string-returning `render` never lands directly in a View. */}
                   {typeof content === 'string' || typeof content === 'number' ? (
-                    <P size={4} color="$textPrimary">
+                    <P size={3} color="$textPrimary">
                       {content}
                     </P>
                   ) : (

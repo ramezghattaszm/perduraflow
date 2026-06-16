@@ -297,58 +297,91 @@ they use `H`/`P`.** These components and the scale below ship with the template 
 rewritten per app; an app may retune the pixel values in `packages/config`, but the component
 API is fixed.
 
-### Scale (config)
+### The scale — one responsive scale, 5 body + 5 heading
+
+**One scale, not two.** Body sizes are identical on web and mobile; only the **large headings shrink
+on small screens** (the `max-md` breakpoint). This corrects the "smaller on mobile" instinct — the
+convention is **body stays ≥16 on mobile; headings clamp down**. There is **no parallel
+`HEADING_MOBILE` object** — the responsive values live on the same tokens via the existing media key.
+
+**Body — 5 sizes, identical web + mobile** (`<P size={n}>`):
+
+| token | fontSize | lineHeight | use |
+|---|---|---|---|
+| `size={1}` (lead) | 18 | 26 | intro / emphasis |
+| **`size={2}` (default)** | **16** | **24** | **primary reading — the default** |
+| `size={3}` (secondary) | 14 | 20 | supporting text |
+| `size={4}` (caption) | 12 | 16 | captions / meta |
+| `size={5}` (micro) | 11 | 15 | dense labels / badges — **floor, nothing smaller** |
+
+**Heading — 5 sizes, large end responsive** (`<H level={…}>`):
+
+| token | web | small (`max-md`) | lineHeight (web / small) | use |
+|---|---|---|---|---|
+| `level="display"` | 48 | 32 | 56 / 38 | hero |
+| `level={1}` | 36 | 28 | 44 / 34 | page title |
+| `level={2}` | 28 | 22 | 36 / 28 | section |
+| `level={3}` | 22 | 20 | 28 / 26 | sub-section |
+| `level={4}` | 18 | 18 | 24 / 24 | small heading (converges) |
+
+Headings **diverge at the top** (48→32) and **converge at the bottom** (18 on both). Small text is
+identical everywhere; only large display/title sizes clamp on small.
 
 ```
-Headings (H):
-  H1 = 36px (bold)     H4 = 18px (medium)
-  H2 = 28px (bold)     H5 = 16px (medium)
-  H3 = 22px (bold)     H6 = 15px (medium)
-  H0 = 44px (heavy)    ← optional display size
-
-Body (P):
-  P1 = 18px (bold)     P4 = 14px (regular)
-  P2 = 16px (medium)   P5 = 13px (regular)
-  P3 = 15px (medium)   P6–P9 = smaller utility sizes
-
 Weights:  r=400  m=500  b=600  h=700
 No light (300) — Inter Light is unreliable cross-platform.
 No letterSpacing — caused glyph overlap on web.
 ```
+
+### Rules (the standard)
+
+- **Body floor 16 for primary text** — never default below `size={2}` (16). `size={5}` (11) is the
+  absolute floor for any text. Nothing below 11 exists.
+- **Micro floor 11** — the old `≤10`/`9` sizes are gone; below 14, 1px steps are fine (12, 11) but no
+  13/15 in-between cruft.
+- **Min-2 step at ≥14** — no 16→15→14 1px ladder.
+- **One responsive scale** — do **not** create a parallel mobile token object. Large headings are
+  responsive via the `max-md` media key (see below); everything else is a single value.
+- **Headings clamp on small; body does not** — mobile keeps body ≥16; only large headings shrink.
+- Color still comes through semantic tokens (`color="$textPrimary"` by default).
 
 ### Component API
 
 ```tsx
 import { H, P } from '@perduraflow/ui'
 
-<H level={1}>Page title</H>             // 36px bold
+<H level="display">Hero</H>             // 48px web / 32px small, heavy
+<H level={1}>Page title</H>             // 36px web / 28px small, bold
 <H level={3} weight="h">Section</H>     // size from level, weight overridden
-<P size={4}>Body copy.</P>              // 14px regular
-<P size={2} weight="b" color="$primary">Emphasis</P>
+<P>Body copy.</P>                       // 16px regular (size={2} is the default)
+<P size={5} weight="b" color="$primary">Dense label</P>  // 11px — the floor
 ```
 
 ```ts
-// packages/ui/src/typography.tsx — shape
-const HEADING_SIZES = { 0: 44, 1: 36, 2: 28, 3: 22, 4: 18, 5: 16, 6: 15 } as const
-const WEIGHTS = { r: '400', m: '500', b: '600', h: '700' } as const
+// packages/ui/src/typography.tsx — shape. Large headings carry a `$max-md`
+// override (the small breakpoint) on the SAME token — one scale, no mobile object.
+const HEADING = {
+  display: { fontSize: 48, lineHeight: 56, '$max-md': { fontSize: 32, lineHeight: 38 } },
+  1:       { fontSize: 36, lineHeight: 44, '$max-md': { fontSize: 28, lineHeight: 34 } },
+  2:       { fontSize: 28, lineHeight: 36, '$max-md': { fontSize: 22, lineHeight: 28 } },
+  3:       { fontSize: 22, lineHeight: 28, '$max-md': { fontSize: 20, lineHeight: 26 } },
+  4:       { fontSize: 18, lineHeight: 24 }, // converges — no responsive override
+} as const
+const BODY = { 1: 18, 2: 16, 3: 14, 4: 12, 5: 11 } as const // single value each
 
 export const H = styled(Text, {
   name: 'H',
   fontFamily: '$heading',
-  variants: {
-    level: {
-      /* maps 0–6 → fontSize + default weight */
-    },
-    weight: {
-      /* r | m | b | h → fontWeight */
-    },
-  } as const,
+  variants: { level: HEADING, weight /* r|m|b|h */ } as const,
   defaultVariants: { level: 1, weight: 'b' },
 })
-// P is the same shape over body sizes, defaultVariants { size: 4, weight: 'r' }.
+// P is the same shape over BODY, defaultVariants { size: 2, weight: 'r' }.
 ```
 
-Color still comes through semantic tokens (`color="$textPrimary"` by default).
+> **Exceptions (not H/P text):** SVG chart labels (`react-native-svg` `<SvgText fontSize>`),
+> computed avatar initials (sized to the avatar), and emoji-as-icon glyphs are graphic dimensions,
+> not the typography scale — they pass numeric sizes directly and are exempt from "no raw px". All
+> *prose* text goes through `H`/`P`.
 
 ---
 

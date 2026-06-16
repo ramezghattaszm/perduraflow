@@ -9,7 +9,7 @@ import { P } from './typography'
  * styling a `P` inline (UI §0.1).
  *
  * @example
- * <TextLink size={4} weight="b" onPress={() => router.push('/register')}>Sign up</TextLink>
+ * <TextLink size={3} weight="b" onPress={() => router.push('/register')}>Sign up</TextLink>
  */
 export const TextLink = styled(P, {
   name: 'TextLink',

@@ -80,12 +80,12 @@ export function RoutingsScreen() {
             key: 'partId',
             label: t('routings.fields.partId'),
             flex: 2,
-            render: (r) => <P size={4}>{partName.get(r.partId) ?? '—'}</P>,
+            render: (r) => <P size={3}>{partName.get(r.partId) ?? '—'}</P>,
           },
           {
             key: 'operations',
             label: t('routings.operations.title'),
-            render: (r) => <P size={4}>{r.operations.length}</P>,
+            render: (r) => <P size={3}>{r.operations.length}</P>,
           },
           {
             key: 'status',

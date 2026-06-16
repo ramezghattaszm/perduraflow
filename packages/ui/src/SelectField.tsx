@@ -73,7 +73,7 @@ export function SelectField(props: SelectFieldProps) {
         const selected = isSelected(o.value)
         return (
           <Chip key={o.value} selected={selected} onPress={() => toggle(o.value)}>
-            <P size={5} weight="m" color={selected ? '$surface' : '$textPrimary'}>
+            <P size={4} weight="m" color={selected ? '$surface' : '$textPrimary'}>
               {o.label}
             </P>
           </Chip>

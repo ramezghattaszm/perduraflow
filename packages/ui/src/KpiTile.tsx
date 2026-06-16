@@ -42,16 +42,16 @@ export function KpiTile({ value, label, caption, trend, upIsGood = true }: KpiTi
       <XStack alignItems="baseline" gap="$1">
         <H level={3}>{value}</H>
         {trend ? (
-          <P size={4} weight="b" color={good ? '$success' : '$danger'}>
+          <P size={3} weight="b" color={good ? '$success' : '$danger'}>
             {trend === 'up' ? '↑' : '↓'}
           </P>
         ) : null}
       </XStack>
-      <P size={7} weight="b" color="$textSecondary">
+      <P size={5} weight="b" color="$textSecondary">
         {label.toUpperCase()}
       </P>
       {caption ? (
-        <P size={6} color="$textSecondary">
+        <P size={4} color="$textSecondary">
           {caption}
         </P>
       ) : null}

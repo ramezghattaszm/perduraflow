@@ -41,21 +41,21 @@ export function LoginScreen() {
           onChangeText={setPassword}
         />
         {login.isError ? (
-          <P size={4} color="$danger">
+          <P size={3} color="$danger">
             {translateError(getApiErrorCode(login.error))}
           </P>
         ) : null}
         <AppButton onPress={onSubmit} loading={login.isPending}>
           {t('auth:login.submit')}
         </AppButton>
-        <TextLink size={4} weight="m" textAlign="center" onPress={() => router.push('/forgot-password')}>
+        <TextLink size={3} weight="m" textAlign="center" onPress={() => router.push('/forgot-password')}>
           {t('auth:login.forgot')}
         </TextLink>
         <XStack justifyContent="center" gap="$2">
-          <P size={4} color="$textSecondary">
+          <P size={3} color="$textSecondary">
             {t('auth:login.noAccount')}
           </P>
-          <TextLink size={4} weight="b" onPress={() => router.push('/register')}>
+          <TextLink size={3} weight="b" onPress={() => router.push('/register')}>
             {t('auth:login.signUp')}
           </TextLink>
         </XStack>

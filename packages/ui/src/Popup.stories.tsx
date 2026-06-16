@@ -50,7 +50,7 @@ export const WithContent: Story = {
           </AppButton>
         }
       >
-        <P size={4} color="$textSecondary">
+        <P size={3} color="$textSecondary">
           Arbitrary body content goes here — on small screens this same content renders as a bottom sheet.
         </P>
       </Popup>

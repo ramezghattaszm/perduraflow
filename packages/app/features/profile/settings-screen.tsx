@@ -31,7 +31,7 @@ export function SettingsScreen() {
         <P size={3} weight="b" color="$textPrimary">
           {t('preferences.theme')}
         </P>
-        <P size={5} color="$textSecondary">
+        <P size={4} color="$textSecondary">
           {t('preferences.themeHint')}
         </P>
         <YStack
@@ -61,7 +61,7 @@ export function SettingsScreen() {
                 aria-label={t(opt.labelKey)}
               >
                 <Icon size={20} color={active ? '$primary' : '$textSecondary'} />
-                <P size={4} flex={1} color={active ? '$primary' : '$textPrimary'} weight={active ? 'b' : 'r'}>
+                <P size={3} flex={1} color={active ? '$primary' : '$textPrimary'} weight={active ? 'b' : 'r'}>
                   {t(opt.labelKey)}
                 </P>
                 {active ? <Check size={18} color="$primary" /> : null}

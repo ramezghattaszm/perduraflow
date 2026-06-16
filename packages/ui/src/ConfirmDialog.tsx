@@ -62,11 +62,11 @@ export function ConfirmDialog({
         padding="$5"
         gap="$3"
       >
-        <H level={5} color="$textPrimary">
+        <H level={4} color="$textPrimary">
           {title}
         </H>
         {message ? (
-          <P size={4} color="$textSecondary">
+          <P size={3} color="$textSecondary">
             {message}
           </P>
         ) : null}

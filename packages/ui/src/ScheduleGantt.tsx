@@ -158,23 +158,23 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
       {/* pinned label column */}
       <YStack width={LABEL_W} borderRightWidth={1} borderRightColor="$borderColor">
         <XStack height={AXIS_H} alignItems="center" paddingHorizontal="$3" backgroundColor="$surfaceRaised" borderBottomWidth={1} borderBottomColor="$borderColor">
-          <P size={7} weight="b" color="$textSecondary">
+          <P size={5} weight="b" color="$textSecondary">
             RESOURCE
           </P>
         </XStack>
         {resources.map((r) => (
           <YStack key={r.id} height={LANE_H} justifyContent="center" paddingHorizontal="$3" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
-            <P size={4} weight="m" numberOfLines={1}>
+            <P size={3} weight="m" numberOfLines={1}>
               {r.label}
             </P>
             {r.behind ? (
               <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
-                <P size={8} weight="b" color="$danger" numberOfLines={1}>
+                <P size={5} weight="b" color="$danger" numberOfLines={1}>
                   {r.behind}
                 </P>
               </XStack>
             ) : r.subLabel ? (
-              <P size={7} color="$textSecondary" numberOfLines={1}>
+              <P size={5} color="$textSecondary" numberOfLines={1}>
                 {r.subLabel}
               </P>
             ) : null}

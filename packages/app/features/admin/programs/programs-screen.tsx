@@ -116,7 +116,7 @@ export function ProgramsScreen() {
             key: 'customerId',
             label: t('programs.fields.customerId'),
             flex: 2,
-            render: (p) => <P size={4}>{customerName.get(p.customerId) ?? '—'}</P>,
+            render: (p) => <P size={3}>{customerName.get(p.customerId) ?? '—'}</P>,
           },
           { key: 'firmFenceDays', label: t('programs.fields.firmFenceDays') },
           {

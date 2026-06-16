@@ -84,7 +84,7 @@ export function NotificationBell({
             overflow="hidden"
           >
             <YStack paddingHorizontal="$4" paddingVertical="$3" borderBottomWidth={1} borderBottomColor="$borderColor">
-              <H level={5}>{title}</H>
+              <H level={4}>{title}</H>
             </YStack>
             {items.length === 0 ? (
               <YStack padding="$4">
@@ -103,11 +103,11 @@ export function NotificationBell({
                       borderBottomColor="$borderColor"
                       hoverStyle={{ backgroundColor: '$hoverFill' }}
                     >
-                      <P size={4} weight="b">
+                      <P size={3} weight="b">
                         {it.title}
                       </P>
                       {it.body ? (
-                        <P size={5} color="$textSecondary">
+                        <P size={4} color="$textSecondary">
                           {it.body}
                         </P>
                       ) : null}

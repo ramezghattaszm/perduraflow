@@ -110,7 +110,7 @@ export function PlantGroupsScreen() {
           {
             key: 'memberPlantIds',
             label: t('plantGroups.fields.memberPlantIds'),
-            render: (g) => <P size={4}>{g.memberPlantIds.length}</P>,
+            render: (g) => <P size={3}>{g.memberPlantIds.length}</P>,
           },
           {
             key: 'isActive',
@@ -159,7 +159,7 @@ export function PlantGroupsScreen() {
         <FormField label={t('plantGroups.fields.allowsResourceSharing')}>
           <XStack alignItems="center" gap="$3">
             <AppSwitch checked={sharing} onCheckedChange={setSharing} />
-            <P size={4} color="$textSecondary">
+            <P size={3} color="$textSecondary">
               {sharing ? t('common.active') : t('common.inactive')}
             </P>
           </XStack>

@@ -111,12 +111,12 @@ export function ResourceGroupsScreen() {
             key: 'plantId',
             label: t('resourceGroups.fields.plantId'),
             flex: 2,
-            render: (g) => <P size={4}>{plantName.get(g.plantId) ?? '—'}</P>,
+            render: (g) => <P size={3}>{plantName.get(g.plantId) ?? '—'}</P>,
           },
           {
             key: 'memberResourceIds',
             label: t('resourceGroups.fields.memberResourceIds'),
-            render: (g) => <P size={4}>{g.memberResourceIds.length}</P>,
+            render: (g) => <P size={3}>{g.memberResourceIds.length}</P>,
           },
           {
             key: 'isActive',

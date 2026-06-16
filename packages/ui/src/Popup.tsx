@@ -39,7 +39,7 @@ function useKeyboardHeight(): number {
  *
  * @example
  * <Popup open={open} onClose={close} title="Heads up" footer={<AppButton onPress={close}>OK</AppButton>}>
- *   <P size={4}>Body content.</P>
+ *   <P size={3}>Body content.</P>
  * </Popup>
  */
 export type PopupSize = 'small' | 'medium' | 'large'
@@ -106,7 +106,7 @@ export function Popup({
           </H>
         ) : null}
         {description ? (
-          <P size={4} color="$textSecondary">
+          <P size={3} color="$textSecondary">
             {description}
           </P>
         ) : null}
@@ -114,7 +114,7 @@ export function Popup({
     ) : null
 
   const errorLine = error ? (
-    <P size={5} color="$danger">
+    <P size={4} color="$danger">
       {error}
     </P>
   ) : null

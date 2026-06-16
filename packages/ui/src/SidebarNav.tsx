@@ -120,7 +120,7 @@ export function SidebarNav({
         {sections.map((section) => (
           <YStack key={section.id} gap="$1">
             {section.label && !collapsed ? (
-              <P size={7} weight="b" color="$textSecondary" paddingHorizontal="$3" paddingBottom="$1">
+              <P size={5} weight="b" color="$textSecondary" paddingHorizontal="$3" paddingBottom="$1">
                 {section.label.toUpperCase()}
               </P>
             ) : null}

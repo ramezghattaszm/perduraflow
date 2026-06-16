@@ -26,13 +26,13 @@ export function MetricBars({ items }: MetricBarsProps) {
     <YStack gap="$3">
       {items.map((it) => (
         <XStack key={it.label} alignItems="center" gap="$3">
-          <P size={5} color="$textSecondary" width={104}>
+          <P size={4} color="$textSecondary" width={104}>
             {it.label}
           </P>
           <XStack flex={1} height={8} borderRadius="$4" backgroundColor="$surfaceRaised" overflow="hidden">
             <YStack width={`${Math.round(Math.max(0, Math.min(1, it.value)) * 100)}%`} backgroundColor="$primary" borderRadius="$4" />
           </XStack>
-          <P size={5} weight="b" width={44} style={{ textAlign: 'right' }}>
+          <P size={4} weight="b" width={44} style={{ textAlign: 'right' }}>
             {Math.round(it.value * 100)}%
           </P>
         </XStack>
