@@ -233,13 +233,14 @@ export function BoardContent() {
   let perfRows: PerfRow[] | undefined
   if (selectedOp?.actual) {
     const a = selectedOp.actual
+    const r2 = (n: number) => Number(n.toFixed(2)) // round to ≤2 decimals (drops trailing zeros)
     const plannedRun = selectedOp.setupTime + selectedOp.cycleTime * selectedOp.plannedQty
     const actualRun = (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000
     const runDelta = plannedRun > 0 ? (actualRun - plannedRun) / plannedRun : 0
     perfRows = [
       {
         label: t('board.perf.cycle'),
-        value: a.actualCycleTime != null ? `${selectedOp.cycleTime} → ${a.actualCycleTime} min` : '—',
+        value: a.actualCycleTime != null ? `${r2(selectedOp.cycleTime)} → ${r2(a.actualCycleTime)} min` : '—',
         tone: a.actualCycleTime == null ? undefined : a.actualCycleTime > selectedOp.cycleTime ? 'warn' : 'ok',
       },
       {
