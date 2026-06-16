@@ -5,8 +5,13 @@ import {
   type LearnedParameterDto,
   type LearningParam,
   type LearningReadContract,
+  type ParameterPredictionDto,
 } from '@perduraflow/contracts'
-import { toExecutionActualDto, toLearnedParameterDto } from './learning.mapper'
+import {
+  toExecutionActualDto,
+  toLearnedParameterDto,
+  toParameterPredictionDto,
+} from './learning.mapper'
 import { LearningRepository } from './learning.repository'
 
 /** DI token for the published `learning.read 1.0` interface (A14 platform capability). */
@@ -43,5 +48,21 @@ export class LearningReadService implements LearningReadContract {
   /** Persisted actuals for a version — scheduling's variance/OEE/cost join (4.4↔4.3). */
   async listActualsForVersion(tenantId: string, scheduleVersionId: string): Promise<ExecutionActualDto[]> {
     return (await this.repo.listActualsForVersion(tenantId, scheduleVersionId)).map(toExecutionActualDto)
+  }
+
+  /** The live forecast for one parameter, or null (phase 4). */
+  async getPrediction(
+    tenantId: string,
+    resourceId: string,
+    routingOperationId: string,
+    param: LearningParam,
+  ): Promise<ParameterPredictionDto | null> {
+    const row = await this.repo.findLivePrediction(tenantId, resourceId, routingOperationId, param)
+    return row ? toParameterPredictionDto(row) : null
+  }
+
+  /** All live forecasts for the tenant — Exception Queue + board flags (phase 4). */
+  async listPredictions(tenantId: string): Promise<ParameterPredictionDto[]> {
+    return (await this.repo.listLivePredictions(tenantId)).map(toParameterPredictionDto)
   }
 }

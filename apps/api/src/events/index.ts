@@ -29,6 +29,10 @@ export const EVENTS = {
   LEARNING_PARAMETER_UPDATED: 'learning.parameter.updated',
   LEARNING_DRIFT_DETECTED: 'learning.drift.detected',
   LEARNING_ANOMALY_FLAGGED: 'learning.anomaly.flagged',
+  // parameter prediction (phase 4)
+  LEARNING_PREDICTION_UPDATED: 'learning.prediction.updated',
+  LEARNING_PREDICTION_AUTOCOMMITTED: 'learning.prediction.autocommitted',
+  LEARNING_PREDICTION_QUEUED: 'learning.prediction.queued',
 } as const
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS]

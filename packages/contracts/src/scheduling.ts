@@ -29,8 +29,12 @@ export type OptimizerRunStatus = z.infer<typeof optimizerRunStatusSchema>
 export const optimizerTriggerSchema = z.enum(['manual', 'scheduled', 'event', 'what_if'])
 export type OptimizerTrigger = z.infer<typeof optimizerTriggerSchema>
 
-/** Whether a planning time is the master-data baseline or an ML correction (D7/SKIP-04). */
-export const timeSourceSchema = z.enum(['standard', 'ml_adjusted'])
+/**
+ * Whether a planning time is the master-data baseline, an ML correction from an
+ * *observed* adoption (D7/SKIP-04, phase 3), or an ML **prediction** adopted ahead
+ * of the drift materialising (phase 4 — acted on a forecast, not yet an actual).
+ */
+export const timeSourceSchema = z.enum(['standard', 'ml_adjusted', 'ml_predicted'])
 export type TimeSource = z.infer<typeof timeSourceSchema>
 
 // --- DTOs --------------------------------------------------------------------

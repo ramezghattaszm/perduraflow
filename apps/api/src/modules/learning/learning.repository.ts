@@ -1,15 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { LEARNING_DB, type LearningDatabase } from './learning.db'
 import {
   executionActual,
   learnedParameter,
+  parameterPrediction,
   type ExecutionActual,
   type LearnedParameter,
   type NewExecutionActual,
   type NewLearnedParameter,
+  type NewParameterPrediction,
+  type ParameterPrediction,
 } from './schema'
-import type { LearningParam } from '@perduraflow/contracts'
+import type { LearningParam, PredictionDisposition, PredictionOutcome } from '@perduraflow/contracts'
+
+/** Dispositions that count as a *live* forecast (shown / actionable). */
+const LIVE_DISPOSITIONS: PredictionDisposition[] = ['queued', 'auto_committed', 'approved']
 
 /** Drizzle queries for the learning module (scoped to its own schema, O2). */
 @Injectable()
@@ -104,5 +110,68 @@ export class LearningRepository {
     }
     const [row] = await this.db.insert(learnedParameter).values(data).returning()
     return row!
+  }
+
+  // --- parameter predictions (phase 4) ---------------------------------------
+  /** The current live (non-superseded, actionable) forecast for a key, or undefined. */
+  findLivePrediction(
+    tenantId: string,
+    resourceId: string,
+    routingOperationId: string,
+    param: LearningParam,
+  ): Promise<ParameterPrediction | undefined> {
+    return this.db.query.parameterPrediction.findFirst({
+      where: and(
+        eq(parameterPrediction.tenantId, tenantId),
+        eq(parameterPrediction.resourceId, resourceId),
+        eq(parameterPrediction.routingOperationId, routingOperationId),
+        eq(parameterPrediction.param, param),
+        isNull(parameterPrediction.supersededBy),
+        inArray(parameterPrediction.disposition, LIVE_DISPOSITIONS),
+      ),
+      orderBy: desc(parameterPrediction.createdAt),
+    })
+  }
+
+  /** All live forecasts for the tenant — Exception Queue + board flags. */
+  listLivePredictions(tenantId: string): Promise<ParameterPrediction[]> {
+    return this.db
+      .select()
+      .from(parameterPrediction)
+      .where(
+        and(
+          eq(parameterPrediction.tenantId, tenantId),
+          isNull(parameterPrediction.supersededBy),
+          inArray(parameterPrediction.disposition, LIVE_DISPOSITIONS),
+        ),
+      )
+      .orderBy(desc(parameterPrediction.createdAt))
+  }
+
+  findPredictionById(tenantId: string, id: string): Promise<ParameterPrediction | undefined> {
+    return this.db.query.parameterPrediction.findFirst({
+      where: and(eq(parameterPrediction.tenantId, tenantId), eq(parameterPrediction.id, id)),
+    })
+  }
+
+  async insertPrediction(data: NewParameterPrediction): Promise<ParameterPrediction> {
+    const [row] = await this.db.insert(parameterPrediction).values(data).returning()
+    return row!
+  }
+
+  /** Patch a prediction's disposition/outcome/applied value (gate + human disposition). */
+  async updatePrediction(
+    id: string,
+    patch: Partial<{
+      disposition: PredictionDisposition
+      outcome: PredictionOutcome
+      appliedLearnedValue: number | null
+      supersededBy: string | null
+    }>,
+  ): Promise<void> {
+    await this.db
+      .update(parameterPrediction)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(parameterPrediction.id, id))
   }
 }

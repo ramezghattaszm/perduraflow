@@ -1,5 +1,29 @@
-import type { ExecutionActualDto, LearnedParameterDto } from '@perduraflow/contracts'
-import type { ExecutionActual, LearnedParameter } from './schema'
+import type {
+  ExecutionActualDto,
+  LearnedParameterDto,
+  ParameterPredictionDto,
+} from '@perduraflow/contracts'
+import type { ExecutionActual, LearnedParameter, ParameterPrediction } from './schema'
+
+/** Map a prediction row → its contract DTO (the settled forecast statement). */
+export const toParameterPredictionDto = (r: ParameterPrediction): ParameterPredictionDto => ({
+  id: r.id,
+  resourceId: r.resourceId,
+  routingOperationId: r.routingOperationId,
+  param: r.param,
+  predictedValue: r.predictedValue,
+  threshold: r.threshold,
+  crossingAt: r.crossingAt ? r.crossingAt.toISOString() : null,
+  horizonMinutes: r.horizonMinutes,
+  confidence: r.confidence,
+  fitR2: r.fitR2,
+  proposedAction: r.proposedAction,
+  actionTier: r.actionTier,
+  disposition: r.disposition,
+  appliedLearnedValue: r.appliedLearnedValue,
+  outcome: r.outcome,
+  createdAt: r.createdAt.toISOString(),
+})
 
 /** Map a learned-parameter row to its contract DTO (the structured learned record). */
 export const toLearnedParameterDto = (r: LearnedParameter): LearnedParameterDto => ({

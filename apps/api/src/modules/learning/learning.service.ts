@@ -1,16 +1,33 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common'
+import { HttpStatus, Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
+import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import {
   executionActualSchema,
+  type ActionTier,
   type DriftDetectedPayload,
   type ExecutionActualPayload,
   type LearningParam,
+  type PolicyReadContract,
+  type PredictionDisposition,
 } from '@perduraflow/contracts'
 import { EVENTS } from '../../events'
 import { EventBus } from '../eventbus/event-bus'
 import type { EventEnvelope } from '../eventbus/event-bus.types'
+import { POLICY_READ } from '../policy/policy-read.service'
 import { evaluate, RULE, type PriorState } from './learning.rule'
+import { predict, PREDICT } from './learning.predictor'
 import { LearningRepository } from './learning.repository'
 import type { ExecutionActual } from './schema'
+
+/**
+ * The confidence×tier gate (api-spec §13.3 — pure). Confidence is the dial *inside*
+ * a tier, never a bypass *around* it (A18): Tier-1 auto-commits at ≥ threshold;
+ * Tier-3 is **always human** regardless of confidence (the A18 floor); Tier-2 is
+ * advisory-first this phase (queued). Deterministic given the inputs.
+ */
+function gateDisposition(tier: ActionTier, confidence: number, tier1Threshold: number): PredictionDisposition {
+  if (tier === 'tier1') return confidence >= tier1Threshold ? 'auto_committed' : 'queued'
+  return 'queued' // tier2 advisory-first; tier3 always human — confidence cannot bypass the tier
+}
 
 /**
  * Learning service (phase 3 — the closed loop). Subscribes to `execution.actual.
@@ -28,6 +45,7 @@ export class LearningService implements OnModuleInit {
   constructor(
     private readonly repo: LearningRepository,
     private readonly events: EventBus,
+    @Inject(POLICY_READ) private readonly policy: PolicyReadContract,
   ) {}
 
   /** Wire the closed loop: consume actuals off the bus (A4 / D5). */
@@ -65,6 +83,9 @@ export class LearningService implements OnModuleInit {
     if (!row) return // idempotent: already ingested
     await this.relearn(tid, data.resourceId, data.routingOperationId, 'cycle', data.stdCycleTime)
     await this.relearn(tid, data.resourceId, data.routingOperationId, 'setup', data.stdSetupTime)
+    // Phase 4: project the observed series forward (predict-and-act-or-propose).
+    await this.forecast(tid, data.resourceId, data.routingOperationId, 'cycle', data.stdCycleTime)
+    await this.forecast(tid, data.resourceId, data.routingOperationId, 'setup', data.stdSetupTime)
   }
 
   /** Re-run the damped rule for one parameter over its full ordered actual series. */
@@ -143,5 +164,195 @@ export class LearningService implements OnModuleInit {
         )
       }
     }
+  }
+
+  /**
+   * Project the observed series forward (api-spec §13.2–§13.4 — A14 predictive arm).
+   * Fits the trend, forecasts a threshold-crossing, routes it through the gate, and
+   * (Tier-1 ≥ threshold) pre-emptively adopts the predicted value. **Damped** — a
+   * new settled prediction is written only when it materially changes (no ticker);
+   * **deterministic** — the forecast (value/horizon/confidence) is data-derived, and
+   * `crossingAt` anchors on the last actual's clock, never `Date.now()`.
+   */
+  private async forecast(
+    tenantId: string,
+    resourceId: string,
+    routingOperationId: string,
+    param: LearningParam,
+    std: number,
+  ): Promise<void> {
+    const actuals = await this.repo.actualSeries(tenantId, resourceId, routingOperationId)
+    const series = actuals
+      .map((a) => (param === 'cycle' ? a.actualCycleTime : a.actualSetupTime))
+      .filter((v): v is number => v != null)
+    const live = await this.repo.findLivePrediction(tenantId, resourceId, routingOperationId, param)
+
+    const cfg = await this.policy.getAutonomyConfig(tenantId)
+    const wearBand = cfg.wearBand ?? RULE.STEP_BAND
+    const threshold = std * (1 + wearBand)
+    const cadence = this.cadenceMinutes(actuals, std)
+    const result = series.length >= PREDICT.MIN_SAMPLES ? predict(series, threshold, cadence) : null
+
+    // No honest forecast now → close out a stale live one. `materialized` = the
+    // observed value reached the threshold (the forecast came true); `corrected` =
+    // the trend reversed/flattened before crossing (the forecast was wrong).
+    if (!result) {
+      if (live) {
+        const window = series.slice(-PREDICT.WINDOW)
+        const windowMean = window.length > 0 ? window.reduce((a, b) => a + b, 0) / window.length : 0
+        const materialized = windowMean >= threshold
+        await this.repo.updatePrediction(live.id, {
+          disposition: 'superseded',
+          outcome: materialized ? 'materialized' : 'corrected',
+        })
+        // Reversibility (proof #3): a pre-emptively-adopted forecast that did NOT
+        // materialise is corrected by the subsequent actuals — restore the observed
+        // overlay (re-derive from the real series, undoing the `ml_predicted` adopt).
+        if (!materialized && live.appliedLearnedValue != null) {
+          const obs = evaluate(series, std, { learnedValue: null, status: 'learning' })
+          await this.repo.upsertLearned({
+            tenantId,
+            resourceId,
+            routingOperationId,
+            param,
+            stdBaseline: std,
+            learnedValue: obs.learnedValue,
+            source: obs.source,
+            confidence: obs.confidence,
+            sampleCount: obs.sampleCount,
+            windowSize: obs.windowSize,
+            windowMean: obs.windowMean,
+            windowStddev: obs.windowStddev,
+            status: obs.status,
+            lastSteppedAt: new Date(),
+          })
+          this.logger.log(`prediction corrected: ${resourceId}/${routingOperationId} ${param} reverted to observed (reversible, proof #3)`)
+        }
+      }
+      return
+    }
+
+    const lastActual = actuals[actuals.length - 1]!
+    const crossingAt = new Date(lastActual.actualEnd.getTime() + result.horizonMinutes * 60_000)
+    const disposition = gateDisposition(result.actionTier, result.confidence, cfg.tier1AutoThreshold)
+
+    // Damped: keep the existing settled forecast unless it materially moved or the
+    // gate decision changed (convergence-not-motion, forward form — no live ticker).
+    const moved =
+      !live ||
+      live.disposition !== disposition ||
+      !live.crossingAt ||
+      Math.abs(crossingAt.getTime() - live.crossingAt.getTime()) > cadence * 60_000
+    if (!moved) return
+
+    if (live) await this.repo.updatePrediction(live.id, { disposition: 'superseded' })
+
+    const applied = disposition === 'auto_committed' ? result.predictedValue : null
+    const created = await this.repo.insertPrediction({
+      tenantId,
+      resourceId,
+      routingOperationId,
+      param,
+      predictedValue: result.predictedValue,
+      threshold: result.threshold,
+      crossingAt,
+      horizonMinutes: Math.round(result.horizonMinutes),
+      confidence: result.confidence,
+      fitSlope: result.fitSlope,
+      fitR2: result.fitR2,
+      windowSize: result.windowSize,
+      sampleCount: result.sampleCount,
+      proposedAction: result.proposedAction,
+      actionTier: result.actionTier,
+      disposition,
+      appliedLearnedValue: applied,
+      outcome: 'pending',
+    })
+    if (live) await this.repo.updatePrediction(live.id, { supersededBy: created.id })
+
+    if (disposition === 'auto_committed') {
+      await this.preAdopt(tenantId, resourceId, routingOperationId, param, std, result.predictedValue, result.confidence)
+      await this.events.publish(
+        EVENTS.LEARNING_PREDICTION_AUTOCOMMITTED,
+        { tenantId, resourceId, routingOperationId, param, predictedValue: result.predictedValue, confidence: result.confidence, horizonMinutes: result.horizonMinutes },
+        tenantId,
+      )
+      this.logger.log(
+        `pre-emptive adopt: ${resourceId}/${routingOperationId} ${param}→${result.predictedValue.toFixed(2)} (conf ${result.confidence.toFixed(2)}, ~${Math.round(result.horizonMinutes)}m, A18 Tier-1)`,
+      )
+    } else {
+      await this.events.publish(
+        EVENTS.LEARNING_PREDICTION_QUEUED,
+        { tenantId, resourceId, routingOperationId, param, confidence: result.confidence, tier: result.actionTier },
+        tenantId,
+      )
+    }
+    await this.events.publish(EVENTS.LEARNING_PREDICTION_UPDATED, { tenantId, predictionId: created.id }, tenantId)
+  }
+
+  /** Pre-emptively write the predicted value as a held overlay (source `ml_predicted`,
+   *  A18). The next solve uses it (D44: next draft, not retroactive); subsequent real
+   *  actuals re-step the learner if the drift doesn't materialise (reversible). */
+  private async preAdopt(
+    tenantId: string,
+    resourceId: string,
+    routingOperationId: string,
+    param: LearningParam,
+    std: number,
+    predictedValue: number,
+    confidence: number,
+  ): Promise<void> {
+    await this.repo.upsertLearned({
+      tenantId,
+      resourceId,
+      routingOperationId,
+      param,
+      stdBaseline: std,
+      learnedValue: predictedValue,
+      source: 'ml_predicted',
+      confidence,
+      sampleCount: 0,
+      windowSize: 0,
+      windowMean: predictedValue,
+      windowStddev: 0,
+      status: 'held',
+      lastSteppedAt: new Date(),
+    })
+  }
+
+  /** Minutes per "event" (one op-run) → converts events-to-cross into clock horizon.
+   *  Uses the mean **actual op duration** (robust — each actual carries its own
+   *  run length); falls back to the standard. Deterministic (data-derived). */
+  private cadenceMinutes(actuals: ExecutionActual[], std: number): number {
+    const durs = actuals
+      .map((a) => (a.actualEnd.getTime() - a.actualStart.getTime()) / 60_000)
+      .filter((d) => d > 0)
+    if (durs.length === 0) return std > 0 ? std : 1
+    return durs.reduce((a, b) => a + b, 0) / durs.length
+  }
+
+  /** Human-approve a queued prediction (View 4 / api-spec §13.7) → applies the pre-adjust. */
+  async approvePrediction(tenantId: string, id: string): Promise<void> {
+    const p = await this.requireQueued(tenantId, id)
+    const prior = await this.repo.findLearned(tenantId, p.resourceId, p.routingOperationId, p.param)
+    const std = prior?.stdBaseline ?? p.predictedValue
+    await this.repo.updatePrediction(id, { disposition: 'approved', appliedLearnedValue: p.predictedValue })
+    await this.preAdopt(tenantId, p.resourceId, p.routingOperationId, p.param, std, p.predictedValue, p.confidence)
+  }
+
+  /** Human-dismiss a queued prediction (no action taken). */
+  async dismissPrediction(tenantId: string, id: string): Promise<void> {
+    await this.requireQueued(tenantId, id)
+    await this.repo.updatePrediction(id, { disposition: 'dismissed' })
+  }
+
+  /** A queued prediction or the right error (a human can only dispose a queued one). */
+  private async requireQueued(tenantId: string, id: string) {
+    const p = await this.repo.findPredictionById(tenantId, id)
+    if (!p) throw new AppException(HttpStatus.NOT_FOUND, 'Prediction not found', ERROR_CODES.PREDICTION_NOT_FOUND)
+    if (p.disposition !== 'queued') {
+      throw new AppException(HttpStatus.CONFLICT, 'Prediction is not awaiting approval', ERROR_CODES.PREDICTION_NOT_QUEUED)
+    }
+    return p
   }
 }

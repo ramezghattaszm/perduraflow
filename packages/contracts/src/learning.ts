@@ -14,7 +14,7 @@ import type { TimeSource } from './scheduling'
  * basis) so a Phase-4 predictor can extend it and the Phase-5 narration surface
  * (A19) can verbalise it — never a bare float (forward-hooks).
  */
-export const LEARNING_READ_CONTRACT = { id: 'learning.read', version: '1.0' } as const
+export const LEARNING_READ_CONTRACT = { id: 'learning.read', version: '1.1' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -29,6 +29,35 @@ export type LearningParam = z.infer<typeof learningParamSchema>
  */
 export const learnedStatusSchema = z.enum(['learning', 'held', 'rejected'])
 export type LearnedStatus = z.infer<typeof learnedStatusSchema>
+
+// --- phase 4: parameter prediction (anticipatory, confidence-gated) -----------
+
+/** What a forecast implies (api-spec §13.3): a Tier-1 parameter pre-adjust, a
+ *  Tier-2/3 consequence, or nothing actionable. */
+export const proposedActionSchema = z.enum(['preadjust_parameter', 'reprioritize', 'none'])
+export type ProposedAction = z.infer<typeof proposedActionSchema>
+
+/** The A18 consequence tier of a prediction's proposed action (the gate's authority axis). */
+export const actionTierSchema = z.enum(['tier1', 'tier2', 'tier3'])
+export type ActionTier = z.infer<typeof actionTierSchema>
+
+/**
+ * Gate disposition (api-spec §13.3): `auto_committed` (Tier-1 ≥ threshold, applied);
+ * `queued` (needs a human — below threshold or higher tier); `approved`/`dismissed`
+ * (human-disposed); `superseded` (replaced by a settled re-forecast — the chain, not a ticker).
+ */
+export const predictionDispositionSchema = z.enum([
+  'auto_committed',
+  'queued',
+  'approved',
+  'dismissed',
+  'superseded',
+])
+export type PredictionDisposition = z.infer<typeof predictionDispositionSchema>
+
+/** Forecast outcome (the Phase-5 accuracy seam; set later by the closed loop). */
+export const predictionOutcomeSchema = z.enum(['pending', 'materialized', 'corrected', 'expired'])
+export type PredictionOutcome = z.infer<typeof predictionOutcomeSchema>
 
 // --- DTOs --------------------------------------------------------------------
 
@@ -59,9 +88,42 @@ export interface LearnedParameterDto {
 }
 
 /**
- * Published `learning.read 1.0` interface (api-spec §12.9). Scheduling consumes it
- * directly at solve to overlay learned cycle/setup; the board/variance panel lists
- * learned overlays. No transport in the interface (O6).
+ * A parameter prediction (api-spec §13.2 — A14 predictive arm). The OLS trend on
+ * the actuals series projected to a **threshold-crossing**, with **confidence that
+ * already includes horizon-decay** (a far crossing is honestly less certain). A
+ * **settled statement**, not a live gauge; one live row per key (others superseded).
+ * Structured for A19 narration + the Phase-5 accuracy measure (`outcome`).
+ */
+export interface ParameterPredictionDto {
+  id: string
+  resourceId: string
+  routingOperationId: string
+  param: LearningParam
+  /** The fitted value at the crossing (what it's predicted to reach). */
+  predictedValue: number
+  /** The threshold it's predicted to cross (std × (1+wear band), tenant-tunable). */
+  threshold: number
+  /** Forecast clock time of the crossing (ISO); null = no crossing within horizon. */
+  crossingAt: string | null
+  /** How far out, minutes (horizon — paired with confidence). */
+  horizonMinutes: number
+  /** 0–1, **already horizon-degraded** (near > far). */
+  confidence: number
+  /** Fit quality (R²) — the explainable basis (A19 hook). */
+  fitR2: number
+  proposedAction: ProposedAction
+  actionTier: ActionTier
+  disposition: PredictionDisposition
+  /** The value written on auto-commit/approve (reversibility/audit); null if not applied. */
+  appliedLearnedValue: number | null
+  outcome: PredictionOutcome
+  createdAt: string
+}
+
+/**
+ * Published `learning.read 1.1` interface (api-spec §12.9 + §13.6). `1.0 → 1.1` is
+ * additive (A12, no consumer breakage): the prediction reads are new. Scheduling
+ * still consumes only the learned-overlay + actuals methods at solve.
  */
 export interface LearningReadContract {
   readonly contract: typeof LEARNING_READ_CONTRACT
@@ -76,6 +138,15 @@ export interface LearningReadContract {
   listLearnedParameters(tenantId: string): Promise<LearnedParameterDto[]>
   /** Persisted actuals for a schedule version — scheduling joins these for variance/OEE/cost (4.4↔4.3). */
   listActualsForVersion(tenantId: string, scheduleVersionId: string): Promise<ExecutionActualDto[]>
+  /** The live forecast for one parameter, or null (phase 4). */
+  getPrediction(
+    tenantId: string,
+    resourceId: string,
+    routingOperationId: string,
+    param: LearningParam,
+  ): Promise<ParameterPredictionDto | null>
+  /** All live (non-superseded) forecasts for the tenant — Exception Queue + board flags (phase 4). */
+  listPredictions(tenantId: string): Promise<ParameterPredictionDto[]>
 }
 
 /** A persisted execution actual (4.3) returned to the variance/OEE/cost computation. */
