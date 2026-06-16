@@ -39,6 +39,20 @@
 > `next build` + expo tsc green. AS13–AS18 / FS12–FS15 implemented as proposed. **Remaining:** browser
 > verification on web + native (incl. per-version reselect) — user-driven per the brief DoD.
 >
+> **Phase 4 (parameter prediction — anticipatory, confidence-gated, tier-bounded): DRAFT — specs proposed,
+> pending sign-off; nothing implemented.** Governed by **A18** (the *predictive* case of the trust envelope).
+> Planned (api-spec §13 / frontend-spec §26–§31): a **predictor** in the `learning` module — **OLS linear
+> trend** on the same `execution_actual` series → a **threshold-crossing forecast** with **confidence that
+> degrades with horizon** (settled statement, damped, no ticker; new `parameter_prediction` table, retained for
+> a Phase-5 accuracy measure); a **confidence×tier gate** (per-tenant threshold; **Tier-1 auto-commit / Tier-3
+> always-human regardless of confidence** — A18 floor); **pre-emptive action** = a `ml_predicted` learned step
+> applied via the existing overlay at next solve (**no scheduling change**, D44-stable, **reversible** by
+> subsequent actuals); surfacing in **View 4 · Exception Queue** ("N need you · M auto-handled") + a board
+> forward-flag; the threshold configured in **View 5 · Objective Policy** (new `policy` module + `policy.read
+> 1.0`). Contracts: `learning.read 1.0 → 1.1` (additive: `getPrediction`/`listPredictions`), `TimeSource +=
+> ml_predicted`. Decisions **AS19–AS22 / FS16–FS19** (all DRAFT). Out of scope (Phase-5): what-if/baseline/
+> narration, auto-action outside the gate. **Awaiting RG review before any implementation.**
+>
 > **Demo reset + Magna scenario:** `bun run demo:reset` (apps/api `src/db/reset.ts`) restores the
 > deterministic **Magna de México** dataset (docs/SEED-SCENARIO-SPEC.md) in one step — truncates all
 > app-schema tables (wipes learned values, actuals, schedule versions), re-seeds the one coherent

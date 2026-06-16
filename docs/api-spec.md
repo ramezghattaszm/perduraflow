@@ -819,3 +819,181 @@ All through the coordinator; no cross-module **write** (O8) — scheduling only 
 | AS16 | **Guardrail bounds.** | **Max-deviation 50% → reject + flag** (`status=rejected`, anomaly event, keep standard); **confidence-to-use ≥ 0.6 + status=held** before the scheduler overlays; positivity; re-steps apply next-solve not retroactively (D44 seam). Show a breach rejected (proof #4). | **Proposed** |
 | AS17 | **Performance-variance scope + OEE cut.** | Compute attainment / behind-plan% / adherence / **churn (D57)** + **OEE A·P·Q**; surface on the **board variance strip** (operational summary) **and** the **Scorecard** (full screen). **Deferred:** standalone per-shift OEE trend dashboard (not demo-critical). | **Proposed** |
 | AS18 | **Tier-B cost placement.** | **Rates Master-Data-owned** (`masterdata.read 1.2`: resource run/setup cost, overhead; labor from MD15), **calculation in `scheduling`**; cost/unit from seeded rows only. Tier-C (`margin=price−cost`) deferred additive seam, not built. | **Proposed** |
+
+---
+
+# Phase 4 — Parameter prediction (anticipatory, confidence-gated, tier-bounded) (DRAFT — pending sign-off)
+
+> **STATUS: DRAFT for `docs/CLAUDE-CODE-BRIEF-PHASE-4.md` §4 step 1. Nothing implemented yet.**
+> **A18 governs** — this operationalizes the **predictive** case of the trust envelope: every prediction is
+> **reproducible** (D2; OLS on the seeded actuals series), **explainable** (the fitted window + slope + R²
+> are the retrievable basis, A19 hook), and **bounded** (confidence×tier gate; D44 stability; reversible by
+> actuals). Source refs: platform **A18** (trust envelope + autonomy gradient — Tier 1/2/3), **A14** (ML
+> parameter prediction — this is its *predictive* arm), A16/A17 (boundary widens with track record); scheduling
+> spec D5 (closed loop), D3 (ML targets), D56 (the tool-wear drift this projects), D26 (human-disposes Tier-3),
+> D44 (don't destabilize the committed near-horizon), D2 (determinism). All §0 override rules (O1–O8) + §2
+> schema rules carry forward unchanged. Decisions **AS19–AS22** below; UI in frontend-spec §26–§30 (FS16–FS19).
+
+## 13. Phase-4 modules & ownership
+
+| Module | Postgres schema | Kind | Owns / changes |
+|---|---|---|---|
+| `learning` *(edit)* | `learning` | capability module | **New `parameter_prediction`** (the forecast record: predicted value, threshold-crossing horizon, confidence, basis, proposed action + tier, **disposition**, outcome seam). Hosts the **predictor** (A14 predictive arm — reads the same `execution_actual` series the learner reads) + the **confidence×tier gate**. On auto-commit (Tier-1 ≥ threshold) writes a **predicted** `learned_parameter` step (so the existing `learning.read` overlay path applies it — *no scheduling change*). `learning.read 1.0 → 1.1` (additive); emits prediction events |
+| `policy` *(new — per-tenant autonomy/objective config, D42)* | `policy` | kernel-ish config | `autonomy_config` (the **confidence threshold** per tier + tier behavior; safe defaults D48). Publishes `policy.read 1.0` (the gate reads it). Objective trade-off weights (service floor / OT / churn) are a **named seam for Phase-5 View-5**, not built now |
+| `scheduling` *(unchanged)* | `scheduling` | domain | **No change** — it already overlays whatever `learning.read` returns at solve; a pre-emptively-adopted predicted value flows through the existing path (the D44 draft-then-commit split already keeps it off the in-execution op). Pre-emptive action = a higher learned cycle on next solve → the greedy re-sequences (same mechanism as Phase-3) |
+
+**Module-placement ruling (brief §3 "confirm placement") — AS19.** The predictor lives in **`learning`**: it
+reads the same `execution_actual` series the damped learner reads, extends the same structured record, and is
+the A14 capability NMA will also consume. The **autonomy config** (the gate's threshold) is **tenant policy**,
+not a learning internal, so it lives in a new small **`policy`** module the gate reads via `policy.read` —
+keeping "what the tenant is allowed to automate" separate from "the ML that produces a candidate" (clean for
+Phase-5 when View-5 grows objective weights). Scheduling is untouched (the pre-emptive value reaches it only
+through the existing `learning.read` overlay).
+
+### 13.1 `learning.parameter_prediction` table sketch (O2/§2.4 rules: ULID PK, `tenant_id` + index, `created_at`)
+
+> Migration `0006` adds `learning.parameter_prediction` only (no change to `execution_actual` / `learned_parameter`
+> / scheduling). **Retained, not discarded** (forward-hook): predictions + their outcome are the substrate for a
+> Phase-5 *prediction-accuracy* measure — append a new row per settled re-forecast; never hard-delete.
+
+**learning.parameter_prediction** — `tenant_id`, `resource_id` (text), `routing_operation_id` (text),
+`param` (enum `cycle|setup`), `predicted_value` (decimal — the fitted value at the crossing), `threshold`
+(decimal — what it's predicted to cross, from policy/std-band), `crossing_at` (timestamptz, nullable — the
+forecast clock time; null = "no crossing within horizon"), `horizon_minutes` (int — how far out),
+`confidence` (decimal 0–1 — **already horizon-degraded**), `fit_slope` (decimal — value/event drift),
+`fit_r2` (decimal 0–1 — fit quality, the basis), `window_size` (int), `sample_count` (int),
+`proposed_action` (enum `preadjust_parameter|reprioritize|none` — what the forecast implies),
+`action_tier` (enum `tier1|tier2|tier3` — the A18 consequence tier of that action),
+`disposition` (enum `auto_committed|queued|approved|dismissed|superseded`), `applied_learned_value` (decimal,
+nullable — what was written on auto-commit/approve, for reversibility/audit), `outcome` (enum
+`pending|materialized|corrected|expired`, default `pending` — **Phase-5 accuracy seam**, set later by the
+closed loop), `superseded_by` (text, nullable — the re-forecast that replaced this one; settled-step chain,
+not a ticker), `created_at`, `updated_at`. **One *live* prediction per `(tenant, resource, routing_operation,
+param)`** (the rest are `superseded`/historical) — convergence-not-motion in forward form.
+
+### 13.2 The prediction model (AS19) — simplest honest extrapolation
+
+Per `(tenant, resource_id, routing_operation_id, param)`, on the **ordered `execution_actual` series** (by
+`seq`, the same series §12.3 learns from — the actual measured `actual_cycle_time`/`actual_setup_time`, **never
+a fabricated trend**):
+
+- **Fit:** ordinary least-squares **linear regression** over the trailing window `W_PRED = 8` (or all if
+  fewer; **require `n ≥ MIN_PRED_SAMPLES = 5`** or no prediction). Yields `slope` (drift per event),
+  `intercept`, and **`r2`** (fit quality). Linear is the **placeholder honest model** — explainable ("fitted
+  the last N actuals, +X/event"), deterministic, and swappable for a real predictive model later (as the
+  greedy heuristic stands in for the optimizer). EWMA/ARIMA = considered-later alternatives.
+- **Threshold:** the value the parameter is predicted to *cross* = `std × (1 + WEAR_BAND)` by default
+  (`WEAR_BAND` = the §12.7 wear threshold), **per-tenant overridable** in Objective Policy. Only forecast a
+  crossing when the trend heads **toward** it (`slope > MIN_SLOPE` and current fitted value below threshold) —
+  a flat/declining series predicts **no crossing** (honest: no trend → no forecast).
+- **Horizon:** `eventsToCross = (threshold − fittedNow) / slope`; convert events→clock via the resource's
+  **cadence** (mean planned op duration on that resource, or mean inter-actual Δt from the series).
+  `horizon_minutes = eventsToCross × cadence`. **Cap at `H_MAX = 480 min`** (8h); beyond → "no crossing within
+  horizon" (`crossing_at = null`, no proposed action).
+- **Confidence — degrades with horizon (the honest core):**
+  `confidence = fitConfidence × horizonDecay` where
+  `fitConfidence = clamp(n / N_TRUST, 0,1) × clamp(r2, 0,1)` (samples × fit quality, mirrors §12.3) and
+  `horizonDecay = clamp(1 − horizon_minutes / H_MAX, CONF_FLOOR (0.1), 1)` — **a near crossing carries ~fit
+  confidence; a far one decays toward the floor** (proof #6). All deterministic constants → same series, same
+  `(value, crossing_at, horizon, confidence)` (D2, proof #5).
+- **Damped re-forecast (no live ticker — proof #1):** the predictor re-runs on each new actual (like the
+  learner), but **only writes a new settled prediction** when the crossing moves beyond `RE_FORECAST_BAND`
+  (crossing time shifts > ~1 cadence-event) **or** the gate disposition would change; small wiggles leave the
+  live row untouched. Superseded predictions are chained (`superseded_by`), never animated. The UI renders a
+  **settled statement** ("predicted to cross ~14:00 · conf 0.8 · 2h"), not a creeping gauge.
+
+### 13.3 Confidence×tier gate (AS20) — the spine
+
+For each live prediction with a `proposed_action`, the gate (in `learning`, reading `policy.read`) sets
+`disposition` — **confidence is the dial *inside* a tier, never a bypass *around* it (A18):**
+
+- **`action_tier` classification** (by what the action changes, not by confidence):
+  `preadjust_parameter` (cycle/setup) → **Tier 1**; an objective-weight nudge → **Tier 2** (seam, Phase-5);
+  any allocation / who-gets-shorted / certification / safety-sequencing consequence → **Tier 3**.
+- **Tier 1:** `confidence ≥ tier1AutoThreshold` → **`auto_committed`** (pre-emptive adopt, §13.4); below →
+  **`queued`** (proposes; awaits approval).
+- **Tier 2:** advisory-first default → **`queued`**; if the tenant has opted into bounded auto AND confidence
+  ≥ threshold AND the change stays within configured bounds → `auto_committed` (still logged/auditable).
+  *(Config seam this phase; the built predictive action is Tier-1.)*
+- **Tier 3:** **always `queued` (human disposes, D26) — regardless of confidence.** A 0.99-confident Tier-3
+  prediction still cannot auto-commit (proof #2 — demonstrate a predicted allocation/late-order consequence
+  routing to a human at high confidence).
+- Threshold + tier behavior are **per-tenant config** (`policy.autonomy_config`, §13.5), safe default
+  conservative (D48). The gate is deterministic given the prediction + config.
+
+### 13.4 Pre-emptive action — reversible + transparent + D44-stable (AS21)
+
+- **Auto-commit (Tier-1 ≥ threshold) or human-approved** → `learning` writes a `learned_parameter` step set
+  to the **predicted** value with a **distinct provenance** (`source = ml_predicted`, a new `TimeSource`
+  member, vs `ml_adjusted` for an *observed* adoption — the board/panel reads "predicted", honest that it acts
+  ahead of evidence). The existing `learning.read` overlay path then applies it at the **next solve** — **no
+  scheduling change** (proof: behavior-only). The higher predicted cycle lengthens the drifting resource's ops
+  → the greedy re-sequences to avoid the predicted starvation, **ahead** of the drift.
+- **Reversible (proof #3):** acting on a *forecast* is a real escalation, so the closed loop is the safety
+  net — subsequent **real actuals** keep feeding the §12.3 damped learner; if the predicted drift doesn't
+  materialize, the learner **re-steps to the true value** (RESTEP_BAND) and `outcome` is set `corrected`. A
+  wrong forecast self-corrects; it is never stuck or irreversible.
+- **Transparent (proof #4):** every `auto_committed` prediction is logged + surfaced in the **Exception Queue**
+  as *auto-handled* ("pre-emptively adjusted [resource] cycle for predicted wear · confidence X · ~T") — a
+  human can always see what the system did on a forecast even when it needed no approval. Never silent.
+- **D44 stability:** the pre-adjust applies on a **new draft** (next solve), never retroactively to an
+  in-execution/committed op — the Phase-2 draft-then-commit split already enforces this; same discipline as a
+  reactive re-step (§12.4). A pre-emptive change must not thrash the committed near-horizon.
+
+### 13.5 `policy` module + autonomy config (AS22)
+
+**policy.autonomy_config** (one row per tenant; O2/§2.4 rules) — `tenant_id` (unique), `tier1_auto_threshold`
+(decimal 0–1, **default 0.75** — conservative D48), `tier2_mode` (enum `advisory|bounded_auto`, default
+`advisory`), `tier3_mode` (enum `always_human`, fixed — **not** tenant-relaxable; the A18 floor),
+`wear_band_override` (decimal, nullable — the crossing threshold band if the tenant tunes it; else §12.7
+default), `updated_at`. **`policy.read 1.0`** (new published contract): `getAutonomyConfig(tenant) →
+{ tier1AutoThreshold, tier2Mode, tier3Mode, wearBand }`. Edited via the Objective-Policy view
+(`ConfigureGuard`). Objective trade-off **weights** (service floor / max OT / churn tolerance / expedite
+premium) are a **documented seam** in this schema for Phase-5 View-5 — **not built now**.
+
+### 13.6 Contracts — `learning.read 1.0 → 1.1` (additive) + `policy.read 1.0` (new)
+
+- **`learning.read 1.1`** (additive MINOR, A12 — no consumer breakage; binding-free, A14):
+  `getPrediction(tenant, resourceId, routingOperationId, param) → ParameterPredictionDto | null` (the live
+  forecast) and `listPredictions(tenant, plantId?) → ParameterPredictionDto[]` (Exception Queue + board
+  flags). `ParameterPredictionDto` = `{ resourceId, routingOperationId, param, predictedValue, threshold,
+  crossingAt, horizonMinutes, confidence, fitR2, proposedAction, actionTier, disposition, appliedLearnedValue,
+  outcome }` — **structured** (forward-hook: A19 narration verbalizes it; the outcome field is the accuracy
+  seam). `TimeSource` enum gains `ml_predicted` (additive).
+- **`policy.read 1.0`** (new, consumed by `learning`'s gate — a platform read, not a binding): `getAutonomyConfig`.
+
+### 13.7 Endpoints
+
+Reads (`JwtAuthGuard`, tenant-scoped): `GET /learning/predictions?plantId=` (live forecasts + dispositions —
+Exception Queue & board flags), `GET /policy/autonomy` (the configured thresholds — Objective Policy view).
+Writes (`JwtAuthGuard + ConfigureGuard`): `POST /learning/predictions/:id/approve` (human-dispose a queued
+prediction → applies the pre-adjust, §13.4), `POST /learning/predictions/:id/dismiss` (reject a queued
+prediction), `PUT /policy/autonomy` (set the confidence threshold + tier modes — D42, audited). **The
+predictor itself runs on actual-ingest** (no manual trigger endpoint); the existing **demo simulator**
+(`POST /dev/scheduling/simulate` with a `drift`) is what produces the observed drift the predictor projects —
+no new dev surface needed.
+
+### 13.8 Error codes (add to §6 `ERROR_CODES` + `errors.json`)
+
+```
+PREDICTION_NOT_FOUND,            // approve/dismiss a missing/superseded prediction
+PREDICTION_NOT_QUEUED,           // approve/dismiss one that isn't awaiting a human (already auto/applied)
+TIER3_REQUIRES_HUMAN,            // (defensive) an attempt to auto-commit a Tier-3 action — the bound
+AUTONOMY_CONFIG_INVALID          // threshold out of 0–1, or attempt to relax tier3_mode
+```
+
+### 13.9 EventBus (O5) — Phase-4 events
+
+`learning.prediction.updated` (a settled re-forecast — Exception Queue refresh), `learning.prediction.autocommitted`
+(Tier-1 ≥ threshold pre-adjust applied → auto-handled row + audit), `learning.prediction.queued` (needs-human →
+Exception Queue). All through the coordinator; no cross-module **write** (O8) — scheduling still only *reads*
+`learning.read`; `learning` *reads* `policy.read`.
+
+### 13.10 Open phase-4 API decisions (brief §5 — see also frontend-spec FS16–FS19)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| AS19 | **Predictor placement + model.** | **In `learning`** (reads the same actuals series; A14 capability). **OLS linear trend** over the trailing window (`W_PRED=8`, `n≥5`) → slope → **threshold-crossing horizon**; **confidence = (samples × fit-R²) × horizon-decay** so it **degrades with horizon**. Deterministic, damped (settled re-forecast past a band; no live ticker), bounded (`H_MAX=8h`; no trend → no forecast). Simplest honest extrapolation, a placeholder for a real model. Alternatives (EWMA/ARIMA/ML) deferred. | **DRAFT** |
+| AS20 | **Confidence×tier gate.** | Gate in `learning` reads per-tenant threshold (`policy.read`). **Tier-1** param pre-adjust auto-commits at `confidence ≥ tier1AutoThreshold` (default **0.75**), else queues; **Tier-2** advisory-first (bounded-auto opt-in); **Tier-3 always human regardless of confidence** (the A18 floor — proof #2). Confidence is the dial **inside** a tier, never a bypass around the gradient. | **DRAFT** |
+| AS21 | **Pre-emptive action — reversible/transparent/stable.** | Auto-commit/approve writes a **`ml_predicted`** learned step → applies via the existing overlay at **next solve** (no scheduling change, D44 draft-then-commit). **Reversible:** real actuals re-step the learner if the drift doesn't materialize (`outcome=corrected`, proof #3). **Transparent:** every auto-commit logged + shown auto-handled in the Exception Queue (proof #4). Never silent, never irreversible. | **DRAFT** |
+| AS22 | **Autonomy config placement + retention.** | New small **`policy`** module owns `autonomy_config` (threshold + tier modes; tier3 fixed-human) + `policy.read 1.0`; edited in Objective Policy (View 5). Objective trade-off weights = Phase-5 seam, not built. **`parameter_prediction` retained** (append per settled re-forecast; `outcome` seam) for the Phase-5 accuracy measure — don't discard. Alternative (fold config into `learning`) rejected: couples tenant policy to the ML producer. | **DRAFT** |

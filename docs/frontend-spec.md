@@ -418,3 +418,83 @@ toast); extend `errors.json` with api-spec §12.11 codes. **No hardcoded user-fa
 | FS13 | **`ml` bar colour** — distinct colour vs tag-only (VIEW-PLAN open #4). | **Distinct fill** `$ml` (deep violet `#7c5cff`, gallery) + the `ml` tag — a learned op reads differently at a glance; still a bar (encoding parity with at-risk's border-not-fill rule preserved since source≠risk). RG aesthetic call. | **Proposed** (distinct `$ml`) |
 | FS14 | **Gantt horizon Day/Week this phase?** (GANTT-FIX addendum). | **Day-only now**; add `horizon` as a prop **seam** only. Week aggregation is a **View-1 cockpit** feature (phases 4–5); building it now is out of phase-3 scope. | **Proposed** (seam only) |
 | FS15 | **Where does the drift trigger live?** | **Dev/staging-only surface** behind a demo flag (`/dev/simulator`), **never** in operational/admin nav; clearly removable demo scaffolding. | **Proposed** |
+
+---
+
+# Phase 4 — Parameter prediction: Exception Queue + Objective Policy (DRAFT — pending sign-off)
+
+> **STATUS: DRAFT for `docs/CLAUDE-CODE-BRIEF-PHASE-4.md` §4 step 1. Nothing implemented yet.** Phase 4 lights
+> up **View 4 · Exception Queue** (the *autonomy-demonstrated* screen) and the autonomy half of **View 5 ·
+> Objective Policy** (the confidence threshold + tier config), and adds a **forward-looking predicted-crossing
+> flag** to the board. **All numbers compute from rows** (predictions/confidence/horizon from `learning.read
+> 1.1`); **sample values here are representative, never literals** (no-hardcoding). Predictions render as
+> **settled statements** (convergence-not-motion, forward form) — no live ticker. Type per the board/dashboard
+> type map (UI §4) + the `Panel` chrome (UI §0.1). Decisions **FS16–FS19**; backend api-spec §13 (AS19–AS22).
+
+## 26. Phase-4 nav & routes
+
+The operational nav gains the two planner/ops-leader views (RBAC-gated, VIEW-PLAN): **Exception Queue**
+(planner — alongside Cockpit, which stays Phase-5) and **Objective Policy** (ops leader). Routes:
+`scheduling/exceptions` (View 4) and `admin/objective-policy` *(or operational `objective-policy`)* (View 5).
+Board stays at `scheduling/board`. View 1 (Cockpit) + View 6 (How-It-Connects) remain deferred.
+
+## 27. View 4 · Exception Queue (`features/exceptions/`) — planner *(autonomy demonstrated, not named)*
+
+- **Header:** **"N need you · M auto-handled"** — the auto-handled count is *the beat* (graduated autonomy made
+  visible without narration). `M` = count of `auto_committed` predictions; `N` = queued (needs-human). Both
+  computed, never literal.
+- **List:** prioritized `ExceptionRow`s (a new `packages/ui` component), grouped/sorted **needs-you first**,
+  then auto-handled. Each row (per the board type map):
+  - **identity** — resource · op (14/500/ink); **prediction as a settled statement** — "Predicted to cross
+    threshold ~14:00 · confidence 0.82 · 2h horizon" (figures 14/ink; label 11/caps/faint); a **tier/severity
+    `StatusPill`** (Tier-3 `danger`, queued Tier-1 `warning`/`neutral`, auto-handled `active`/green or a quiet
+    "auto" tone).
+  - **auto-handled row** — "Pre-emptively adjusted [resource] cycle for predicted wear" + confidence/horizon +
+    a **View** action (read-only audit; already applied + reversible). Quiet/low-severity treatment.
+  - **needs-you row** — the prediction + proposed action + an **Approve / Dismiss** control (`ConfigureGuard`);
+    **Tier-3** rows always land here (even at high confidence) with **Sign-off**, never an auto badge.
+- **Sources (Phase-4 build = predictions-first, composed client-side — no premature aggregator):** the
+  predictive rows from `learning.read 1.1`; the queue **also lists** existing exception signals it can already
+  read (at-risk orders from `scheduling.scorecard`, cert-gaps from `workforce.coverage`) as needs-you rows, so
+  the screen is the real cross-system queue VIEW-PLAN describes — but the **new** Phase-4 data is the predictive
+  auto-handled/queued rows + the auto-handled count.
+
+## 28. View 5 · Objective Policy (`features/objective-policy/`) — ops leader *(autonomy config)*
+
+- **Phase-4 scope = the autonomy controls only** (a *config* screen legitimately **names** the rules — different
+  context from the live demo's "don't narrate the model", VIEW-PLAN §5):
+  - **Confidence threshold** — the Tier-1 auto-commit threshold (a slider/`AppInput` 0–1, default 0.75) with a
+    plain-language read ("Auto-apply predicted parameter changes at ≥ 75% confidence; below, queue for review").
+  - **Tier behavior** — Tier-1 (auto, threshold-gated), Tier-2 (advisory ↔ bounded-auto toggle, seam),
+    **Tier-3 always human** shown **read-only/locked** (the A18 floor — visibly not relaxable).
+  - **Wear band** (optional) — the crossing threshold the predictor measures against, if the tenant tunes it.
+- **Objective trade-off weights** (service floor / max OT / churn / expedite) + **priority tiers** (the phase-1
+  customer/program priority UI) are **Phase-5 seams** — a labelled placeholder section, not built now.
+- Reads `GET /policy/autonomy`; writes `PUT /policy/autonomy` (`ConfigureGuard`, audited).
+
+## 29. Board addition — forward-looking predicted-crossing flag (existing screen, no restructure)
+
+A resource with a **live predicted crossing** gets a **calm settled lane flag** (reuse the §19 behind-plan
+chip pattern, a `warning`/`ml` tint): "predicted wear ~14:00" — a **statement, not a creeping gauge** (FS18).
+The bar-detail panel (the §17/`LearnedParamPanel`) gains a **prediction block** when a forecast exists for the
+op: "Predicted: cross threshold ~14:00 · conf 0.8 · 2h" + (if auto-committed) a "pre-applied" note — the
+forward form of the learned-step render, structured for A19 (Phase-5).
+
+## 30. New `packages/ui` components (variant-driven, both-theme stories — UI §0.2/§16)
+
+| Component | Purpose |
+|---|---|
+| `ExceptionRow` (+ `ExceptionQueue` list) | One queue row — identity + settled prediction statement + tier/severity `StatusPill` + per-row action (View / Approve / Dismiss / Sign-off). Auto-handled vs needs-you variants. Narration slot reserved. |
+| `ThresholdControl` *(or reuse `AppInput`+`FormField`)* | The 0–1 confidence threshold setter with a plain-language read; Tier rows (Tier-3 locked). |
+
+Reuse: `Panel` (titled cards), `StatusPill` (now has `danger`/`warning` tones), `DataTable`/list, `PageHeader`,
+`ContextSelectors`, `KpiTile` (the "N need you · M auto-handled" counts). No new styling primitives.
+
+## 31. Open phase-4 UI decisions (brief §5 — see also api-spec AS19–AS22)
+
+| ID | Question | Proposed | Status |
+|---|---|---|---|
+| FS16 | **Exception-Queue row shape** (auto-handled vs needs-you). | One `ExceptionRow` with two variants: **auto-handled** (quiet, confidence/horizon + read-only **View**) and **needs-you** (prediction + proposed action + **Approve/Dismiss/Sign-off**). Header **"N need you · M auto-handled"** carries the autonomy beat (counts computed). Settled statements, no ticker. | **DRAFT** |
+| FS17 | **Objective Policy autonomy controls** (this phase's cut). | Build **only the autonomy half**: confidence threshold (0–1, default 0.75) + tier behavior with **Tier-3 locked-human** visible; objective weights/priority = labelled Phase-5 seam. A config screen may **name** the rules (VIEW-PLAN §5). | **DRAFT** |
+| FS18 | **Forward-looking flag rendering.** | A **calm settled lane flag** ("predicted wear ~14:00") + a **prediction block** in the bar-detail panel — a *statement*, reusing the behind-plan-chip pattern. **No** live gauge / countdown (convergence-not-motion, forward form). | **DRAFT** |
+| FS19 | **New components vs reuse.** | New `ExceptionRow`/`ExceptionQueue` only; everything else **reuses** `Panel`/`StatusPill`(+danger/warning)/`KpiTile`/`DataTable`/`PageHeader`. No new styling primitive. | **DRAFT** |
