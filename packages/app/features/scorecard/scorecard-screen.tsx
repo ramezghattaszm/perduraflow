@@ -276,6 +276,9 @@ function baselineRows(live: CostedKpis, base: CostedKpis, t: (k: string) => stri
     { label: t('baseline:kpi.oee'), live: fmtPct(live.oee?.oee ?? null), baseline: fmtPct(base.oee?.oee ?? null), ...kpiDelta(live.oee?.oee ?? null, base.oee?.oee ?? null, 'pct', false) },
     { label: t('baseline:kpi.late'), live: String(live.lateOrders), baseline: String(base.lateOrders), ...kpiDelta(live.lateOrders, base.lateOrders, 'count', true) },
   ]
+    // Hide a KPI that isn't applicable to this arm (e.g. OEE — an execution metric —
+    // for the plan-vs-plan engine-lift arm): a row that is "—" on BOTH sides.
+    .filter((r) => !(r.live === '—' && r.baseline === '—'))
 }
 
 /** Baseline comparison (D57) — frozen-engine / measured-historical arms + empty-state. */

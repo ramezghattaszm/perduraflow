@@ -13,12 +13,18 @@ const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
 const post = <T, B>(url: string, body: B) => apiClient.post<T>(url, body).then((r) => r.data)
 const patch = <T, B>(url: string, body: B) => apiClient.patch<T>(url, body).then((r) => r.data)
 
-/** The plant's schedule versions, newest first (board selector). Enabled once a plant is chosen. */
+/**
+ * The plant's schedule versions, newest first (board selector). Enabled once a plant
+ * is chosen. `refetchOnMount: 'always'` so entering the board reflects any new draft /
+ * committed version (e.g. one applied elsewhere) without a manual refresh, despite the
+ * 60s staleTime.
+ */
 export function useScheduleVersions(plantId: string | undefined) {
   return useQuery({
     queryKey: QUERY_KEYS.scheduling.versions(plantId ?? ''),
     queryFn: () => get<ScheduleVersionDto[]>(`/scheduling/versions?plantId=${plantId}`),
     enabled: Boolean(plantId),
+    refetchOnMount: 'always',
   })
 }
 
@@ -31,21 +37,30 @@ export function useScheduleVersion(id: string | undefined) {
   })
 }
 
-/** The plant's resources (board rows), via the bound `masterdata.read`. */
+/**
+ * The plant's resources (board rows), via the bound `masterdata.read`. Drives the
+ * board's **line-down condition** (a resource's `status`), so `refetchOnMount: 'always'`
+ * — entering the board picks up a line set down elsewhere without a manual refresh.
+ */
 export function useScheduleResources(plantId: string | undefined) {
   return useQuery({
     queryKey: QUERY_KEYS.scheduling.resources(plantId ?? ''),
     queryFn: () => get<ResourceDto[]>(`/scheduling/resources?plantId=${plantId}`),
     enabled: Boolean(plantId),
+    refetchOnMount: 'always',
   })
 }
 
-/** The plant's seeded demand (read-only context). */
+/**
+ * The plant's seeded demand (read-only context). Drives the board's **demand-change
+ * condition** (qty vs the committed plan), so `refetchOnMount: 'always'`.
+ */
 export function useScheduleDemand(plantId: string | undefined) {
   return useQuery({
     queryKey: QUERY_KEYS.scheduling.demand(plantId ?? ''),
     queryFn: () => get<DemandInputDto[]>(`/scheduling/demand?plantId=${plantId}`),
     enabled: Boolean(plantId),
+    refetchOnMount: 'always',
   })
 }
 

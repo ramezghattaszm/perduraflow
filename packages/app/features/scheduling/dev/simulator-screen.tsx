@@ -17,6 +17,8 @@ import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useScheduleDemand, useScheduleResources, useScheduleVersions, useUpdateDemandQty } from '../../../hooks/useScheduling'
 import { useResourceMutations } from '../../../hooks/useMasterData'
 import { useSimulateActuals } from '../../../hooks/useLearning'
+import { queryClient } from '../../../lib/query-client'
+import { QUERY_KEYS } from '../../../lib/query-keys'
 import { AdminShell } from '../../shell/admin-shell'
 
 type Scenario = 'wear' | 'demand' | 'lineDown'
@@ -101,11 +103,15 @@ export function SimulatorContent() {
     }
   }
   const setLineCondition = async (status: 'inactive' | 'active') => {
-    if (!downLine) return
+    if (!downLine || !plantId) return
     setApplying(true)
     setApplied(null)
     try {
       await updateResource.mutateAsync({ id: downLine, body: { status } })
+      // The board reads resources via the scheduling query (a different key than the
+      // master-data mutation invalidates) — invalidate it so the board reflects the
+      // condition without a manual refresh.
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.resources(plantId) })
       setApplied(status === 'inactive' ? t('simulator.conditionDown') : t('simulator.conditionUp'))
     } finally {
       setApplying(false)

@@ -32,7 +32,7 @@ const envSchema = z.object({
   // unset → the active provider's preset default model.
   LLM_PROVIDER: z.enum(['recorded', 'anthropic', 'groq']).default('recorded'),
   LLM_MODEL: z.string().optional(),
-  LLM_PROMPT_VERSION: z.string().default('narrate-v1'),
+  LLM_PROMPT_VERSION: z.string().default('narrate-v2'),
   ANTHROPIC_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
 

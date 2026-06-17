@@ -9,6 +9,7 @@ import type {
   WhatIfResultDto,
 } from '@perduraflow/contracts'
 import { apiClient } from '../lib/axios'
+import { queryClient } from '../lib/query-client'
 import { QUERY_KEYS } from '../lib/query-keys'
 
 const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
@@ -58,10 +59,19 @@ export function useBaseline(plantId: string | undefined, source: BaselineSource,
   })
 }
 
-/** Apply a chosen option → a new draft schedule version (D26 human action). */
+/**
+ * Apply a chosen option → a new draft schedule version (D26 human action). Awaits
+ * invalidation of the plant's versions so the new draft is in the list **before**
+ * the caller selects it (otherwise the board's auto-select effect clobbers it back).
+ */
 export function useApplyOption() {
   return useMutation({
     mutationFn: (vars: { resultId: string; optionId: string }) =>
       post<ScheduleVersionDto, { optionId: string }>(`/admin/scheduling/what-if/${vars.resultId}/apply`, { optionId: vars.optionId }),
+    onSuccess: (v) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.versions(v.plantId) }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.version(v.id) }),
+      ]),
   })
 }

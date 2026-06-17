@@ -35,22 +35,42 @@ export class PlanComparisonService {
 
     const liveItems = resourceId ? ctx.items.filter((i) => i.eligibleResourceIds.includes(resourceId)) : ctx.items
     const overlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const live = scorePlan(sequence(liveItems, overlay).placements, { rateByResource, basePlacements: [], overtimeHours: 0 }).kpis
+    /** Plan-based live (what the live engine PRODUCES) — the right basis for the engine-lift arm. */
+    const livePlan = scorePlan(sequence(liveItems, overlay).placements, { rateByResource, basePlacements: [], overtimeHours: 0 }).kpis
 
     if (source === 'frozen_engine_snapshot') {
-      // Naive-frozen: std times (no overlay) + no changeover awareness (pure EDD).
+      // ENGINE LIFT = plan vs plan: the live engine's plan vs the same engine with its
+      // intelligence off (std times, no changeover grouping, pure EDD). Both sides are
+      // plan-derived, so OEE (an execution metric) is structurally absent on both — the
+      // UI hides any all-"—" row, so no phantom OEE comparison appears here.
       const naiveItems = stripChangeover(liveItems)
       const baseline = scorePlan(sequence(naiveItems).placements, { rateByResource, basePlacements: [], overtimeHours: 0 }).kpis
-      return { source, emptyState: false, plantId, scheduleVersionId: versionId, live, baseline, labelKey: labelFor(source) }
+      return { source, emptyState: false, plantId, scheduleVersionId: versionId, live: livePlan, baseline, labelKey: labelFor(source) }
     }
 
-    // measured_historical — aggregate seeded rows; empty-state when none.
+    // EXECUTION COMPARISON (measured_historical) = actuals vs actuals: the committed
+    // version's RECORDED outcomes (OTIF/cost/OEE from actuals — the same numbers the
+    // Scorecard tiles show) vs the historian's recorded outcomes. Apples-to-apples.
     const rows = await this.repo.listHistoricalOutcomes(tenantId, plantId, resourceId)
+    const liveActuals = versionId ? await this.liveExecutionKpis(tenantId, plantId, versionId, resourceId) : livePlan
     if (rows.length === 0) {
-      return { source, emptyState: true, plantId, scheduleVersionId: versionId, live, baseline: null, labelKey: labelFor(source) }
+      return { source, emptyState: true, plantId, scheduleVersionId: versionId, live: liveActuals, baseline: null, labelKey: labelFor(source) }
     }
     const baseline = aggregate(rows)
-    return { source, emptyState: false, plantId, scheduleVersionId: versionId, live, baseline, labelKey: labelFor(source) }
+    return { source, emptyState: false, plantId, scheduleVersionId: versionId, live: liveActuals, baseline, labelKey: labelFor(source) }
+  }
+
+  /** The committed version's actuals-based KPIs (reuses the Scorecard computation). */
+  private async liveExecutionKpis(tenantId: string, plantId: string, versionId: string, resourceId?: string): Promise<CostedKpis> {
+    const sc = await this.scheduling.scorecard(tenantId, plantId, versionId, resourceId)
+    return {
+      otif: sc.otif,
+      costPerUnit: sc.costPerUnit,
+      oee: sc.oee,
+      lateOrders: sc.atRisk.length,
+      throughput: sc.throughputAttainment,
+      churn: null,
+    }
   }
 
   private rates(resourceById: Map<string, { setupCost: number | null; runCostPerHour: number | null; overheadPerUnit: number | null }>): Map<string, ResourceRate> {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import {
   LLM_GATEWAY_CONTRACT,
@@ -22,15 +23,33 @@ import { PROVIDER_PRESETS } from './providers/presets'
  * `LLM_PROMPT_VERSION` for the D6 audit.
  */
 const SYSTEM_PROMPT = [
-  'You are a translation surface for a deterministic manufacturing scheduler.',
-  'You are given a HEADLINE and a list of FACTS that the engine already computed.',
-  'Rewrite them into one short, plain-language paragraph for a planner.',
-  'Strict rules:',
-  '- Use ONLY the facts provided. Introduce no new fact, number, cause, or recommendation.',
-  '- Do not rank, decide, or compute. The engine already decided; you only explain.',
-  '- Keep every number exactly as given. Do not round or infer.',
-  '- Be concise and neutral. No preamble, no "as an AI", no bullet points.',
+  'You explain a deterministic scheduler\'s decision to a production planner, in plain language.',
+  'You are given a HEADLINE (the chosen option and its KPIs) and FACTS: a per-factor breakdown',
+  "(each factor's value and how much it adds to the option's score), binding constraints, and how",
+  'the option compares to the alternatives (with the deciding factor).',
+  '',
+  'Write 2–4 sentences that explain the TRADE-OFF, like a planner\'s note:',
+  '- what this option prioritises (the factors it keeps low or at zero),',
+  '- what it gives up (the factors it accepts as higher), and',
+  '- why it beats the alternatives (name the deciding factor from the comparison).',
+  '',
+  'Strict rules (translate-only):',
+  '- Use ONLY the supplied facts. Introduce no fact, number, cause, factor, or option not given.',
+  '- You MAY characterise relative size from the given contributions — e.g. call the largest',
+  '  contributor the main driver, or a zero/near-zero factor negligible — but invent no new number.',
+  '- Do not re-rank or re-decide; the engine already chose. Keep every number exactly as given.',
+  '- Specific and neutral, flowing prose. No preamble, no bullet lists, no "as an AI".',
 ].join('\n')
+
+/**
+ * The recorded prompt version (D6 audit) — the human-readable env label plus a
+ * **fingerprint of the actual prompt text** (`sha256(SYSTEM_PROMPT)`). Deriving the
+ * hash means any edit to the prompt automatically changes the recorded version, so
+ * the audit can never silently drift from the prompt that produced a narration. The
+ * env label stays for readability; the hash is the tamper-evidence. (Per-tenant /
+ * DB-stored prompts are Phase 6.)
+ */
+const PROMPT_VERSION = `${env.LLM_PROMPT_VERSION}-${createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 8)}`
 
 /** Retry policy for transient provider failures (gateway-owned, inherited by all adapters). */
 const MAX_ATTEMPTS = 3
@@ -71,14 +90,14 @@ export class LlmGateway implements LlmGatewayContract {
     const req: LlmRequest = {
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
-      params: { maxTokens: 320, temperature: 0 },
-      metadata: { surface: 'narration', mode: input.mode, promptVersion: env.LLM_PROMPT_VERSION },
+      params: { maxTokens: 512, temperature: 0 },
+      metadata: { surface: 'narration', mode: input.mode, promptVersion: PROMPT_VERSION },
     }
     const res = await this.complete(req, config)
     return {
       prose: res.text.trim(),
       model: res.model,
-      promptVersion: env.LLM_PROMPT_VERSION,
+      promptVersion: PROMPT_VERSION,
       provider: res.providerName,
     }
   }

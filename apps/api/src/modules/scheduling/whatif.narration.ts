@@ -1,11 +1,13 @@
-import type { NarrationInput, NarrationMode, StructuredRationale, WhatIfOption } from '@perduraflow/contracts'
+import type { NarrationInput, NarrationMode, RationaleFactor, StructuredRationale, WhatIfOption } from '@perduraflow/contracts'
 
 /**
  * Resolve a structured rationale into the **fact lines** the narration gateway is
- * allowed to use (A19 translate-only). Each fact maps **1:1 to a rationale detail
- * key** (a factor or a binding constraint), so every sentence the model can produce
- * traces back to a structured fact — the boundary test (DoD proof #5). This is the
- * EN language surface; the structured rationale itself stays i18n-keyed for the UI.
+ * allowed to use (A19 translate-only). Every fact traces to the structured rationale
+ * (a factor's value + weighted contribution, a binding constraint, or a precomputed
+ * comparative), so the prose can **characterise the trade-off** — what the option
+ * prioritises, what it gives up, why it beats the alternatives — while inventing
+ * nothing (DoD proof #5). This is the EN language surface; the rationale stays
+ * i18n-keyed for the UI.
  */
 
 const num = (v: unknown): string => (typeof v === 'number' ? String(v) : String(v ?? ''))
@@ -22,25 +24,31 @@ const OPTION_LABELS: Record<string, string> = {
 }
 const label = (key: string): string => OPTION_LABELS[key] ?? key
 
-/** A factor detail key → an EN fact sentence (params from the structured rationale). */
-function factorFact(detailKey: string, p: Record<string, string | number>): string | null {
-  switch (detailKey) {
-    case 'whatif.factor.lateness':
-      return Number(p.hours) > 0 ? `${num(p.hours)}h of firm-order lateness across ${num(p.orders)} order(s).` : null
-    case 'whatif.factor.changeover':
-      return `${num(p.count)} changeover(s).`
-    case 'whatif.factor.overtime':
-      return Number(p.hours) > 0 ? `${num(p.hours)}h of overtime added.` : null
-    case 'whatif.factor.inventory':
-      return Number(p.hours) > 0 ? `${num(p.hours)}h of early/holding time.` : null
-    case 'whatif.factor.displacement':
-      return Number(p.count) > 0 ? `${num(p.count)} operation(s) displaced from the current plan.` : null
-    default:
-      return null
-  }
+const FACTOR_NAME: Record<string, string> = {
+  lateness: 'firm-order lateness',
+  changeover: 'changeovers',
+  overtime: 'overtime',
+  inventory: 'early/holding time',
+  displacement: 'displacement (ops moved from the current plan)',
+  cost: 'cost',
 }
 
-function constraintFact(detailKey: string, p: Record<string, string | number>): string | null {
+/** A factor's human value from its structured detail params. */
+function factorValue(f: RationaleFactor): string {
+  const p = f.detailParams
+  if (f.key === 'lateness') return `${num(p.hours)}h across ${num(p.orders)} order(s)`
+  if (f.key === 'changeover' || f.key === 'displacement') return `${num(p.count)}`
+  if (f.key === 'overtime' || f.key === 'inventory') return `${num(p.hours)}h`
+  return `${num(f.rawValue)}${f.unit}`
+}
+
+/** One factor as a fact: its value + the amount it adds to the score (the breakdown). */
+function factorLine(f: RationaleFactor): string {
+  return `${FACTOR_NAME[f.key] ?? f.key}: ${factorValue(f)}, contributing ${f.contribution} to the option's score (${f.direction}).`
+}
+
+/** A binding/notable constraint as a fact. */
+function constraintLine(detailKey: string, p: Record<string, string | number>): string | null {
   switch (detailKey) {
     case 'whatif.constraint.firmDelivery.late':
       return `Firm delivery is breached by ${num(p.hours)}h.`
@@ -51,51 +59,59 @@ function constraintFact(detailKey: string, p: Record<string, string | number>): 
   }
 }
 
-/** Build the narration input for one option's rationale (headline + traceable facts). */
-export function optionNarrationInput(rationale: StructuredRationale, locale = 'en'): NarrationInput {
-  const headline = `${label(String(rationale.headlineParams.label ?? rationale.optionId))}: ${num(rationale.headlineParams.lateOrders)} late order(s), cost/unit ${num(rationale.headlineParams.costPerUnit)}.`
-  const facts: string[] = []
-  for (const f of rationale.factors) {
-    const fact = factorFact(f.detailKey, f.detailParams)
-    if (fact) facts.push(fact)
-  }
-  for (const c of rationale.constraints) {
-    if (!c.binding) continue
-    const fact = constraintFact(c.detailKey, c.detailParams)
-    if (fact) facts.push(fact)
-  }
-  return { mode: 'option', headline, facts, locale }
+/** A comparative as a fact: how this option fares vs another, and the deciding factor. */
+function comparativeLine(self: WhatIfOption, others: WhatIfOption[], c: StructuredRationale['comparatives'][number]): string | null {
+  const other = others.find((o) => o.id === c.vsOptionId)
+  if (!other) return null
+  const rel = c.verdict === 'preferred' ? 'beats' : c.verdict === 'dominated' ? 'loses to' : 'trades off with'
+  const d = c.decidingFactors[0]
+  const why = d ? ` — the deciding difference is ${FACTOR_NAME[d.key] ?? d.key} (Δ ${d.delta} in its contribution)` : ''
+  return `Versus ${label(other.labelKey)}, ${label(self.labelKey)} ${rel} it${why}.`
 }
 
-/** Build the across-options narration input — recommended option + why it leads. */
+/** The complete fact set for one option: full factor breakdown + constraints + comparatives. */
+function optionFacts(opt: WhatIfOption, others: WhatIfOption[]): string[] {
+  const facts: string[] = []
+  for (const f of opt.rationale.factors) facts.push(factorLine(f))
+  for (const c of opt.rationale.constraints) {
+    const line = constraintLine(c.detailKey, c.detailParams)
+    if (line) facts.push(line)
+  }
+  for (const c of opt.rationale.comparatives) {
+    const line = comparativeLine(opt, others, c)
+    if (line) facts.push(line)
+  }
+  return facts
+}
+
+function kpiHeadline(opt: WhatIfOption, lead: string): string {
+  const cost = opt.kpis.costPerUnit ?? 0
+  return `${lead} ${label(opt.labelKey)} — OTIF ${Math.round(opt.kpis.otif * 100)}%, ${opt.kpis.lateOrders} late order(s), cost/unit ${cost}.`
+}
+
+/** Build the narration input for one option's rationale (full breakdown). */
+export function optionNarrationInput(opt: WhatIfOption, others: WhatIfOption[], locale = 'en'): NarrationInput {
+  return { mode: 'option', headline: kpiHeadline(opt, 'Option:'), facts: optionFacts(opt, others), locale }
+}
+
+/**
+ * Build the across-options narration input — the **recommended** option's complete
+ * breakdown (so the prose can explain the trade-off) plus the infeasible options.
+ */
 export function acrossNarrationInput(options: WhatIfOption[], recommendedId: string | null, locale = 'en'): NarrationInput {
   const feasible = options.filter((o) => o.feasible)
   const rec = feasible.find((o) => o.id === recommendedId) ?? feasible[0]
-  const headline = rec
-    ? `Recommended: ${label(rec.labelKey)} — ${rec.kpis.lateOrders} late order(s), cost/unit ${rec.kpis.costPerUnit ?? 0}.`
-    : 'No feasible option.'
-  const facts: string[] = []
-  if (rec) {
-    for (const c of rec.rationale.comparatives) {
-      const other = feasible.find((o) => o.id === c.vsOptionId)
-      if (!other) continue
-      const verb = c.verdict === 'preferred' ? 'is preferred over' : c.verdict === 'dominated' ? 'is worse than' : 'trades off against'
-      const driver = c.decidingFactors[0]
-      const because = driver ? ` (driven by ${driver.key}).` : '.'
-      facts.push(`${label(rec.labelKey)} ${verb} ${label(other.labelKey)}${because}`)
-    }
-  }
-  for (const o of options.filter((x) => !x.feasible)) {
-    facts.push(`${label(o.labelKey)} is infeasible.`)
-  }
-  return { mode: 'across_options', headline, facts, locale }
+  if (!rec) return { mode: 'across_options', headline: 'No feasible option.', facts: [], locale }
+  const facts = optionFacts(rec, feasible)
+  for (const o of options.filter((x) => !x.feasible)) facts.push(`${label(o.labelKey)} is not feasible.`)
+  return { mode: 'across_options', headline: kpiHeadline(rec, 'Recommended:'), facts, locale }
 }
 
 /** Build the narration input for the requested mode (one option or across-options). */
 export function inputFor(mode: NarrationMode, options: WhatIfOption[], recommendedId: string | null, optionId?: string): NarrationInput {
   if (mode === 'option') {
-    const opt = options.find((o) => o.id === optionId) ?? options[0]
-    return optionNarrationInput(opt!.rationale)
+    const opt = options.find((o) => o.id === optionId) ?? options[0]!
+    return optionNarrationInput(opt, options.filter((o) => o.id !== opt.id))
   }
   return acrossNarrationInput(options, recommendedId)
 }

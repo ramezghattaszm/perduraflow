@@ -3,7 +3,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { TriangleAlert } from '@tamagui/lucide-icons'
 import type { GanttBar, MeasuredDetail, ParamProvenance, VarianceChip, WearPrediction } from '@perduraflow/ui'
-import type { WhatIfResultDto } from '@perduraflow/contracts'
+import type { ChangeSet, WhatIfResultDto } from '@perduraflow/contracts'
 import {
   AppButton,
   BarDetailSheet,
@@ -67,6 +67,7 @@ export function BoardContent() {
   const commit = useCommitSchedule()
   const whatIf = useWhatIf()
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
+  const [whatIfError, setWhatIfError] = useState<string | null>(null)
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const { showToast } = useToast()
@@ -90,6 +91,7 @@ export function BoardContent() {
   // this keeps the UI honest to the same scope.
   useEffect(() => {
     setWhatIfResult(null)
+    setWhatIfError(null)
     setSelectedBarId(null)
     setSelectedResourceId(null)
   }, [plantId])
@@ -177,9 +179,12 @@ export function BoardContent() {
     () => new Map((detail?.operations ?? []).map((o) => [o.demandLineId, o.plannedQty])),
     [detail],
   )
+  // Show a line-down condition only while the selected plan still strands work on the
+  // down line; once rerouted (the applied draft has 0 ops there) it self-clears.
   const lineDownConditions = resources
     .filter((r) => downResourceIds.has(r.id))
     .map((r) => ({ resourceId: r.id, name: r.name, affected: (detail?.operations ?? []).filter((o) => o.resourceId === r.id).length }))
+    .filter((c) => c.affected > 0)
   const demandConditions = demand
     .map((d) => ({ demandLineId: d.demandLineId, to: d.requiredQty, from: plannedQtyByLine.get(d.demandLineId) }))
     .filter((c) => c.from != null && c.from !== c.to)
@@ -253,33 +258,32 @@ export function BoardContent() {
 
   // What-if (D55) — evaluate a detected condition → costed option-set. Demand change,
   // line down, and the prediction "so what" all route to the same engine; nothing
-  // commits until the planner applies an option (the real D26 guardrail).
-  const runDemandWhatIf = (demandLineId: string, to: number) => {
+  // commits until the planner applies an option (the real D26 guardrail). Failures
+  // (e.g. the whole plant infeasible — every eligible line down) surface honestly
+  // instead of vanishing.
+  const runWhatIf = (changeSet: ChangeSet) => {
     if (!plantId) return
+    // Close the bar-detail sheet (native: a bottom sheet) when options are requested
+    // from within it — otherwise it stays open over the option-set. No-op when the
+    // trigger is a condition card (nothing selected).
+    setSelectedBarId(null)
+    setSelectedResourceId(null)
     setWhatIfResult(null)
+    setWhatIfError(null)
     whatIf.mutate(
-      { plantId, changeSet: { origin: { type: 'demand', ref: demandLineId }, changes: [{ kind: 'demand_qty', demandLineId, to }] } },
-      { onSuccess: setWhatIfResult },
+      { plantId, changeSet },
+      { onSuccess: setWhatIfResult, onError: (e) => setWhatIfError(translateError(getApiErrorCode(e))) },
     )
   }
+  const runDemandWhatIf = (demandLineId: string, to: number) =>
+    runWhatIf({ origin: { type: 'demand', ref: demandLineId }, changes: [{ kind: 'demand_qty', demandLineId, to }] })
   const runLineDownWhatIf = (resourceId: string) => {
-    if (!plantId) return
-    setWhatIfResult(null)
     const now = new Date()
     const week = new Date(now.getTime() + 7 * 86_400_000)
-    whatIf.mutate(
-      { plantId, changeSet: { origin: { type: 'collision', ref: resourceId }, changes: [{ kind: 'resource_window', resourceId, downFrom: now.toISOString(), downTo: week.toISOString() }] } },
-      { onSuccess: setWhatIfResult },
-    )
+    runWhatIf({ origin: { type: 'collision', ref: resourceId }, changes: [{ kind: 'resource_window', resourceId, downFrom: now.toISOString(), downTo: week.toISOString() }] })
   }
-  const runWearWhatIf = (resourceId: string) => {
-    if (!plantId) return
-    setWhatIfResult(null)
-    whatIf.mutate(
-      { plantId, changeSet: { origin: { type: 'prediction', ref: resourceId }, changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }] } },
-      { onSuccess: setWhatIfResult },
-    )
-  }
+  const runWearWhatIf = (resourceId: string) =>
+    runWhatIf({ origin: { type: 'prediction', ref: resourceId }, changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }] })
 
   // Self-contained bar detail (identity + learned/std + performance). Identity is
   // repeated so the panel/sheet stands alone (the tap target never assumes a hover).
@@ -500,7 +504,7 @@ export function BoardContent() {
 
       {/* Cockpit · conditions (D55) — detected disruptions in the data → review costed
           options → apply (draft → commit, the human guardrail). */}
-      {detail && (conditionCount > 0 || whatIfResult) ? (
+      {detail && (conditionCount > 0 || whatIfResult || whatIfError) ? (
         <Panel title={t('whatif:trigger.title')}>
           {conditionCount === 0 ? (
             <P size={4} color="$textSecondary">
@@ -530,9 +534,25 @@ export function BoardContent() {
               ))}
             </YStack>
           )}
+          {whatIfError ? (
+            <XStack marginTop="$3" gap="$2" alignItems="center" backgroundColor="$dangerSoft" borderRadius="$4" paddingHorizontal="$3" paddingVertical="$2.5">
+              <TriangleAlert size={15} color="$danger" />
+              <P size={4} color="$danger">
+                {whatIfError}
+              </P>
+            </XStack>
+          ) : null}
           {whatIfResult ? (
             <YStack marginTop="$3">
-              <WhatIfOptionSet result={whatIfResult} onApplied={(v) => setVersionId(v)} />
+              <WhatIfOptionSet
+                result={whatIfResult}
+                onApplied={(v) => {
+                  // Select the new draft (now in the refreshed version list) and clear the
+                  // option-set so it can't be re-applied.
+                  setVersionId(v)
+                  setWhatIfResult(null)
+                }}
+              />
             </YStack>
           ) : null}
         </Panel>
