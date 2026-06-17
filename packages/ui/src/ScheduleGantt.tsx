@@ -34,6 +34,9 @@ export interface GanttResource {
   /** Forward-looking settled flag, e.g. "predicted wear ~14:00" (phase 4, FS18) — a
    *  statement, not a live gauge. Shown when there's no `behind` signal. */
   predicted?: string
+  /** The line is offline (a "line down" condition) — lane is greyed + tagged DOWN and
+   *  shows no bars (its work is stranded until rerouted). */
+  down?: boolean
 }
 
 /**
@@ -188,10 +191,16 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
             hoverStyle={onResourceSelect ? { backgroundColor: selectedResourceId === r.id ? '$primarySoft' : '$hoverFill' } : undefined}
             onPress={onResourceSelect ? () => onResourceSelect(selectedResourceId === r.id ? null : r.id) : undefined}
           >
-            <P size={3} weight="m" numberOfLines={1} color={selectedResourceId === r.id ? '$primary' : '$textPrimary'}>
+            <P size={3} weight="m" numberOfLines={1} color={r.down ? '$textTertiary' : selectedResourceId === r.id ? '$primary' : '$textPrimary'}>
               {r.label}
             </P>
-            {r.behind ? (
+            {r.down ? (
+              <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
+                <P size={5} weight="b" caps color="$danger" numberOfLines={1}>
+                  down
+                </P>
+              </XStack>
+            ) : r.behind ? (
               <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
                 <P size={5} weight="b" color="$danger" numberOfLines={1}>
                   {r.behind}

@@ -47,6 +47,12 @@
       "downstream": "Downstream: {{count}} op(s) on {{resource}} — kept fed by the pre-emptive adjustment",
       "downstreamNone": "No downstream ops affected this horizon",
       "healthy": "No wear signal — running on standard."
+    },
+    "down": {
+      "subtitle": "Line offline",
+      "pill": "Down",
+      "title": "This line is down",
+      "body": "{{count}} scheduled op(s) on {{resource}} are stranded — review options to reroute or add overtime."
     }
   },
   "legend": {
@@ -92,8 +98,8 @@
     "triggerBody": "Cycle drift on {{resource}} crossed threshold — flagged. Schedule re-sequenced to protect downstream from starvation."
   },
   "simulator": {
-    "title": "Execution simulator",
-    "subtitle": "Demo fixture — emits seeded execution actuals into the closed loop. Not part of the product.",
+    "title": "Scenario launcher",
+    "subtitle": "Demo fixture — inject a condition or evaluate a disruption against the real engine. Not part of the product.",
     "version": "Committed version",
     "cycles": "Cycles per op",
     "drift": "Tool-wear drift",
@@ -101,6 +107,24 @@
     "magnitude": "Magnitude (e.g. 0.08 = +8%)",
     "run": "Run simulator",
     "emitted": "{{count}} actuals emitted.",
-    "needCommitted": "Select a committed version to simulate."
+    "needCommitted": "Select a committed version to simulate.",
+    "scenario": "Scenario",
+    "scenarioWear": "Tool wear (drift) — inject a condition",
+    "scenarioDemand": "Demand change — evaluate options",
+    "scenarioLineDown": "Line down — evaluate options",
+    "order": "Order",
+    "newQty": "New quantity",
+    "line": "Line that goes down",
+    "evaluate": "Evaluate scenario",
+    "needOrder": "Select an order",
+    "needLine": "Select a line",
+    "wearHint": "Mutates state: feeds seeded actuals (with optional wear drift) into the closed loop → learning + predictions.",
+    "conditionHint": "Sets the condition in the data (does not re-solve). Open the Board to review options and apply.",
+    "setCondition": "Set condition",
+    "bringBackUp": "Bring line back up",
+    "conditionDemand": "Condition set — order quantity changed.",
+    "conditionDown": "Condition set — line marked down.",
+    "conditionUp": "Restored — line back up.",
+    "goToBoard": "Open the Board (this plant) — it shows the condition with options to review and apply."
   }
 }

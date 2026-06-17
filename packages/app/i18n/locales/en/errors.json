@@ -39,5 +39,10 @@
   "OPTIMIZER_RUN_FAILED": "The scheduling run failed. Please try again.",
   "SCHEDULE_INFEASIBLE": "The schedule is infeasible — some demand can't be produced (no routing or eligible resource).",
   "NO_DEMAND_TO_SCHEDULE": "There is no active demand to schedule for this plant.",
+  "CHANGE_SET_INVALID": "That change references something that no longer exists.",
+  "WHATIF_INFEASIBLE": "The change can't be scheduled — no feasible option.",
+  "WHATIF_RESULT_NOT_FOUND": "That what-if result no longer exists.",
+  "WHATIF_OPTION_NOT_FOUND": "That option no longer exists.",
+  "NARRATION_UNAVAILABLE": "The plain-language explanation is unavailable.",
   "GENERIC": "Something went wrong. Please try again."
 }

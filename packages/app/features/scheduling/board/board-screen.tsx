@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { TriangleAlert } from '@tamagui/lucide-icons'
 import type { GanttBar, MeasuredDetail, ParamProvenance, VarianceChip, WearPrediction } from '@perduraflow/ui'
+import type { WhatIfResultDto } from '@perduraflow/contracts'
 import {
   AppButton,
   BarDetailSheet,
@@ -10,6 +11,7 @@ import {
   LearnedParamPanel,
   P,
   PageHeader,
+  Panel,
   ResourceWearPanel,
   ScheduleGantt,
   StatusPill,
@@ -24,14 +26,17 @@ import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts } from '../../../hooks/useMasterData'
 import {
   useCommitSchedule,
+  useScheduleDemand,
   useScheduleResources,
   useScheduleVersion,
   useScheduleVersions,
   useSolveSchedule,
 } from '../../../hooks/useScheduling'
 import { useLearnedParameters, usePredictions, useVariance } from '../../../hooks/useLearning'
+import { useWhatIf } from '../../../hooks/useWhatIf'
 import { useToast } from '../../../hooks/useToast'
 import { AdminShell } from '../../shell/admin-shell'
+import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
 
 /** Cycle deviation (learned vs std) at/above which a tool-wear flag is shown (mirrors RULE.STEP_BAND). */
 const WEAR_PCT = 0.05
@@ -53,12 +58,15 @@ export function BoardContent() {
 
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
+  const { data: demand = [] } = useScheduleDemand(plantId ?? undefined)
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
   const { data: variance } = useVariance(versionId ?? undefined)
   const { data: learned = [] } = useLearnedParameters()
   const { data: predictions = [] } = usePredictions()
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
+  const whatIf = useWhatIf()
+  const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const { showToast } = useToast()
@@ -75,6 +83,16 @@ export function BoardContent() {
       setVersionId((committed ?? versions[0]!).id)
     }
   }, [versions, versionId])
+
+  // A what-if result is scoped to the plant it was generated for — clear it (and the
+  // detail selection) when the plant changes so one plant's options never bleed into
+  // another's. The backend already rejects a cross-plant change-set (CHANGE_SET_INVALID);
+  // this keeps the UI honest to the same scope.
+  useEffect(() => {
+    setWhatIfResult(null)
+    setSelectedBarId(null)
+    setSelectedResourceId(null)
+  }, [plantId])
 
   const partNo = useMemo(() => new Map(parts.map((p) => [p.id, p.partNo])), [parts])
   const partColour = useMemo(() => new Map(parts.map((p) => [p.id, p.colour])), [parts])
@@ -103,7 +121,13 @@ export function BoardContent() {
     return ids
   }, [detail, partColour])
 
-  const bars: GanttBar[] = (detail?.operations ?? []).map((o) => {
+  // Conditions live in the DATA (not yet re-solved): a line down = an inactive
+  // resource; a demand change = a demand line whose qty ≠ the committed plan's qty.
+  // The board detects them, suppresses the down line's (now-stranded) bars, and offers
+  // costed options to review + apply (the real Apply→draft→commit, below).
+  const downResourceIds = useMemo(() => new Set(resources.filter((r) => r.status !== 'active').map((r) => r.id)), [resources])
+
+  const bars: GanttBar[] = (detail?.operations ?? []).filter((o) => !downResourceIds.has(o.resourceId)).map((o) => {
     const ml = o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted'
     return {
       id: o.id,
@@ -142,10 +166,23 @@ export function BoardContent() {
   const ganttResources = resources.map((r) => ({
     id: r.id,
     label: r.name,
-    behind: behindByResource.get(r.id),
-    predicted: predByResource.get(r.id),
+    behind: downResourceIds.has(r.id) ? undefined : behindByResource.get(r.id),
+    predicted: downResourceIds.has(r.id) ? undefined : predByResource.get(r.id),
+    down: downResourceIds.has(r.id),
   }))
   const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
+
+  // Detected conditions (selected plant vs its committed plan) → reviewable cards.
+  const plannedQtyByLine = useMemo(
+    () => new Map((detail?.operations ?? []).map((o) => [o.demandLineId, o.plannedQty])),
+    [detail],
+  )
+  const lineDownConditions = resources
+    .filter((r) => downResourceIds.has(r.id))
+    .map((r) => ({ resourceId: r.id, name: r.name, affected: (detail?.operations ?? []).filter((o) => o.resourceId === r.id).length }))
+  const demandConditions = demand
+    .map((d) => ({ demandLineId: d.demandLineId, to: d.requiredQty, from: plannedQtyByLine.get(d.demandLineId) }))
+    .filter((c) => c.from != null && c.from !== c.to)
 
   // Learned cycle overlays keyed by (resource, op) — the LearnedParamPanel source.
   const learnedCycleByKey = useMemo(
@@ -212,6 +249,36 @@ export function BoardContent() {
   const onSolve = () => {
     if (!plantId) return
     solve.mutate(plantId, { onSuccess: (v) => setVersionId(v.id) })
+  }
+
+  // What-if (D55) — evaluate a detected condition → costed option-set. Demand change,
+  // line down, and the prediction "so what" all route to the same engine; nothing
+  // commits until the planner applies an option (the real D26 guardrail).
+  const runDemandWhatIf = (demandLineId: string, to: number) => {
+    if (!plantId) return
+    setWhatIfResult(null)
+    whatIf.mutate(
+      { plantId, changeSet: { origin: { type: 'demand', ref: demandLineId }, changes: [{ kind: 'demand_qty', demandLineId, to }] } },
+      { onSuccess: setWhatIfResult },
+    )
+  }
+  const runLineDownWhatIf = (resourceId: string) => {
+    if (!plantId) return
+    setWhatIfResult(null)
+    const now = new Date()
+    const week = new Date(now.getTime() + 7 * 86_400_000)
+    whatIf.mutate(
+      { plantId, changeSet: { origin: { type: 'collision', ref: resourceId }, changes: [{ kind: 'resource_window', resourceId, downFrom: now.toISOString(), downTo: week.toISOString() }] } },
+      { onSuccess: setWhatIfResult },
+    )
+  }
+  const runWearWhatIf = (resourceId: string) => {
+    if (!plantId) return
+    setWhatIfResult(null)
+    whatIf.mutate(
+      { plantId, changeSet: { origin: { type: 'prediction', ref: resourceId }, changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }] } },
+      { onSuccess: setWhatIfResult },
+    )
   }
 
   // Self-contained bar detail (identity + learned/std + performance). Identity is
@@ -334,7 +401,21 @@ export function BoardContent() {
   }
 
   const lineOpsN = selectedResourceId ? (detail?.operations ?? []).filter((o) => o.resourceId === selectedResourceId).length : 0
-  const resourcePanel = selectedResourceId ? (
+  const selectedDown = selectedResourceId ? downResourceIds.has(selectedResourceId) : false
+
+  // Down line (click a downed lane) — a "line is down" surface, not the normal panel.
+  const downPanel = selectedResourceId && selectedDown ? (
+    <ResourceWearPanel
+      title={resName}
+      subtitle={t('board.down.subtitle')}
+      status={{ label: t('board.down.pill'), tone: 'danger' }}
+      warning={{ title: t('board.down.title'), body: t('board.down.body', { count: lineOpsN, resource: resName }) }}
+      action={{ label: t('whatif:trigger.seeOptions'), onPress: () => runLineDownWhatIf(selectedResourceId!), loading: whatIf.isPending }}
+      emptyText=""
+    />
+  ) : null
+
+  const resourcePanel = selectedResourceId && !selectedDown ? (
     <ResourceWearPanel
       title={resName}
       subtitle={t('board.pred.lineSubtitle')}
@@ -349,11 +430,17 @@ export function BoardContent() {
             }
           : undefined
       }
+      action={
+        linePred || lineWear
+          ? { label: t('whatif:trigger.seeOptions'), onPress: () => runWearWhatIf(selectedResourceId!), loading: whatIf.isPending }
+          : undefined
+      }
       emptyText={t('board.pred.healthy')}
     />
   ) : null
 
-  const detailPanel = opPanel ?? resourcePanel
+  const detailPanel = opPanel ?? downPanel ?? resourcePanel
+  const conditionCount = lineDownConditions.length + demandConditions.length
 
   return (
     <>
@@ -409,6 +496,46 @@ export function BoardContent() {
             {t('board.stale.banner')}
           </P>
         </XStack>
+      ) : null}
+
+      {/* Cockpit · conditions (D55) — detected disruptions in the data → review costed
+          options → apply (draft → commit, the human guardrail). */}
+      {detail && (conditionCount > 0 || whatIfResult) ? (
+        <Panel title={t('whatif:trigger.title')}>
+          {conditionCount === 0 ? (
+            <P size={4} color="$textSecondary">
+              {t('whatif:subtitle')}
+            </P>
+          ) : (
+            <YStack gap="$2">
+              {lineDownConditions.map((c) => (
+                <ConditionCard
+                  key={`down-${c.resourceId}`}
+                  title={t('whatif:condition.lineDown', { resource: c.name })}
+                  detail={t('whatif:condition.lineDownDetail', { count: c.affected })}
+                  cta={t('whatif:trigger.seeOptions')}
+                  loading={whatIf.isPending}
+                  onPress={() => runLineDownWhatIf(c.resourceId)}
+                />
+              ))}
+              {demandConditions.map((c) => (
+                <ConditionCard
+                  key={`demand-${c.demandLineId}`}
+                  title={t('whatif:condition.demand', { line: c.demandLineId })}
+                  detail={t('whatif:condition.demandDetail', { from: c.from, to: c.to })}
+                  cta={t('whatif:trigger.seeOptions')}
+                  loading={whatIf.isPending}
+                  onPress={() => runDemandWhatIf(c.demandLineId, c.to)}
+                />
+              ))}
+            </YStack>
+          )}
+          {whatIfResult ? (
+            <YStack marginTop="$3">
+              <WhatIfOptionSet result={whatIfResult} onApplied={(v) => setVersionId(v)} />
+            </YStack>
+          ) : null}
+        </Panel>
       ) : null}
 
       {detail ? (
@@ -484,6 +611,34 @@ export function BoardContent() {
         </BarDetailSheet>
       ) : null}
     </>
+  )
+}
+
+/** A detected-condition card on the board (line down / demand change) → review options. */
+function ConditionCard({ title, detail, cta, loading, onPress }: { title: string; detail: string; cta: string; loading?: boolean; onPress: () => void }) {
+  return (
+    <XStack
+      gap="$3"
+      alignItems="center"
+      justifyContent="space-between"
+      flexWrap="wrap"
+      backgroundColor="$warningSoft"
+      borderRadius="$4"
+      paddingHorizontal="$3"
+      paddingVertical="$2.5"
+    >
+      <YStack flex={1} minWidth={200} gap="$0.5">
+        <P size={3} weight="m" color="$textPrimary">
+          {title}
+        </P>
+        <P size={4} color="$textSecondary">
+          {detail}
+        </P>
+      </YStack>
+      <AppButton variant="ghost" size="$3" loading={loading} onPress={onPress}>
+        {cta}
+      </AppButton>
+    </XStack>
   )
 }
 

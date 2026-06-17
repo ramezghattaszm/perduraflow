@@ -1,5 +1,6 @@
-import { TriangleAlert, Wrench } from '@tamagui/lucide-icons'
+import { ArrowUpRight, TriangleAlert, Wrench } from '@tamagui/lucide-icons'
 import { XStack, YStack } from 'tamagui'
+import { AppButton } from './AppButton'
 import { ConfidenceRing } from './ConfidenceRing'
 import { StatusPill, type StatusTone } from './StatusPill'
 import { H, P } from './typography'
@@ -39,6 +40,8 @@ export interface ResourceWearPanelProps {
   prediction?: WearPrediction
   /** Minimal "so what": maintenance signal + downstream. */
   consequence?: { maintenance: string; downstream: string }
+  /** Optional "so what" action — turn the prediction into costed options (phase 5, D55). */
+  action?: { label: string; onPress: () => void; loading?: boolean }
   /** Shown when the line has neither a wear warning nor a forecast (healthy). */
   emptyText?: string
 }
@@ -70,7 +73,7 @@ function ProximityBar({ valueFrac, notchFrac, caption }: WearProximity) {
  * **confidence ring** (how sure the forecast is — a ring, not a twin bar), and the
  * **consequence**. None of this lives on the operation panel.
  */
-export function ResourceWearPanel({ title, subtitle, status, warning, prediction, consequence, emptyText }: ResourceWearPanelProps) {
+export function ResourceWearPanel({ title, subtitle, status, warning, prediction, consequence, action, emptyText }: ResourceWearPanelProps) {
   const healthy = !warning && !prediction
   return (
     <YStack backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
@@ -147,6 +150,13 @@ export function ResourceWearPanel({ title, subtitle, status, warning, prediction
               {consequence.downstream}
             </P>
           </YStack>
+        ) : null}
+
+        {/* "So what" → costed options (D55). The decision turn off the prediction. */}
+        {action ? (
+          <AppButton variant="ghost" size="$3" icon={ArrowUpRight} loading={action.loading} onPress={action.onPress}>
+            {action.label}
+          </AppButton>
         ) : null}
       </YStack>
     </YStack>

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { NarrationMode } from './llm'
 
 /**
  * Scheduling module client↔API contract (phase 2 — api-spec §11). The scheduling
@@ -243,6 +244,245 @@ export interface WorkforceCoverageDto {
 /** `POST /admin/scheduling/solve` — run the deterministic sequencer for a plant. */
 export const solveScheduleSchema = z.object({ plantId: z.string().min(1) }).strict()
 export type SolveScheduleRequest = z.infer<typeof solveScheduleSchema>
+
+// =============================================================================
+// Phase 5 — what-if (D55) + plan-comparison/baselines (D57) + narration (A19)
+// =============================================================================
+
+// --- change-set (change-set-general; evaluation-only in phase 5) --------------
+
+/** Where a change-set came from — a defined trigger (phase 5), arbitrary later (phase 6). */
+export const changeOriginTypeSchema = z.enum(['demand', 'prediction', 'collision', 'manual'])
+export type ChangeOriginType = z.infer<typeof changeOriginTypeSchema>
+
+/**
+ * One change in a change-set. A discriminated union so the engine stays
+ * feasibility-honest per kind. Phase 5 calls with defined kinds (demand revision,
+ * wear remediation); the union is general so phase 6 can drive it conversationally.
+ */
+export const changeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('demand_qty'), demandLineId: z.string().min(1), to: z.number().int().positive() }),
+  z.object({ kind: z.literal('demand_date'), demandLineId: z.string().min(1), to: z.string().min(1) }),
+  z.object({ kind: z.literal('resource_window'), resourceId: z.string().min(1), downFrom: z.string().min(1), downTo: z.string().min(1) }),
+  z.object({ kind: z.literal('overtime'), resourceId: z.string().min(1), hours: z.number().positive() }),
+  z.object({ kind: z.literal('wear_remediation'), resourceId: z.string().min(1), action: z.enum(['service', 'defer', 'ot']) }),
+])
+export type Change = z.infer<typeof changeSchema>
+
+export const changeSetSchema = z
+  .object({
+    origin: z.object({ type: changeOriginTypeSchema, ref: z.string().optional() }).strict(),
+    changes: z.array(changeSchema).min(1),
+  })
+  .strict()
+export type ChangeSet = z.infer<typeof changeSetSchema>
+
+// --- structured rationale (the phase-6 substrate — addressable 3 ways) --------
+
+export type RationaleFactorKey = 'lateness' | 'changeover' | 'overtime' | 'inventory' | 'displacement' | 'cost'
+export type FactorDirection = 'improves' | 'worsens' | 'neutral'
+
+/**
+ * One objective factor's contribution to an option's score — the **by-factor**
+ * query axis. `contribution = rawValue · weight` (signed; lower score is better,
+ * matching the sequencer). `detailKey`/`detailParams` are an **i18n key + params**,
+ * never free text — so the structured form is the source of truth and narration
+ * only re-voices it (the A19 boundary).
+ */
+export interface RationaleFactor {
+  key: RationaleFactorKey
+  labelKey: string
+  rawValue: number
+  unit: string
+  weight: number
+  contribution: number
+  direction: FactorDirection
+  detailKey: string
+  detailParams: Record<string, string | number>
+}
+
+/** A binding/non-binding constraint — the **by-constraint** query axis. */
+export interface ConstraintBinding {
+  key: string
+  labelKey: string
+  type: 'hard' | 'soft'
+  /** True = this constraint is what limited the option (the binding edge). */
+  binding: boolean
+  /** How much room remained (null for hard/violated). */
+  slack: number | null
+  detailKey: string
+  detailParams: Record<string, string | number>
+}
+
+/**
+ * Why this option beats/loses to another — the **by-option** query axis. Computed
+ * at generation time so "why not B" answers from the stored rationale with **no
+ * engine re-run** (DoD proof #8). `decidingFactors` are the factor deltas that
+ * actually swung the verdict.
+ */
+export interface OptionComparative {
+  vsOptionId: string
+  deltaScore: number
+  verdict: 'preferred' | 'dominated' | 'tradeoff'
+  decidingFactors: { key: RationaleFactorKey; delta: number }[]
+}
+
+/**
+ * The structured rationale — the deterministic source of truth narration renders
+ * **alongside** (never replacing). Addressable by **factor** (`factors[].key`), by
+ * **constraint** (`constraints[].key`), and by **option** (`comparatives[]`).
+ * `schemaVersion` versions the shape; `weightSetVersion` pins the AS9 objective
+ * weights that produced the contributions, so a stored rationale stays
+ * interpretable if weights ever re-tune (contribution = rawValue · weight).
+ */
+export interface StructuredRationale {
+  schemaVersion: string
+  weightSetVersion: string
+  optionId: string
+  score: number
+  headlineKey: string
+  headlineParams: Record<string, string | number>
+  factors: RationaleFactor[]
+  constraints: ConstraintBinding[]
+  comparatives: OptionComparative[]
+}
+
+// --- costed KPIs + options + result ------------------------------------------
+
+/** A plan's costed KPI bundle — every figure computed from rows (no hardcoding). */
+export interface CostedKpis {
+  /** On-time fraction (plan-based). */
+  otif: number
+  /** Tier-B cost per unit; null when not costable (no rates/qty). */
+  costPerUnit: number | null
+  /** OEE A·P·Q; null without actuals. */
+  oee: OeeDto | null
+  /** Count of at-risk (late) orders. */
+  lateOrders: number
+  /** Total placed quantity over the horizon. */
+  throughput: number | null
+  /** Sequence churn vs the base plan (0–1); null when not applicable. */
+  churn: number | null
+}
+
+/**
+ * One ranked what-if option. Carries its costed KPIs, a feasibility verdict
+ * (feasibility-honest — an infeasible option says why, never silently mangled),
+ * a score, and the structured rationale.
+ */
+export interface WhatIfOption {
+  id: string
+  rank: number
+  labelKey: string
+  feasible: boolean
+  /** i18n key for why it can't be scheduled (null when feasible). */
+  infeasibleReasonKey: string | null
+  kpis: CostedKpis
+  score: number
+  rationale: StructuredRationale
+}
+
+/**
+ * A what-if evaluation result (D55). Deterministic: the same change-set against
+ * the same base + learned overlay + weights yields the same `determinismKey` and
+ * the same options/rationale. Persisted (rationale jsonb) as the phase-6 substrate.
+ */
+export interface WhatIfResultDto {
+  id: string
+  plantId: string
+  baseVersionId: string
+  changeSet: ChangeSet
+  /** The base (current) plan's KPIs — the comparison anchor for option deltas. */
+  baseKpis: CostedKpis
+  options: WhatIfOption[]
+  recommendedOptionId: string | null
+  /** Hash of (base inputs + change-set + overlay + weights) — same → same result. */
+  determinismKey: string
+  createdAt: string
+}
+
+// --- plan-comparison / baselines (D57) ---------------------------------------
+
+export const baselineSourceSchema = z.enum(['frozen_engine_snapshot', 'measured_historical'])
+export type BaselineSource = z.infer<typeof baselineSourceSchema>
+
+/**
+ * Live plan vs a typed baseline (D57). `frozen_engine_snapshot` is the same engine
+ * with the learning + stability layers off and naive policies — the gap is "the
+ * lift our intelligence adds" (NOT "vs your manual process"). `measured_historical`
+ * computes from seeded historical rows and shows `emptyState` when none exist.
+ * Baselines are never fabricated.
+ */
+export interface PlanComparisonDto {
+  source: BaselineSource
+  /** True → no baseline available (no historical rows) → render the honest empty state. */
+  emptyState: boolean
+  plantId: string
+  scheduleVersionId: string | null
+  live: CostedKpis | null
+  baseline: CostedKpis | null
+  /** Honest i18n label key for this arm. */
+  labelKey: string
+}
+
+/** A recorded historical outcome — the measured-historical arm's source rows. */
+export interface HistoricalOutcomeDto {
+  id: string
+  plantId: string
+  resourceId: string | null
+  periodStart: string
+  periodEnd: string
+  otif: number
+  costPerUnit: number | null
+  oee: number | null
+  lateOrders: number
+  throughput: number | null
+  /** "representative seed" now; a real period label once a historian feeds it. */
+  label: string
+  /** 'seed' now, 'mes' later — same row shape, zero code change. */
+  source: string
+}
+
+// --- narration (A19, async/non-blocking, alongside the rationale) ------------
+
+/** Narration for a what-if result — async, never in the commit path. */
+export interface WhatIfNarrationDto {
+  resultId: string
+  optionId: string | null
+  mode: NarrationMode
+  /** `ready` with prose, or `unavailable` (model slow/failed) — zero functional impact. */
+  status: 'ready' | 'unavailable'
+  prose: string | null
+  model: string | null
+  promptVersion: string | null
+  createdAt: string
+}
+
+// --- request schemas (phase 5) -----------------------------------------------
+
+/** `POST /scheduling/what-if` — evaluate a change-set → ranked costed option-set. */
+export const whatIfRequestSchema = z
+  .object({ plantId: z.string().min(1), baseVersionId: z.string().optional(), changeSet: changeSetSchema })
+  .strict()
+export type WhatIfRequest = z.infer<typeof whatIfRequestSchema>
+
+/** `POST /scheduling/what-if/:id/narrate` — render the rationale into prose (async). */
+export const narrateRequestSchema = z
+  .object({ mode: z.enum(['option', 'across_options']).default('across_options'), optionId: z.string().optional() })
+  .strict()
+export type NarrateRequest = z.infer<typeof narrateRequestSchema>
+
+/** `POST /scheduling/what-if/:id/apply` — commit an option through the guardrail (human action). */
+export const applyOptionSchema = z.object({ optionId: z.string().min(1) }).strict()
+export type ApplyOptionRequest = z.infer<typeof applyOptionSchema>
+
+/**
+ * `PATCH /dev/scheduling/demand/:demandLineId` — **dev-only** persistent demand-qty
+ * mutation for the scenario launcher (a real demand change a planner would receive).
+ * Mutates the seeded `demand_input` so a re-solve reflects it; restored by `demo:reset`.
+ */
+export const updateDemandQtySchema = z.object({ requiredQty: z.number().int().positive() }).strict()
+export type UpdateDemandQtyRequest = z.infer<typeof updateDemandQtySchema>
 
 /**
  * `POST /dev/scheduling/simulate` — the SKIP-51 demo simulator + drift trigger

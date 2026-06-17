@@ -55,13 +55,36 @@
 > locked-human) + board forward-flag/prediction block. Out of scope (Phase-5): what-if/baseline/narration,
 > auto-action outside the gate. **Remaining:** browser pass on web + native (user-driven, per the brief DoD).
 >
+> **Phase 5 (explain & compare — what-if D55, baselines D57, narration A19): BUILT & verified — the last
+> core-engine phase.** `bun run check` green; 8 API proofs pass; `next build` + expo `tsc` green; web Cockpit
+> options + Scorecard baseline arms browser-verified (both themes). Built (api-spec §14 / frontend-spec §32):
+> a **what-if engine inside `scheduling`** — accepts a change-set-general input, generates a small
+> **deterministic, feasibility-honest** option set (sequencing trade-offs, or service/defer/overtime for a
+> wear/prediction trigger), costs + ranks each, and attaches a **structured rationale** (factors + binding
+> constraints + comparatives; `schemaVersion` + **`weightSetVersion`**; addressable by factor/option/constraint
+> so Phase 6 answers "why not B" from the stored form with **no re-run**). **Plan-comparison + both baseline
+> arms** — `frozen_engine_snapshot` (same engine, learning/stability off, naive policies = the live-layer lift,
+> "not your manual process"; honestly **zero at reset**, never fabricated) and `measured_historical` (from
+> seeded `historical_outcome` rows; honest **empty-state** for no-history scopes). **Narration** = a new
+> `@Global` **`llm`** kernel module (LLMGateway + backend-agnostic provider adapter: `recorded` default,
+> `anthropic` body pending interface sign-off) — **translate-only**, async, non-blocking, never in the commit
+> path; the gateway re-voices only the consumer-resolved fact lines. **Apply** = a human action → new draft
+> (nothing auto-commits). Surfaces: **Cockpit** (board "Evaluate a change" → options + rationale + narration +
+> Apply), the **prediction so-what** (wear panel "See options" → same component), **Scorecard** baseline arms.
+> Migration `0007`; new `scheduling` tables (`historical_outcome`/`what_if_result`/`what_if_narration`); new
+> `llm.gateway 1.0` contract; new env (`LLM_PROVIDER`/`LLM_MODEL`/`LLM_PROMPT_VERSION`/`ANTHROPIC_API_KEY`).
+> Decisions **AS23–AS25 / FS20–FS22**. **Out of scope (Phase 6):** conversational Q&A, open scenario
+> exploration, intent routing — the substrate (queryable rationale, change-set-general engine, callable
+> narration) is in place but the conversation layer is **not** built.
+>
 > **Demo reset + Magna scenario:** `bun run demo:reset` (apps/api `src/db/reset.ts`) restores the
 > deterministic **Magna de México** dataset (docs/SEED-SCENARIO-SPEC.md) in one step — truncates all
 > app-schema tables (wipes learned values, actuals, schedule versions), re-seeds the one coherent
 > scenario (3 plants, GM/Stellantis/Nissan/Aftermarket tiers, stamping+weld lines w/ cost rates, named
 > parts, operators+certs, the four-collision demand spine incl. `GP-1142`), and rebuilds committed
 > baselines via the real engine (solve+commit through the API). **Idempotent + deterministic**; baseline
-> all `std`, 0 learned, no variance (8 demand lines, 2 committed versions). Cert gap is coherent (Luis OUT
+> all `std`, 0 learned, no variance (8 demand lines, 2 committed versions, **9 historical-outcome rows** for the
+Phase-5 measured-historical arm — Saltillo + Press Line A + Ramos; Monterrey/Press Line B none = empty-state). Cert gap is coherent (Luis OUT
 > → gap; Jorge the cheapest off-shift fill); DL-1006 is computed-late; Collision-3 `PV-22` is a tagged
 > staged anchor (NMA SKIP-13). Requires the API running; docs in README §"Demo reset". Dev ports:
 > **API 3010 / web 3011**.

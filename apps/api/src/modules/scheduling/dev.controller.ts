@@ -1,5 +1,10 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common'
-import { simulateActualsSchema, type SimulateActualsRequest } from '@perduraflow/contracts'
+import { Body, Controller, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import {
+  simulateActualsSchema,
+  updateDemandQtySchema,
+  type SimulateActualsRequest,
+  type UpdateDemandQtyRequest,
+} from '@perduraflow/contracts'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
@@ -24,5 +29,15 @@ export class DevController {
     @Body(new ZodValidationPipe(simulateActualsSchema)) dto: SimulateActualsRequest,
   ) {
     return this.simulator.simulate(user.tenantId, dto)
+  }
+
+  /** `PATCH /dev/scheduling/demand/:demandLineId` — persistently change an order's qty (scenario launcher). */
+  @Patch('demand/:demandLineId')
+  updateDemand(
+    @CurrentUser() user: JwtPayload,
+    @Param('demandLineId') demandLineId: string,
+    @Body(new ZodValidationPipe(updateDemandQtySchema)) dto: UpdateDemandQtyRequest,
+  ) {
+    return this.simulator.updateDemandQty(user.tenantId, demandLineId, dto.requiredQty)
   }
 }

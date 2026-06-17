@@ -3,16 +3,25 @@ import { and, asc, desc, eq } from 'drizzle-orm'
 import { SCHEDULING_DB, type SchedulingDatabase } from './scheduling.db'
 import {
   demandInput,
+  historicalOutcome,
   optimizerRun,
   scheduledOperation,
   scheduleVersion,
+  whatIfNarration,
+  whatIfResult,
   type DemandInput,
+  type HistoricalOutcome,
+  type NewHistoricalOutcome,
   type NewOptimizerRun,
   type NewScheduledOperation,
   type NewScheduleVersion,
+  type NewWhatIfNarration,
+  type NewWhatIfResult,
   type OptimizerRun,
   type ScheduledOperation,
   type ScheduleVersion,
+  type WhatIfNarration,
+  type WhatIfResult,
 } from './schema'
 
 /** Drizzle queries for the scheduling module (scoped to its own schema, O2). */
@@ -113,6 +122,63 @@ export class SchedulingRepository {
       .update(scheduleVersion)
       .set(patch)
       .where(and(eq(scheduleVersion.tenantId, tenantId), eq(scheduleVersion.id, id)))
+      .returning()
+    return row
+  }
+
+  // --- phase 5: what-if results + narration ----------------------------------
+  async createWhatIfResult(data: NewWhatIfResult): Promise<WhatIfResult> {
+    const [row] = await this.db.insert(whatIfResult).values(data).returning()
+    return row!
+  }
+
+  /** A prior result for the same inputs (determinism re-use), newest first. */
+  findWhatIfByDeterminismKey(tenantId: string, key: string): Promise<WhatIfResult | undefined> {
+    return this.db.query.whatIfResult.findFirst({
+      where: and(eq(whatIfResult.tenantId, tenantId), eq(whatIfResult.determinismKey, key)),
+      orderBy: desc(whatIfResult.createdAt),
+    })
+  }
+
+  findWhatIfResult(tenantId: string, id: string): Promise<WhatIfResult | undefined> {
+    return this.db.query.whatIfResult.findFirst({
+      where: and(eq(whatIfResult.tenantId, tenantId), eq(whatIfResult.id, id)),
+    })
+  }
+
+  async createNarration(data: NewWhatIfNarration): Promise<WhatIfNarration> {
+    const [row] = await this.db.insert(whatIfNarration).values(data).returning()
+    return row!
+  }
+
+  // --- phase 5: historical outcomes (measured_historical arm) ----------------
+  /** Historical outcome rows for a plant (optionally one line); empty → no baseline. */
+  listHistoricalOutcomes(tenantId: string, plantId: string, resourceId?: string): Promise<HistoricalOutcome[]> {
+    return this.db
+      .select()
+      .from(historicalOutcome)
+      .where(
+        resourceId
+          ? and(
+              eq(historicalOutcome.tenantId, tenantId),
+              eq(historicalOutcome.plantId, plantId),
+              eq(historicalOutcome.resourceId, resourceId),
+            )
+          : and(eq(historicalOutcome.tenantId, tenantId), eq(historicalOutcome.plantId, plantId)),
+      )
+      .orderBy(asc(historicalOutcome.periodStart))
+  }
+
+  async insertHistoricalOutcomes(rows: NewHistoricalOutcome[]): Promise<void> {
+    if (rows.length > 0) await this.db.insert(historicalOutcome).values(rows)
+  }
+
+  /** Dev scenario launcher — persistently change an active demand line's quantity. */
+  async updateDemandQty(tenantId: string, demandLineId: string, requiredQty: number): Promise<DemandInput | undefined> {
+    const [row] = await this.db
+      .update(demandInput)
+      .set({ requiredQty })
+      .where(and(eq(demandInput.tenantId, tenantId), eq(demandInput.demandLineId, demandLineId), eq(demandInput.isActive, true)))
       .returning()
     return row
   }

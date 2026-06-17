@@ -500,3 +500,32 @@ Reuse: `Panel` (titled cards), `StatusPill` (now has `danger`/`warning` tones), 
 | FS17 | **Objective Policy autonomy controls** (this phase's cut). | Build **only the autonomy half**: confidence threshold (0–1, default 0.75) + tier behavior with **Tier-3 locked-human** visible; objective weights/priority = labelled Phase-5 seam. A config screen may **name** the rules (VIEW-PLAN §5). | **DRAFT** |
 | FS18 | **Forward-looking flag rendering.** | A **calm settled lane flag** ("predicted wear ~14:00") + a **prediction block** in the bar-detail panel — a *statement*, reusing the behind-plan-chip pattern. **No** live gauge / countdown (convergence-not-motion, forward form). | **DRAFT** |
 | FS19 | **New components vs reuse.** | New `ExceptionRow`/`ExceptionQueue` only; everything else **reuses** `Panel`/`StatusPill`(+danger/warning)/`KpiTile`/`DataTable`/`PageHeader`. No new styling primitive. | **DRAFT** |
+
+---
+
+## 32. Phase-5 surfaces — what-if options (D55), baselines (D57), narration (A19)
+
+**BUILT & browser-verified** (web Cockpit options + Scorecard baseline arms; native `tsc` green). EVALUATE / COMPARE / EXPLAIN through defined triggers — no conversational UI (Phase 6).
+
+### 32.1 New `packages/ui` components (variant-driven, both-theme stories — UI §0.2/§16)
+- **`FactorBar`** — one objective factor as a labeled magnitude bar (length ∝ |contribution|; colour by direction); the number stays the fact.
+- **`RationaleView`** — the structured rationale, **always the source of truth**: factor bars + binding constraints (✓/⚠) + comparatives. Pure presentation; the screen resolves i18n keys.
+- **`NarrationBlock`** — the translate-only prose **alongside** the rationale; states `loading`/`ready`/`unavailable` (honest, zero functional impact).
+- **`OptionCard`** — a ranked option: header (rank · label · Recommended/infeasible) + costed-KPI deltas + (expanded) rationale + narration + **Apply** (live the moment the rationale exists; never waits on narration). Apply via `AppButton loading` (no `disabled` on Button).
+- **`BaselineDeltaStrip`** — arm selector (Engine lift / Historical) over a live-vs-baseline KPI table with honest deltas + the active arm's honest caption + a true **empty state**.
+- **`ResourceWearPanel`** gained an optional `action` ("See options") — the so-what trigger.
+
+### 32.2 Hooks (`hooks/useWhatIf.ts`) + i18n
+`useWhatIf` (evaluate), `useWhatIfResult`, `useNarration`, `useBaseline`, `useApplyOption`. New namespaces **`whatif`** + **`baseline`**; `errors.json` mirrors the new codes. Backend keys are `namespace.path` form, resolved by **`resolveKey()`** (i18n index) — keeps the structured rationale i18n-driven, not LLM-authored.
+
+### 32.3 Wiring
+- **`features/whatif/whatif-option-set.tsx`** — maps `WhatIfResultDto` → resolved UI props; fetches the across-options narration async (non-blocking); handles Apply. Reused by the board change-evaluation **and** the so-what scene.
+- **Cockpit (View 1 = Schedule Board):** an "Evaluate a change" `Panel` with the demand collision trigger (GP-1142 +20%) → the option-set; the resource wear panel's "See options" routes the prediction so-what (prediction → impact → costed options → narration) to the **same** component.
+- **Scorecard (View 2):** a "Vs baseline" `Panel` (`BaselinePanel`) with both arms (frozen computed / historical from seed) + honest empty-state, scoped to the drill-down line.
+
+### 32.4 Phase-5 UI decisions (brief §5)
+| ID | Question | Decision | Status |
+|---|---|---|---|
+| FS20 | **Rationale always-visible vs narration.** | `RationaleView` is the source of truth, **always rendered**; `NarrationBlock` renders **alongside**, never replacing. Delete narration → no decision info lost. | **BUILT** |
+| FS21 | **Apply gating.** | Apply is live the moment the rationale exists; independent of narration state (loading/unavailable). Human action → new draft. | **BUILT** |
+| FS22 | **i18n for the structured rationale.** | Backend emits i18n keys (`namespace.path`) + params; `resolveKey()` resolves them. Narration is the EN language surface (server-resolved facts), separate from the i18n-keyed structured form. | **BUILT** |

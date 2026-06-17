@@ -29,6 +29,8 @@ export const QUERY_KEYS = {
     resources: (plantId: string) => ['scheduling', 'resources', plantId] as const,
     variance: (versionId: string) => ['scheduling', 'variance', versionId] as const,
     scorecard: (plantId: string, versionId: string) => ['scheduling', 'scorecard', plantId, versionId] as const,
+    whatIf: (id: string) => ['scheduling', 'whatif', id] as const,
+    baseline: (plantId: string, source: string, resourceId: string) => ['scheduling', 'baseline', plantId, source, resourceId] as const,
   },
   learning: {
     parameters: () => ['learning', 'parameters'] as const,

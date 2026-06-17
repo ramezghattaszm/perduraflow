@@ -25,6 +25,17 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
 
+  // LLM narration gateway (phase 5, A19). `recorded` = deterministic replay
+  // (default — demo/offline/tests, never calls out); `anthropic`/`groq` = real model
+  // APIs. The active provider/model/key come from env; the rest (endpoint, wire
+  // format, headers) come from the provider preset (data). `LLM_MODEL` is optional —
+  // unset → the active provider's preset default model.
+  LLM_PROVIDER: z.enum(['recorded', 'anthropic', 'groq']).default('recorded'),
+  LLM_MODEL: z.string().optional(),
+  LLM_PROMPT_VERSION: z.string().default('narrate-v1'),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
+
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
   LOCAL_STORAGE_PATH: z.string().default('./uploads'),
   LOCAL_STORAGE_URL: z.string().default('http://localhost:3010/uploads'),

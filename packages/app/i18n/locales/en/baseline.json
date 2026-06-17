@@ -1,0 +1,15 @@
+{
+  "title": "Vs baseline",
+  "arm": { "frozen": "Engine lift", "historical": "Historical" },
+  "frozenLabel": "The lift our intelligence adds",
+  "historicalLabel": "Representative historical outcomes",
+  "frozenHint": "Live plan vs the same engine with learning + stability off (not your manual process).",
+  "historicalHint": "Computes from your historical data once your historian is connected; today it's representative seed.",
+  "emptyState": "No historical baseline yet",
+  "emptyHint": "This computes the moment a historian feeds recorded outcomes for this scope.",
+  "live": "Live",
+  "baseline": "Baseline",
+  "delta": "Δ",
+  "noLift": "No lift yet — learning hasn't accrued for this plan.",
+  "kpi": { "otif": "OTIF", "cost": "Cost/unit", "oee": "OEE", "late": "Late orders", "throughput": "Throughput" }
+}

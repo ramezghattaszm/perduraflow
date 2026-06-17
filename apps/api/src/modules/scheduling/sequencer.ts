@@ -16,6 +16,8 @@
 
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
 export const CHANGEOVER_BONUS_HOURS = 24
+/** Expedite pull-ahead for the what-if protect-delivery policy (front-loads the expedited lines). */
+export const EXPEDITE_BONUS_HOURS = 100_000
 const MS_PER_HOUR = 3_600_000
 const MS_PER_MINUTE = 60_000
 
@@ -41,8 +43,13 @@ export interface SequencerItem {
   eligibleResourceIds: string[]
 }
 
-/** Source flag for a planning time (D7/SKIP-04): master-data baseline or ML overlay. */
-export type TimeSource = 'standard' | 'ml_adjusted'
+/**
+ * Source flag for a planning time (D7/SKIP-04): master-data baseline, an ML
+ * correction from observed actuals (`ml_adjusted`), or an ML **prediction** acted on
+ * ahead of the drift materialising (`ml_predicted` — what-if "defer" / phase-4
+ * pre-adopt). Aligns with the contract `TimeSource`.
+ */
+export type TimeSource = 'standard' | 'ml_adjusted' | 'ml_predicted'
 
 /** The effective times for an op on a specific resource (the learned overlay, phase 3). */
 export interface EffectiveTimes {
@@ -81,6 +88,23 @@ export interface Placement {
   cycleConfidence: number | null
   atRisk: boolean
   atRiskReason: string | null
+  /** Required date (epoch ms) — carried through for lateness/earliness scoring. */
+  requiredDateMs: number
+  firmness: 'firm' | 'forecast'
+  /** The part's changeover attribute value at this op — for changeover counting. */
+  changeoverValue: string | null
+}
+
+/**
+ * Optional what-if policy knobs (phase 5). The default (no policy) is the live
+ * engine. These are additive levers the what-if engine varies to generate distinct,
+ * deterministic options — they never affect a normal `solve()`.
+ */
+export interface SequencePolicy {
+  /** Apply the changeover pull-ahead bonus to firm jobs too (group aggressively). */
+  changeoverBonusAllFirmness?: boolean
+  /** These demand lines get an expedite pull-ahead (protect-delivery policy). */
+  expediteDemandLineIds?: Set<string>
 }
 
 export interface SequencerResult {
@@ -107,7 +131,7 @@ function startOfDayUtc(ms: number): number {
  * least one eligible resource (the service performs the feasibility hard gate
  * before calling this).
  */
-export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffective): SequencerResult {
+export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffective, policy?: SequencePolicy): SequencerResult {
   const effectiveFor = (item: SequencerItem, resourceId: string): EffectiveTimes =>
     resolveEffective?.(item.routingOperationId, resourceId, item.setupTime, item.cycleTime) ?? {
       setupTime: item.setupTime,
@@ -161,8 +185,10 @@ export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffec
       const st = stateFor(res)
       const sameAttr =
         st.currentAttr !== null && item.changeoverValue !== null && st.currentAttr === item.changeoverValue
-      const bonus = item.firmness === 'forecast' && sameAttr ? CHANGEOVER_BONUS_HOURS : 0
-      const rank = (item.requiredDate - origin) / MS_PER_HOUR - bonus
+      const allowBonus = item.firmness === 'forecast' || policy?.changeoverBonusAllFirmness === true
+      const bonus = allowBonus && sameAttr ? CHANGEOVER_BONUS_HOURS : 0
+      const expedite = policy?.expediteDemandLineIds?.has(item.demandLineId) ? EXPEDITE_BONUS_HOURS : 0
+      const rank = (item.requiredDate - origin) / MS_PER_HOUR - bonus - expedite
       if (rank < bestRank || (rank === bestRank && tieBreakLess(item, bestItem))) {
         bestRank = rank
         bestIdx = i
@@ -199,6 +225,9 @@ export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffec
       cycleConfidence: eff.cycleConfidence,
       atRisk,
       atRiskReason: atRisk ? 'late' : null,
+      requiredDateMs: item.requiredDate,
+      firmness: item.firmness,
+      changeoverValue: item.changeoverValue,
     })
     if (endMs > horizonEndMs) horizonEndMs = endMs
     remaining.splice(bestIdx, 1)

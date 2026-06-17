@@ -34,7 +34,18 @@ import {
   toScheduleVersionDto,
 } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
+import type { DemandInput } from './schema'
 import { sequence, type EffectiveTimes, type ResolveEffective, type SequencerItem } from './sequencer'
+
+/** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
+export interface BaseContext {
+  items: SequencerItem[]
+  /** The D4 hard-gate reason (an unresolvable line / no eligible resource), or null. */
+  infeasibleReason: string | null
+  demand: DemandInput[]
+  resourceById: Map<string, ResourceDto>
+  partNoById: Map<string, string>
+}
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
 /** Confidence a held learned value must clear before the scheduler overlays it (A18 bounded). */
@@ -124,75 +135,33 @@ export class SchedulingService {
    */
   async solve(tenantId: string, plantId: string): Promise<ScheduleVersionDto> {
     const startedAt = new Date()
-    const md = await this.resolveMasterData(tenantId)
-    const demand = await this.repo.activeDemand(tenantId, plantId)
-    if (demand.length === 0) {
+    const ctx = await this.buildBaseContext(tenantId, plantId)
+    if (ctx.demand.length === 0) {
       throw new AppException(HttpStatus.BAD_REQUEST, 'No active demand to schedule', ERROR_CODES.NO_DEMAND_TO_SCHEDULE)
     }
 
-    const resources = await md.listResources(tenantId)
-    const activeResourceIds = new Set(resources.filter((r) => r.status === 'active').map((r) => r.id))
-    const partCache = new Map<string, PartDto | null>()
-    const priorityCache = new Map<string, number>()
-
-    const items: SequencerItem[] = []
-    let infeasibleReason: string | null = null
-
-    for (const line of demand) {
-      const part = partCache.get(line.partId) ?? (await md.getPart(tenantId, line.partId))
-      partCache.set(line.partId, part)
-      const routing = await md.getPrimaryRoutingForPart(tenantId, line.partId)
-      if (!part || !routing || routing.operations.length === 0) {
-        infeasibleReason = `Demand ${line.demandLineId}: no active primary routing for part ${line.partId}`
-        break
-      }
-      const priorityRank = await this.priorityRankFor(tenantId, line.customerId, line.programId, priorityCache)
-      for (const op of routing.operations) {
-        const group = await md.getResourceGroup(tenantId, op.resourceGroupId)
-        const eligible = (group?.memberResourceIds ?? []).filter((id) => activeResourceIds.has(id)).sort()
-        if (eligible.length === 0) {
-          infeasibleReason = `Demand ${line.demandLineId}: no eligible active resource for op ${op.opSeq}`
-          break
-        }
-        items.push({
-          demandLineId: line.demandLineId,
-          partId: line.partId,
-          partNo: part.partNo,
-          routingOperationId: op.id,
-          opSeq: op.opSeq,
-          changeoverValue: changeoverValueFor(part, op.changeoverAttributeKey),
-          qty: line.requiredQty,
-          setupTime: op.stdSetupTime,
-          cycleTime: op.stdCycleTime,
-          requiredDate: line.requiredDate.getTime(),
-          firmness: line.firmness,
-          priorityRank,
-          eligibleResourceIds: eligible,
-        })
-      }
-      if (infeasibleReason) break
-    }
-
     // Hard gate (D4): an unresolvable line / no eligible resource → infeasible run, NO version.
-    if (infeasibleReason) {
+    if (ctx.infeasibleReason) {
       await this.repo.createRun({
         tenantId,
         plantId,
         trigger: 'manual',
         objectiveSummary: 'EDD changeover-aware (SKIP-03 stand-in)',
         status: 'infeasible',
-        stopReason: infeasibleReason,
+        stopReason: ctx.infeasibleReason,
         startedAt,
         finishedAt: new Date(),
-        inputDemandCount: demand.length,
+        inputDemandCount: ctx.demand.length,
       })
-      throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, infeasibleReason, ERROR_CODES.SCHEDULE_INFEASIBLE)
+      throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.SCHEDULE_INFEASIBLE)
     }
 
     // Overlay learned values (SKIP-04 goes live, api-spec §12.5): precompute the
     // held, guardrail-passing learned cycle/setup per (op, eligible resource), then
     // the sequencer prefers them — the longer learned cycle on a drifted resource
     // re-sequences to avoid starvation. Std where no trusted learned value exists.
+    const items = ctx.items
+    const demand = ctx.demand
     const resolveEffective = await this.buildLearnedOverlay(tenantId, items)
     const result = sequence(items, resolveEffective)
     const run = await this.repo.createRun({
@@ -291,12 +260,68 @@ export class SchedulingService {
   }
 
   /**
+   * Assemble the deterministic sequencer inputs for a plant — the shared base both
+   * `solve()` and the **what-if engine** (phase 5) build on, so they never drift.
+   * Returns the items, an infeasibility reason (the D4 hard gate), the active
+   * demand, and resource/part lookups. Does NOT persist anything.
+   */
+  async buildBaseContext(tenantId: string, plantId: string): Promise<BaseContext> {
+    const md = await this.resolveMasterData(tenantId)
+    const demand = await this.repo.activeDemand(tenantId, plantId)
+    const resources = await md.listResources(tenantId)
+    const resourceById = new Map(resources.map((r) => [r.id, r]))
+    const activeResourceIds = new Set(resources.filter((r) => r.status === 'active').map((r) => r.id))
+    const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
+    const partCache = new Map<string, PartDto | null>()
+    const priorityCache = new Map<string, number>()
+
+    const items: SequencerItem[] = []
+    let infeasibleReason: string | null = null
+    for (const line of demand) {
+      const part = partCache.get(line.partId) ?? (await md.getPart(tenantId, line.partId))
+      partCache.set(line.partId, part)
+      const routing = await md.getPrimaryRoutingForPart(tenantId, line.partId)
+      if (!part || !routing || routing.operations.length === 0) {
+        infeasibleReason = `Demand ${line.demandLineId}: no active primary routing for part ${line.partId}`
+        break
+      }
+      const priorityRank = await this.priorityRankFor(tenantId, line.customerId, line.programId, priorityCache)
+      for (const op of routing.operations) {
+        const group = await md.getResourceGroup(tenantId, op.resourceGroupId)
+        const eligible = (group?.memberResourceIds ?? []).filter((id) => activeResourceIds.has(id)).sort()
+        if (eligible.length === 0) {
+          infeasibleReason = `Demand ${line.demandLineId}: no eligible active resource for op ${op.opSeq}`
+          break
+        }
+        items.push({
+          demandLineId: line.demandLineId,
+          partId: line.partId,
+          partNo: part.partNo,
+          routingOperationId: op.id,
+          opSeq: op.opSeq,
+          changeoverValue: changeoverValueFor(part, op.changeoverAttributeKey),
+          qty: line.requiredQty,
+          setupTime: op.stdSetupTime,
+          cycleTime: op.stdCycleTime,
+          requiredDate: line.requiredDate.getTime(),
+          firmness: line.firmness,
+          priorityRank,
+          eligibleResourceIds: eligible,
+        })
+      }
+      if (infeasibleReason) break
+    }
+    return { items, infeasibleReason, demand, resourceById, partNoById }
+  }
+
+  /**
    * Precompute the learned overlay (api-spec §12.5): per `(op, eligible resource)`,
    * fetch the held learned cycle/setup from `learning.read` and return a pure
    * resolver the deterministic sequencer calls. Only `held` values clearing
-   * `LEARNED_CONF_USE` are used (A18 bounded); otherwise the std baseline.
+   * `LEARNED_CONF_USE` are used (A18 bounded); otherwise the std baseline. Public so
+   * the what-if engine reuses the identical overlay (determinism, phase 5).
    */
-  private async buildLearnedOverlay(tenantId: string, items: SequencerItem[]): Promise<ResolveEffective> {
+  async buildLearnedOverlay(tenantId: string, items: SequencerItem[]): Promise<ResolveEffective> {
     const usable = (p: LearnedParameterDto | null): p is LearnedParameterDto =>
       !!p && p.status === 'held' && p.learnedValue != null && (p.confidence ?? 0) >= LEARNED_CONF_USE
     const learned = new Map<string, { cycle: LearnedParameterDto | null; setup: LearnedParameterDto | null }>()

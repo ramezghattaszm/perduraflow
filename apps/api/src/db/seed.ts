@@ -18,7 +18,7 @@ import {
   routingOperation,
 } from '../modules/master-data/schema'
 import { contractBinding } from '../modules/binding/schema'
-import { demandInput } from '../modules/scheduling/schema'
+import { demandInput, historicalOutcome } from '../modules/scheduling/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48). Idempotent. Aggregates every
@@ -262,7 +262,57 @@ export async function seed(): Promise<void> {
         requiredDate: D(r.due),
       })),
     )
+    // Historical outcomes (phase 5, D57 measured_historical) — representative seed:
+    // prior weeks' recorded actuals the baseline arm computes from. Saltillo (plant +
+    // Press Line A) and Ramos have history; **Monterrey and Press Line B deliberately
+    // have none** → the honest "no historical baseline yet" empty state is testable.
+    // A real MES/historian writes the same rows later (source 'mes') with zero change.
+    const ho = (
+      plantId: string,
+      resourceId: string | null,
+      start: string,
+      end: string,
+      otif: number,
+      costPerUnit: number,
+      a: number,
+      p: number,
+      q: number,
+      lateOrders: number,
+      throughput: number,
+    ) => ({
+      tenantId,
+      plantId,
+      resourceId,
+      periodStart: D(start),
+      periodEnd: D(end),
+      otif,
+      costPerUnit,
+      oeeAvailability: a,
+      oeePerformance: p,
+      oeeQuality: q,
+      oee: Number((a * p * q).toFixed(4)),
+      lateOrders,
+      throughput,
+      label: 'representative seed',
+      source: 'seed',
+    })
+    await db.insert(historicalOutcome).values([
+      // Saltillo plant-level — three prior weeks (pre-platform performance).
+      ho(saltillo!.id, null, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.84, 8.9, 0.88, 0.79, 0.965, 3, 980),
+      ho(saltillo!.id, null, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.86, 8.7, 0.89, 0.8, 0.97, 2, 1010),
+      ho(saltillo!.id, null, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.85, 8.8, 0.88, 0.81, 0.968, 3, 995),
+      // Press Line A line-level — the wear story's line, slightly worse historically.
+      ho(saltillo!.id, pressA!.id, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.8, 9.4, 0.85, 0.77, 0.96, 2, 520),
+      ho(saltillo!.id, pressA!.id, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.82, 9.2, 0.86, 0.78, 0.962, 1, 540),
+      ho(saltillo!.id, pressA!.id, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.81, 9.3, 0.85, 0.78, 0.96, 2, 530),
+      // Ramos Arizpe plant-level.
+      ho(ramos!.id, null, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.88, 6.4, 0.9, 0.82, 0.975, 1, 760),
+      ho(ramos!.id, null, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.9, 6.2, 0.91, 0.83, 0.978, 1, 780),
+      ho(ramos!.id, null, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.89, 6.3, 0.9, 0.83, 0.976, 1, 770),
+    ])
+
     console.log('  ✓ Magna de México scenario: 3 plants, 4 customers, 4 resources, 6 parts, 4 certs, 7 operators, 8 demand lines')
+    console.log('  ✓ historical outcomes: 9 rows (Saltillo + Press Line A + Ramos); Monterrey/Press Line B = none (empty-state)')
   }
 
   console.log(`\nSeed complete. Log in as ${ADMIN_EMAIL} / "${DEFAULT_PASSWORD}".`)

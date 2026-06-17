@@ -2,12 +2,15 @@ import { Module } from '@nestjs/common'
 import { LearningModule } from '../learning/learning.module'
 import { OrgModule } from '../org/org.module'
 import { DevController } from './dev.controller'
+import { NarrationService } from './narration.service'
+import { PlanComparisonService } from './plan-comparison.service'
 import { SchedulingAdminController } from './scheduling.admin.controller'
 import { SchedulingController } from './scheduling.controller'
 import { schedulingDbProvider } from './scheduling.db'
 import { SchedulingRepository } from './scheduling.repository'
 import { SchedulingService } from './scheduling.service'
 import { SimulatorService } from './simulator.service'
+import { WhatIfService } from './whatif.service'
 import { WorkforceController } from './workforce.controller'
 
 /**
@@ -21,6 +24,14 @@ import { WorkforceController } from './workforce.controller'
 @Module({
   imports: [OrgModule, LearningModule],
   controllers: [SchedulingController, SchedulingAdminController, WorkforceController, DevController],
-  providers: [schedulingDbProvider, SchedulingRepository, SchedulingService, SimulatorService],
+  providers: [
+    schedulingDbProvider,
+    SchedulingRepository,
+    SchedulingService,
+    SimulatorService,
+    WhatIfService,
+    PlanComparisonService,
+    NarrationService,
+  ],
 })
 export class SchedulingModule {}

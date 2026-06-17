@@ -49,6 +49,11 @@ export * from './BarDetailSheet'
 export * from './ExceptionRow'
 export * from './Panel'
 export * from './ContextSelectors'
+export * from './FactorBar'
+export * from './RationaleView'
+export * from './NarrationBlock'
+export * from './OptionCard'
+export * from './BaselineDeltaStrip'
 
 // type augmentation for tamagui custom config
 import type { Conf } from '@perduraflow/config'

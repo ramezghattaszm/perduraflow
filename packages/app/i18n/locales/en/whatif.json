@@ -1,0 +1,69 @@
+{
+  "title": "Options",
+  "subtitle": "Costed alternatives — pick one to apply",
+  "recommended": "Recommended",
+  "rank": "#{{n}}",
+  "score": "Score",
+  "infeasible": "Can't be scheduled",
+  "applyCta": "Apply this option",
+  "applying": "Applying…",
+  "applied": "Applied — review the draft",
+  "factorsTitle": "What drives it",
+  "constraintsTitle": "Constraints",
+  "comparativesTitle": "Versus the others",
+  "narrationTitle": "In plain language",
+  "narrationLoading": "Writing the explanation…",
+  "narrationUnavailable": "Explanation unavailable — the options and rationale above are the answer.",
+  "narrationNote": "Generated from the structured rationale (translation only).",
+  "kpi": { "otif": "OTIF", "cost": "Cost/unit", "late": "Late orders", "throughput": "Throughput", "churn": "Churn", "oee": "OEE" },
+  "vs": "vs base",
+  "verdict": { "preferred": "preferred over", "dominated": "worse than", "tradeoff": "trades off with" },
+  "drivenBy": "driven by {{factor}}",
+  "factorLabel": {
+    "lateness": "Firm lateness",
+    "changeover": "Changeovers",
+    "overtime": "Overtime",
+    "inventory": "Early/holding",
+    "displacement": "Displacement"
+  },
+  "factor": {
+    "lateness": "{{hours}}h firm-order lateness across {{orders}} order(s)",
+    "changeover": "{{count}} changeover(s)",
+    "overtime": "{{hours}}h overtime added",
+    "inventory": "{{hours}}h finished ahead of need",
+    "displacement": "{{count}} operation(s) moved from the current plan"
+  },
+  "option": {
+    "balanced": "Re-sequence (balanced)",
+    "protectDelivery": "Protect delivery",
+    "minimizeChangeover": "Minimise changeovers",
+    "service": "Service now",
+    "defer": "Defer (keep running)",
+    "overtime": "Add overtime",
+    "reroute": "Re-route to other line(s)"
+  },
+  "headline": {
+    "option": "{{label}} — {{lateOrders}} late order(s), cost/unit {{costPerUnit}}",
+    "infeasible": "This option can't be scheduled"
+  },
+  "constraint": {
+    "feasibility": "Feasibility",
+    "firmDelivery": "Firm delivery",
+    "changeover": "Changeover grouping",
+    "feasibility.ok": "All {{ops}} operations placed",
+    "firmDelivery.late": "Firm delivery breached by {{hours}}h",
+    "firmDelivery.met": "Firm delivery met",
+    "changeover.count": "{{count}} changeover(s)"
+  },
+  "infeasible.noResource": "No eligible resource once the line is offline",
+  "trigger": {
+    "title": "Conditions",
+    "seeOptions": "See options"
+  },
+  "condition": {
+    "lineDown": "{{resource}} is down",
+    "lineDownDetail": "{{count}} scheduled op(s) stranded — reroute or add overtime.",
+    "demand": "{{line}} demand changed",
+    "demandDetail": "Order quantity {{from}} → {{to}} — re-evaluate the plan."
+  }
+}

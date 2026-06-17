@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import type { BaselineSource, CostedKpis } from '@perduraflow/contracts'
 import {
+  BaselineDeltaStrip,
   ContextSelectors,
   KpiTile,
   KpiTileRow,
@@ -12,11 +14,12 @@ import {
   XStack,
   YStack,
 } from '@perduraflow/ui'
-import { useTranslation } from '../../i18n'
+import { resolveKey, useTranslation } from '../../i18n'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources, useScheduleVersions } from '../../hooks/useScheduling'
 import { useScorecard } from '../../hooks/useLearning'
+import { useBaseline } from '../../hooks/useWhatIf'
 import { AdminShell } from '../shell/admin-shell'
 
 const pct = (x: number) => `${Math.round(x * 100)}%`
@@ -186,19 +189,6 @@ export function ScorecardContent() {
                   {t('oee.empty')}
                 </P>
               )}
-              {/* Phase-5 seam — manual-baseline comparison; named, never faked. */}
-              <YStack
-                marginTop="$1"
-                borderWidth={1}
-                borderColor="$borderColor"
-                borderStyle="dashed"
-                borderRadius="$4"
-                padding="$3"
-              >
-                <P size={4} color="$textSecondary">
-                  {t('baseline.title')} — {t('baseline.seam')}
-                </P>
-              </YStack>
             </Panel>
 
             {/* At-risk orders panel — order + computed detail + reason badge (4d).
@@ -256,9 +246,60 @@ export function ScorecardContent() {
               )}
             </Panel>
           </XStack>
+
+          {/* Plan-comparison / baseline (D57) — both arms, honest empty-state. */}
+          <Panel title={t('baseline:title', { defaultValue: 'Vs baseline' })}>
+            <BaselinePanel plantId={plantId ?? undefined} resourceId={resourceId ?? undefined} />
+          </Panel>
         </>
       )}
     </>
+  )
+}
+
+const fmtPct = (n: number | null) => (n == null ? '—' : `${Math.round(n * 100)}%`)
+const fmtMoney = (n: number | null) => (n == null ? '—' : `$${n.toFixed(2)}`)
+function kpiDelta(live: number | null, base: number | null, kind: 'pct' | 'money' | 'count', lowerIsBetter: boolean) {
+  if (live == null || base == null) return { delta: '—', tone: 'neutral' as const }
+  const d = live - base
+  if (Math.abs(d) < 1e-9) return { delta: '0', tone: 'neutral' as const }
+  const tone = (d < 0 ? lowerIsBetter : !lowerIsBetter) ? ('up' as const) : ('down' as const)
+  const sign = d > 0 ? '+' : '−'
+  const mag = Math.abs(d)
+  const txt = kind === 'pct' ? `${sign}${Math.round(mag * 100)}%` : kind === 'money' ? `${sign}$${mag.toFixed(2)}` : `${sign}${Math.round(mag)}`
+  return { delta: txt, tone }
+}
+function baselineRows(live: CostedKpis, base: CostedKpis, t: (k: string) => string) {
+  return [
+    { label: t('baseline:kpi.otif'), live: fmtPct(live.otif), baseline: fmtPct(base.otif), ...kpiDelta(live.otif, base.otif, 'pct', false) },
+    { label: t('baseline:kpi.cost'), live: fmtMoney(live.costPerUnit), baseline: fmtMoney(base.costPerUnit), ...kpiDelta(live.costPerUnit, base.costPerUnit, 'money', true) },
+    { label: t('baseline:kpi.oee'), live: fmtPct(live.oee?.oee ?? null), baseline: fmtPct(base.oee?.oee ?? null), ...kpiDelta(live.oee?.oee ?? null, base.oee?.oee ?? null, 'pct', false) },
+    { label: t('baseline:kpi.late'), live: String(live.lateOrders), baseline: String(base.lateOrders), ...kpiDelta(live.lateOrders, base.lateOrders, 'count', true) },
+  ]
+}
+
+/** Baseline comparison (D57) — frozen-engine / measured-historical arms + empty-state. */
+function BaselinePanel({ plantId, resourceId }: { plantId?: string; resourceId?: string }) {
+  const { t } = useTranslation(['baseline'])
+  const [source, setSource] = useState<BaselineSource>('frozen_engine_snapshot')
+  const { data } = useBaseline(plantId, source, resourceId)
+  const arms = [
+    { id: 'frozen_engine_snapshot', label: t('arm.frozen'), active: source === 'frozen_engine_snapshot', onPress: () => setSource('frozen_engine_snapshot') },
+    { id: 'measured_historical', label: t('arm.historical'), active: source === 'measured_historical', onPress: () => setSource('measured_historical') },
+  ]
+  const empty = !data || data.emptyState || !data.live || !data.baseline
+  return (
+    <BaselineDeltaStrip
+      arms={arms}
+      liveHeader={t('live')}
+      baselineHeader={t('baseline')}
+      deltaHeader={t('delta')}
+      empty={empty}
+      emptyTitle={t('emptyState')}
+      emptyHint={t('emptyHint')}
+      caption={data ? resolveKey(data.labelKey) : ''}
+      rows={!empty && data?.live && data?.baseline ? baselineRows(data.live, data.baseline, t) : []}
+    />
   )
 }
 

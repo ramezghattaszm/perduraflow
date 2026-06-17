@@ -11,6 +11,7 @@ import { QUERY_KEYS } from '../lib/query-keys'
 
 const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
 const post = <T, B>(url: string, body: B) => apiClient.post<T>(url, body).then((r) => r.data)
+const patch = <T, B>(url: string, body: B) => apiClient.patch<T>(url, body).then((r) => r.data)
 
 /** The plant's schedule versions, newest first (board selector). Enabled once a plant is chosen. */
 export function useScheduleVersions(plantId: string | undefined) {
@@ -65,5 +66,18 @@ export function useCommitSchedule() {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.versions(v.plantId) })
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.version(v.id) })
     },
+  })
+}
+
+/**
+ * **Dev scenario launcher** — persistently change an order's quantity (`PATCH
+ * /dev/scheduling/demand/:id`). Mutates the seeded demand so a re-solve reflects it;
+ * invalidates the plant's demand list. Restored by `demo:reset`.
+ */
+export function useUpdateDemandQty() {
+  return useMutation({
+    mutationFn: ({ demandLineId, requiredQty }: { demandLineId: string; requiredQty: number }) =>
+      patch<DemandInputDto, { requiredQty: number }>(`/dev/scheduling/demand/${demandLineId}`, { requiredQty }),
+    onSuccess: (d) => void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.demand(d.plantId) }),
   })
 }

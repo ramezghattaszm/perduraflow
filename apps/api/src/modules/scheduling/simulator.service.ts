@@ -10,6 +10,7 @@ import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception
 import { EVENTS } from '../../events'
 import { BindingResolver } from '../binding/binding.resolver'
 import { EventBus } from '../eventbus/event-bus'
+import { toDemandInputDto } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
 
 /**
@@ -34,6 +35,17 @@ export class SimulatorService {
 
   private resolveMasterData(tenantId: string): Promise<MasterDataReadContract> {
     return this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
+  }
+
+  /**
+   * Dev scenario launcher — persistently change an active demand line's quantity (a
+   * real demand revision). Mutates `demand_input`, so a subsequent solve reflects it.
+   * @throws NO_DEMAND_TO_SCHEDULE - no active demand line with that id for the tenant
+   */
+  async updateDemandQty(tenantId: string, demandLineId: string, requiredQty: number) {
+    const row = await this.repo.updateDemandQty(tenantId, demandLineId, requiredQty)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, `Unknown active demand line ${demandLineId}`, ERROR_CODES.NO_DEMAND_TO_SCHEDULE)
+    return toDemandInputDto(row)
   }
 
   /**
