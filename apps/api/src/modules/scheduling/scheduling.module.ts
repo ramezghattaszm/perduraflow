@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common'
 import { LearningModule } from '../learning/learning.module'
 import { OrgModule } from '../org/org.module'
+import { ConversationController } from './conversation.controller'
+import { ConversationService } from './conversation.service'
 import { DevController } from './dev.controller'
 import { NarrationService } from './narration.service'
 import { PlanComparisonService } from './plan-comparison.service'
@@ -23,7 +25,7 @@ import { WorkforceController } from './workforce.controller'
  */
 @Module({
   imports: [OrgModule, LearningModule],
-  controllers: [SchedulingController, SchedulingAdminController, WorkforceController, DevController],
+  controllers: [SchedulingController, SchedulingAdminController, WorkforceController, DevController, ConversationController],
   providers: [
     schedulingDbProvider,
     SchedulingRepository,
@@ -32,6 +34,7 @@ import { WorkforceController } from './workforce.controller'
     WhatIfService,
     PlanComparisonService,
     NarrationService,
+    ConversationService,
   ],
 })
 export class SchedulingModule {}

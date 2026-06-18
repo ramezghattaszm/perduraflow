@@ -2,6 +2,8 @@ import { Inject, Injectable } from '@nestjs/common'
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { SCHEDULING_DB, type SchedulingDatabase } from './scheduling.db'
 import {
+  conversation,
+  conversationTurn,
   demandInput,
   historicalOutcome,
   optimizerRun,
@@ -9,8 +11,12 @@ import {
   scheduleVersion,
   whatIfNarration,
   whatIfResult,
+  type Conversation,
+  type ConversationTurn,
   type DemandInput,
   type HistoricalOutcome,
+  type NewConversation,
+  type NewConversationTurn,
   type NewHistoricalOutcome,
   type NewOptimizerRun,
   type NewScheduledOperation,
@@ -146,6 +152,14 @@ export class SchedulingRepository {
     })
   }
 
+  /** The plant's most recent what-if result — the conversation's default Type-1 context. */
+  findLatestWhatIfResult(tenantId: string, plantId: string): Promise<WhatIfResult | undefined> {
+    return this.db.query.whatIfResult.findFirst({
+      where: and(eq(whatIfResult.tenantId, tenantId), eq(whatIfResult.plantId, plantId)),
+      orderBy: desc(whatIfResult.createdAt),
+    })
+  }
+
   async createNarration(data: NewWhatIfNarration): Promise<WhatIfNarration> {
     const [row] = await this.db.insert(whatIfNarration).values(data).returning()
     return row!
@@ -181,5 +195,48 @@ export class SchedulingRepository {
       .where(and(eq(demandInput.tenantId, tenantId), eq(demandInput.demandLineId, demandLineId), eq(demandInput.isActive, true)))
       .returning()
     return row
+  }
+
+  // --- phase 6: conversations (persistent, named, auditable) -----------------
+  async createConversation(data: NewConversation): Promise<Conversation> {
+    const [row] = await this.db.insert(conversation).values(data).returning()
+    return row!
+  }
+
+  findConversation(tenantId: string, id: string): Promise<Conversation | undefined> {
+    return this.db.query.conversation.findFirst({
+      where: and(eq(conversation.tenantId, tenantId), eq(conversation.id, id)),
+    })
+  }
+
+  listConversations(tenantId: string): Promise<Conversation[]> {
+    return this.db
+      .select()
+      .from(conversation)
+      .where(eq(conversation.tenantId, tenantId))
+      .orderBy(desc(conversation.createdAt))
+  }
+
+  async renameConversation(tenantId: string, id: string, name: string): Promise<Conversation | undefined> {
+    const [row] = await this.db
+      .update(conversation)
+      .set({ name })
+      .where(and(eq(conversation.tenantId, tenantId), eq(conversation.id, id)))
+      .returning()
+    return row
+  }
+
+  async createTurn(data: NewConversationTurn): Promise<ConversationTurn> {
+    const [row] = await this.db.insert(conversationTurn).values(data).returning()
+    return row!
+  }
+
+  /** A conversation's turns, oldest first (ULID sorts chronologically) — history + reference resolution. */
+  listTurns(conversationId: string): Promise<ConversationTurn[]> {
+    return this.db
+      .select()
+      .from(conversationTurn)
+      .where(eq(conversationTurn.conversationId, conversationId))
+      .orderBy(asc(conversationTurn.id))
   }
 }

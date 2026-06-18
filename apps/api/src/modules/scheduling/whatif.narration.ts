@@ -23,15 +23,20 @@ const OPTION_LABELS: Record<string, string> = {
   'whatif.option.reroute': 'Re-route to other line(s)',
 }
 const label = (key: string): string => OPTION_LABELS[key] ?? key
+/** EN option label for a label key — reused by the conversation layer's artifact. */
+export const optionLabelEn = label
 
 const FACTOR_NAME: Record<string, string> = {
   lateness: 'firm-order lateness',
   changeover: 'changeovers',
   overtime: 'overtime',
   inventory: 'early/holding time',
-  displacement: 'displacement (ops moved from the current plan)',
+  displacement: 'displacement (operations moved from the current plan)',
   cost: 'cost',
 }
+
+/** Human label for a rationale factor key (reused by the conversation artifact). */
+export const factorLabelEn = (key: string): string => FACTOR_NAME[key] ?? key
 
 /** A factor's human value from its structured detail params. */
 function factorValue(f: RationaleFactor): string {

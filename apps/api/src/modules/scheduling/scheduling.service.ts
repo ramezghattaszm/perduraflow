@@ -126,6 +126,35 @@ export class SchedulingService {
     return (await md.listResources(tenantId)).filter((r) => r.plantId === plantId)
   }
 
+  /**
+   * Plant-scoped, **bounded** entity catalog for the conversation layer (phase 6) —
+   * the small set of real ids a change-set must reference (orders + lines), with
+   * human names resolved so language ("delay Stellantis", "Press Line A") maps to
+   * real ids. Bounded by the plant's active demand + resources (a handful each).
+   */
+  async entityCatalog(tenantId: string, plantId: string): Promise<{
+    orders: { demandLineId: string; customer: string; part: string; qty: number; firmness: string; due: string }[]
+    resources: { id: string; name: string; status: string }[]
+  }> {
+    const md = await this.resolveMasterData(tenantId)
+    const partNo = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
+    const resources = (await md.listResources(tenantId))
+      .filter((r) => r.plantId === plantId)
+      .map((r) => ({ id: r.id, name: r.name, status: r.status }))
+    const custCache = new Map<string, string>()
+    const demand = (await this.repo.listDemand(tenantId, plantId)).filter((d) => d.isActive)
+    const orders = []
+    for (const d of demand) {
+      let customer = custCache.get(d.customerId)
+      if (customer === undefined) {
+        customer = (await this.org.getCustomer(tenantId, d.customerId))?.name ?? d.customerId
+        custCache.set(d.customerId, customer)
+      }
+      orders.push({ demandLineId: d.demandLineId, customer, part: partNo.get(d.partId) ?? d.partId, qty: d.requiredQty, firmness: d.firmness, due: d.requiredDate.toISOString() })
+    }
+    return { orders, resources }
+  }
+
   // --- solve (deterministic sequencer) ---------------------------------------
   /**
    * Runs the deterministic sequencer for a plant and persists a `draft` version.

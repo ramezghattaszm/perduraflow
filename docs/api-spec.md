@@ -1054,3 +1054,43 @@ WHATIF_OPTION_NOT_FOUND, NARRATION_UNAVAILABLE   // baseline empty-state is a no
 | AS23 | **What-if engine placement.** | Inside `scheduling` (the objective math that picks the live sequence; needs in-module solver/costing — O2/O3). Change-set-general, evaluation-only. Deterministic + feasibility-honest. | **BUILT** |
 | AS24 | **Baseline mechanics.** | `frozen_engine_snapshot` computed on demand (no stored snapshot; deterministic); `measured_historical` from seeded rows with honest empty-state. Both arms plan-based for an apples-to-apples diff. Never fabricated. | **BUILT** |
 | AS25 | **Narration provider seam.** | `@Global` `llm` module; backend-agnostic `LlmProvider` adapter; `recorded` default + `anthropic` (body pending interface sign-off). Translate-only prompt at the gateway; facts resolved by the consumer. | **BUILT** |
+
+---
+
+## 15. Phase-6 modules & ownership — conversational layer (Q&A + scenario exploration)
+
+**BUILT & verified** (8 API proofs pass with live Groq; `bun run check` + `next build` + expo `tsc` green; web Copilot browser-verified). **Language + orchestration over phase-5's engine — no new engine.** The conversation constructs + explains; the human applies (D26); conversational-apply is **Phase 7** (not built).
+
+**Placement.** Conversation orchestration lives **inside `scheduling`** (its tools are the in-module what-if engine + stored `what_if_result`); the generic **agentic tool-loop** lives in the `@Global llm` gateway.
+
+### 15.1 Routing — tool-selection inside the tool-loop (the ground-vs-compute centerpiece)
+The route **is** which tool the model calls, with the grounded tool results self-correcting it: **Type-1** → `retrieve_what_if` (reads the stored artifact); **Type-2** → `evaluate_what_if` (constructs a `ChangeSet` → the real engine); **out-of-scope** → no tool + honest decline. No separate classifier. Three safety layers so a mis-route can't fabricate: (1) the ground-never-fabricate system prompt, (2) `groundedRefs` audit, (3) re-ground every turn (history resolves references only). If retrieval returns "nothing relevant" the model must compute or decline — never estimate.
+
+### 15.2 The tool-loop (gateway, owned, no framework)
+`LlmGateway.runToolLoop({ system, messages, tools }, dispatch, maxTurns=4)`: `complete` → if `stopReason='tool_use'`, `dispatch` each call → feed `tool_result` parts back → repeat until the model answers or the turn budget. Domain-agnostic (the conversation service supplies `dispatch` + the scheduling tools). Tool errors (e.g. `CHANGE_SET_INVALID`) feed back as `isError` results for self-correction; a provider failure propagates → the caller degrades. Returns prose + the audit trail (toolCalls, groundedRefs, resultIds, model, promptVersion).
+
+### 15.3 Change-set construction from language (centerpiece 2)
+The `evaluate_what_if` tool's `parameters` JSON Schema **is** phase-5's `changeSetSchema`; the LLM emits a structured tool call. Grounded in a **plant-scoped, bounded entity catalog** (`SchedulingService.entityCatalog` — the plant's active orders w/ customer/part names + resources) so names map to real ids. Validated three ways: Zod (`changeSetSchema.safeParse`) → engine ref-check (`CHANGE_SET_INVALID`) → loop feedback. Ambiguous → one clarifying question; unconstructable → decline. Compound change-sets allowed.
+
+### 15.4 Type-1 retrieval surface
+`retrieve_what_if` returns the **complete stored artifact** (the conversation's active result — options, factors w/ contributions+direction, constraints w/ slack, comparatives, costed KPIs) as compact JSON; the LLM reads/sorts/compares it (analysis over retrieved facts, not computation). Active result = the last result the thread produced, else the plant's latest `what_if_result`. `groundedRefs=[resultId]`.
+
+### 15.5 Persistence + provenance (D6)
+New tables (scheduling schema, migration **0008**): `conversation` (ULID, tenantId, plantId?, name, status, createdBy) + `conversation_turn` (ULID, role, content, **`groundedRefs`** jsonb, **`toolCalls`** jsonb, `resultId`, model, promptVersion, status). ULID ⇒ turns sort chronologically. Auto-named from the first message, user-editable. Tenant-isolated.
+
+### 15.6 Grounding-violation check (a real, detectable violation)
+A turn that makes a scheduling claim (regex over scheduling figures/keywords) with **zero `groundedRefs` and no tool call** is logged as a violation and replaced with an honest "I don't have grounded data" decline + `status:'degraded'` — fabrication can't reach the user.
+
+### 15.7 Graceful degradation (first-class, §3)
+A provider/loop failure never breaks the turn — it persists a `degraded` assistant turn ("couldn't process — the data is still available") with the stored data intact. The **`recorded` provider** backs a safe scripted tool-loop (routes to retrieval, surfaces the data) so the demo degrades to a safe Type-1 path if live Groq misbehaves.
+
+### 15.8 Endpoints + contracts + errors
+Endpoints (read controller, JWT, tenant-scoped): `POST /scheduling/conversations` (create + first turn), `POST /scheduling/conversations/:id/turns` (a turn), `GET /scheduling/conversations` (list), `GET /scheduling/conversations/:id` (detail+turns), `PATCH /scheduling/conversations/:id` (rename). Apply stays on the admin what-if/apply guardrail — the conversation never commits. Contracts: `ConversationDto`, `ConversationTurnDto` (groundedRefs/toolCalls/resultId/model/promptVersion/status), `ConversationDetailDto`, request schemas. Errors: `CONVERSATION_NOT_FOUND`, `CONVERSATION_TURN_FAILED`. No new env (reuse `LLM_*`). Streaming: turns return JSON with a pending-indicator UX (SSE token-streaming is a noted deferral; EventSource is GET-only and the tool-loop is non-streaming).
+
+### 15.9 Phase-6 decisions
+| ID | Decision | Status |
+|---|---|---|
+| AS26 | **Routing = tool-selection in the loop** (self-correcting via grounded tool results), not a separate classifier. | **BUILT** |
+| AS27 | **Type-1 = return the whole stored artifact**; the LLM analyzes (robust to unanticipated questions). | **BUILT** |
+| AS28 | **Conversation in `scheduling`** (reuses the engine + results directly); generic loop in `llm`. | **BUILT** |
+| AS29 | **`recorded` scripted fallback** for graceful degradation; grounding-violation check wired as detectable. | **BUILT** |

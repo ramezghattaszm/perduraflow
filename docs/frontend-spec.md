@@ -529,3 +529,26 @@ Reuse: `Panel` (titled cards), `StatusPill` (now has `danger`/`warning` tones), 
 | FS20 | **Rationale always-visible vs narration.** | `RationaleView` is the source of truth, **always rendered**; `NarrationBlock` renders **alongside**, never replacing. Delete narration → no decision info lost. | **BUILT** |
 | FS21 | **Apply gating.** | Apply is live the moment the rationale exists; independent of narration state (loading/unavailable). Human action → new draft. | **BUILT** |
 | FS22 | **i18n for the structured rationale.** | Backend emits i18n keys (`namespace.path`) + params; `resolveKey()` resolves them. Narration is the EN language surface (server-resolved facts), separate from the i18n-keyed structured form. | **BUILT** |
+
+---
+
+## 33. Phase-6 surface — Copilot (a **slide-over**, not a route)
+
+**BUILT & browser-verified** (web: FAB over the board → slide-over opens, loads the recent thread, markdown + inline option-set render; `bun run check` + `next build` + expo `tsc` green). The Copilot is an **overlay that travels with the user**, adjacent to the content it's about — not a separate screen.
+
+### 33.1 Host + panel (`features/conversation/`)
+`CopilotHost` is mounted **once, globally** — inside `QueryClientProvider` (web: `apps/next/app/providers.tsx`; native: `apps/expo/app/_layout.tsx` inside `<Provider>`), **above the per-screen shell** so it persists across navigation and never forgets the conversation. Authenticated-only. It renders a floating **FAB** (`MessagesSquare`) and, when open, a right-side **slide-over** (`Portal`, full-width on `max-md`) over the current screen. `CopilotPanel` is the content: header (auto-name + "New conversation" + close), the message thread, and the composer. State (open + active conversation) lives in `stores/copilot.store.ts` (granular selectors — never an object literal, which would loop `useSyncExternalStore`).
+
+### 33.2 Inline structured data + markdown
+A Type-2 answer's option-set renders **inline in the thread, attached to the turn that generated it** (`TurnOptionSet` → `useWhatIfResult` → `WhatIfOptionSet`, Apply via the board guardrail) — gated on the turn invoking `evaluate_what_if`. **No permanent options panel.** Assistant prose renders as **markdown** via the new cross-platform `ChatRichText` (`packages/ui`, `marked`-based → `H`/`P`/`Text`): bold/italic/inline-code/links/headings/lists/blockquotes/code/GFM tables, web + native.
+
+### 33.3 Load-on-open, naming, states, hooks
+On open the panel loads the **most recent conversation** (persistence is built); the store keeps it across navigation. **Auto-named** server-side from the first message (no "name the chat" control; rename-only via `useRenameConversation`). Pending → "Thinking…" spinner; degraded → amber bubble + "data still available". `hooks/useConversation.ts`: `useConversations`/`useConversation`/`useCreateConversation`/`useAddTurn`/`useRenameConversation`. **Removed** the `/copilot` route + nav entry + the old `ConversationScreen` (the slide-over replaces them).
+
+### 33.4 Phase-6 UI decisions
+| ID | Decision | Status |
+|---|---|---|
+| FS23 | **Copilot = global slide-over** (FAB → overlay over the current screen), mounted above the shell so it travels with the user and persists across navigation — not a route. | **BUILT** |
+| FS24 | **Structured data inline in the thread**, attached to the answer that generated it (Type-2); no permanent options panel. | **BUILT** |
+| FS25 | **Markdown bubbles** via `ChatRichText` (cross-platform `marked`→`H`/`P`); auto-named, rename-only; loads the recent thread on open. | **BUILT** |
+| FS26 | **Streamed-feel via pending state** (JSON turns + "Thinking…"); SSE token-streaming deferred. Apply → existing guardrail (no conversational-apply — Phase 7). | **BUILT** |

@@ -4,6 +4,7 @@ import admin from './locales/en/admin.json'
 import auth from './locales/en/auth.json'
 import baseline from './locales/en/baseline.json'
 import common from './locales/en/common.json'
+import conversation from './locales/en/conversation.json'
 import errors from './locales/en/errors.json'
 import exceptions from './locales/en/exceptions.json'
 import masterData from './locales/en/masterData.json'
@@ -18,7 +19,7 @@ import workforce from './locales/en/workforce.json'
  * errors.json mirrors the API's error codes — resolve a message with
  * getApiErrorCode(err) → t(`errors:${code}`). initI18n() is idempotent.
  */
-export const resources = { en: { common, auth, errors, admin, masterData, scheduling, scorecard, workforce, exceptions, objectivePolicy, whatif, baseline } } as const
+export const resources = { en: { common, auth, errors, admin, masterData, scheduling, scorecard, workforce, exceptions, objectivePolicy, whatif, baseline, conversation } } as const
 export const defaultNS = 'common'
 
 export function initI18n(): typeof i18next {
@@ -28,7 +29,7 @@ export function initI18n(): typeof i18next {
     lng: 'en',
     fallbackLng: 'en',
     defaultNS,
-    ns: ['common', 'auth', 'errors', 'admin', 'masterData', 'scheduling', 'scorecard', 'workforce', 'exceptions', 'objectivePolicy', 'whatif', 'baseline'],
+    ns: ['common', 'auth', 'errors', 'admin', 'masterData', 'scheduling', 'scorecard', 'workforce', 'exceptions', 'objectivePolicy', 'whatif', 'baseline', 'conversation'],
     interpolation: { escapeValue: false },
   })
   return i18next

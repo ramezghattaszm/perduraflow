@@ -7,7 +7,7 @@ import {
   type NarrationResult,
 } from '@perduraflow/contracts'
 import { env } from '../../config/env'
-import type { LlmRequest, LlmResponse } from './llm.canonical'
+import type { LlmContentPart, LlmMessage, LlmRequest, LlmResponse, LlmTool, LlmToolCall } from './llm.canonical'
 import {
   LLM_ADAPTERS,
   LlmProviderError,
@@ -49,7 +49,40 @@ const SYSTEM_PROMPT = [
  * env label stays for readability; the hash is the tamper-evidence. (Per-tenant /
  * DB-stored prompts are Phase 6.)
  */
-const PROMPT_VERSION = `${env.LLM_PROMPT_VERSION}-${createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 8)}`
+/** `<env label>-<sha256(prompt)[:8]>` — fingerprints the actual prompt so the D6 audit can't drift. */
+export function promptFingerprint(prompt: string): string {
+  return `${env.LLM_PROMPT_VERSION}-${createHash('sha256').update(prompt).digest('hex').slice(0, 8)}`
+}
+const PROMPT_VERSION = promptFingerprint(SYSTEM_PROMPT)
+
+/** A tool handler the conversation layer supplies; returns text + the ids it grounded in. */
+export interface ToolDispatchResult {
+  content: string
+  groundedRefs?: string[]
+  /** A new what-if result id this tool produced (Type-2) — surfaced to the caller. */
+  resultId?: string
+  isError?: boolean
+}
+export type ToolDispatch = (call: LlmToolCall) => Promise<ToolDispatchResult>
+
+/** Input to the agentic tool-loop (the consumer supplies the domain prompt + tools). */
+export interface ToolLoopInput {
+  system: string
+  messages: LlmMessage[]
+  tools: LlmTool[]
+  maxTokens?: number
+}
+
+/** The tool-loop outcome — final prose + the audit trail (route + grounding + provenance). */
+export interface ToolLoopResult {
+  text: string
+  toolCalls: LlmToolCall[]
+  groundedRefs: string[]
+  resultIds: string[]
+  model: string
+  provider: string
+  promptVersion: string
+}
 
 /** Retry policy for transient provider failures (gateway-owned, inherited by all adapters). */
 const MAX_ATTEMPTS = 3
@@ -114,6 +147,45 @@ export class LlmGateway implements LlmGatewayContract {
     const adapter = this.adapters.get(cfg.provider)
     if (!adapter) throw new LlmProviderError('invalid', `No adapter for provider '${cfg.provider}'`)
     return this.callWithRetry(adapter, req, cfg)
+  }
+
+  /**
+   * The **agentic tool-loop** (phase 6) — owned here, no external framework. The
+   * consumer supplies a domain `system` prompt + `tools` and a `dispatch` that
+   * executes a tool call (the gateway stays domain-agnostic). The loop: `complete`
+   * → if the model emits tool calls, `dispatch` each, feed the results back, repeat
+   * → until the model answers (no tool call) or `maxTurns` is hit. A tool error is
+   * fed back (so the model self-corrects); a provider failure propagates (the caller
+   * degrades). Returns the final prose + the audit trail (tool route, groundedRefs,
+   * any produced result ids, model/promptVersion).
+   */
+  async runToolLoop(input: ToolLoopInput, dispatch: ToolDispatch, maxTurns = 4): Promise<ToolLoopResult> {
+    const promptVersion = promptFingerprint(input.system)
+    const messages: LlmMessage[] = [...input.messages]
+    const toolCalls: LlmToolCall[] = []
+    const grounded = new Set<string>()
+    const resultIds = new Set<string>()
+    const params = { maxTokens: input.maxTokens ?? 700, temperature: 0 }
+
+    for (let turn = 0; turn < maxTurns; turn++) {
+      const res = await this.complete({ system: input.system, messages, tools: input.tools, toolChoice: 'auto', params })
+      if (res.stopReason !== 'tool_use' || res.toolCalls.length === 0) {
+        return { text: res.text.trim(), toolCalls, groundedRefs: [...grounded], resultIds: [...resultIds], model: res.model, provider: res.providerName, promptVersion }
+      }
+      messages.push({ role: 'assistant', content: res.content })
+      const results: LlmContentPart[] = []
+      for (const call of res.toolCalls) {
+        toolCalls.push(call)
+        const r = await dispatch(call)
+        r.groundedRefs?.forEach((x) => grounded.add(x))
+        if (r.resultId) resultIds.add(r.resultId)
+        results.push({ type: 'tool_result', toolUseId: call.id, content: r.content, isError: r.isError })
+      }
+      messages.push({ role: 'tool', content: results })
+    }
+    // Turn budget hit — one final summarizing pass with no tools so the model answers.
+    const final = await this.complete({ system: input.system, messages, params })
+    return { text: final.text.trim(), toolCalls, groundedRefs: [...grounded], resultIds: [...resultIds], model: final.model, provider: final.providerName, promptVersion }
   }
 
   /** Resolve the active provider's config: preset (data) + env (active provider/model/key). */

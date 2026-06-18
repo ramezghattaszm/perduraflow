@@ -77,6 +77,32 @@
 > exploration, intent routing — the substrate (queryable rationale, change-set-general engine, callable
 > narration) is in place but the conversation layer is **not** built.
 >
+> **Phase 6 (conversational layer — Q&A + scenario exploration): BUILT & verified — the demo is now
+> feature-complete (engine 0–5 + conversational differentiator 6).** Language + orchestration over the
+> phase-5 engine, **no new engine**. Built (api-spec §15 / frontend-spec §33): an **agentic tool-loop in
+> the LLM gateway** (`runToolLoop`, bounded, dispatch-injected, error-feedback) that any consumer drives;
+> a **`ConversationService` in `scheduling`** exposing two tools — **`retrieve_what_if`** (Type-1: read
+> the stored what-if artifact, analyze it, no engine call) and **`evaluate_what_if`** (Type-2: construct
+> a `ChangeSet` from language → the real what-if engine → a new stored, Type-1-able result). **Routing is
+> tool-selection** (Type-1 / Type-2 / out-of-scope decline), self-corrected by grounded tool results — no
+> separate classifier. **Ground-never-fabricate**: every scheduling fact traces to a stored/engine result
+> (`groundedRefs`); a scheduling claim with no grounding is a **detected violation** (logged + degraded);
+> change-sets are grounded in a **plant-scoped bounded entity catalog** + validated (Zod → engine
+> ref-check). **Persistent + auditable** (`conversation`/`conversation_turn`, ULID, named, per-turn
+> provenance; migration `0008`). **Graceful degradation first-class**: a failed turn degrades to "couldn't
+> process — here's the data"; the `recorded` provider backs a safe scripted Type-1 fallback. The
+> conversation **constructs + explains; the human applies** (Type-2 → option-set → Apply through the board
+> guardrail, D26) — **conversational-apply is Phase 7, not built**. UI: **Copilot is a global slide-over**
+> (a FAB → an overlay over the current screen, mounted above the shell so it travels with the user and
+> keeps its thread across navigation — not a route); a Type-2 answer's option-set renders **inline in the
+> thread** (attached to the turn, Apply via the board guardrail); prose renders as **markdown** via the new
+> cross-platform `ChatRichText`; loads the recent thread on open; auto-named; pending/degraded states; SSE
+> token-streaming deferred (turns return JSON + "Thinking…"). Verified: 8 API
+> proofs pass with **live Groq (gpt-oss-120b)** — Type-1 explain/analyze, Type-2 construct+route,
+> out-of-scope decline, persistence; `bun run check` + `next build` + expo `tsc` green; web Copilot
+> browser-verified (thread + grounded option card alongside). Decisions **AS26–AS29 / FS23–FS25**.
+> **Next: realism batch (shifts first) + staging — Phase 7 (conversational apply) deferred.**
+>
 > **Demo reset + Magna scenario:** `bun run demo:reset` (apps/api `src/db/reset.ts`) restores the
 > deterministic **Magna de México** dataset (docs/SEED-SCENARIO-SPEC.md) in one step — truncates all
 > app-schema tables (wipes learned values, actuals, schedule versions), re-seeds the one coherent

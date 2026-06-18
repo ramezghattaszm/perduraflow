@@ -54,6 +54,7 @@ export * from './RationaleView'
 export * from './NarrationBlock'
 export * from './OptionCard'
 export * from './BaselineDeltaStrip'
+export * from './ChatRichText'
 
 // type augmentation for tamagui custom config
 import type { Conf } from '@perduraflow/config'
