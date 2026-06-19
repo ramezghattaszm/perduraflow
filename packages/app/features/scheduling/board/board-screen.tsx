@@ -68,6 +68,9 @@ export function BoardContent() {
   const whatIf = useWhatIf()
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
   const [whatIfError, setWhatIfError] = useState<string | null>(null)
+  // Which condition produced the visible option-set — lets that condition's CTA toggle
+  // (See options ⇄ Close options) and collapse what it opened.
+  const [whatIfTrigger, setWhatIfTrigger] = useState<string | null>(null)
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const { showToast } = useToast()
@@ -92,6 +95,7 @@ export function BoardContent() {
   useEffect(() => {
     setWhatIfResult(null)
     setWhatIfError(null)
+    setWhatIfTrigger(null)
     setSelectedBarId(null)
     setSelectedResourceId(null)
   }, [plantId])
@@ -261,7 +265,7 @@ export function BoardContent() {
   // commits until the planner applies an option (the real D26 guardrail). Failures
   // (e.g. the whole plant infeasible — every eligible line down) surface honestly
   // instead of vanishing.
-  const runWhatIf = (changeSet: ChangeSet) => {
+  const runWhatIf = (changeSet: ChangeSet, triggerKey: string) => {
     if (!plantId) return
     // Close the bar-detail sheet (native: a bottom sheet) when options are requested
     // from within it — otherwise it stays open over the option-set. No-op when the
@@ -270,20 +274,29 @@ export function BoardContent() {
     setSelectedResourceId(null)
     setWhatIfResult(null)
     setWhatIfError(null)
+    setWhatIfTrigger(triggerKey)
     whatIf.mutate(
       { plantId, changeSet },
       { onSuccess: setWhatIfResult, onError: (e) => setWhatIfError(translateError(getApiErrorCode(e))) },
     )
   }
+  /** Collapse the visible option-set (the "Close options" half of the CTA toggle). */
+  const closeWhatIf = () => {
+    setWhatIfResult(null)
+    setWhatIfError(null)
+    setWhatIfTrigger(null)
+  }
+  /** A condition's option-set is currently open → its CTA reads "Close options". */
+  const whatIfOpenFor = (triggerKey: string) => whatIfTrigger === triggerKey && Boolean(whatIfResult)
   const runDemandWhatIf = (demandLineId: string, to: number) =>
-    runWhatIf({ origin: { type: 'demand', ref: demandLineId }, changes: [{ kind: 'demand_qty', demandLineId, to }] })
+    runWhatIf({ origin: { type: 'demand', ref: demandLineId }, changes: [{ kind: 'demand_qty', demandLineId, to }] }, `demand-${demandLineId}`)
   const runLineDownWhatIf = (resourceId: string) => {
     const now = new Date()
     const week = new Date(now.getTime() + 7 * 86_400_000)
-    runWhatIf({ origin: { type: 'collision', ref: resourceId }, changes: [{ kind: 'resource_window', resourceId, downFrom: now.toISOString(), downTo: week.toISOString() }] })
+    runWhatIf({ origin: { type: 'collision', ref: resourceId }, changes: [{ kind: 'resource_window', resourceId, downFrom: now.toISOString(), downTo: week.toISOString() }] }, `down-${resourceId}`)
   }
   const runWearWhatIf = (resourceId: string) =>
-    runWhatIf({ origin: { type: 'prediction', ref: resourceId }, changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }] })
+    runWhatIf({ origin: { type: 'prediction', ref: resourceId }, changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }] }, `wear-${resourceId}`)
 
   // Self-contained bar detail (identity + learned/std + performance). Identity is
   // repeated so the panel/sheet stands alone (the tap target never assumes a hover).
@@ -512,26 +525,32 @@ export function BoardContent() {
             </P>
           ) : (
             <YStack gap="$2">
-              {lineDownConditions.map((c) => (
-                <ConditionCard
-                  key={`down-${c.resourceId}`}
-                  title={t('whatif:condition.lineDown', { resource: c.name })}
-                  detail={t('whatif:condition.lineDownDetail', { count: c.affected })}
-                  cta={t('whatif:trigger.seeOptions')}
-                  loading={whatIf.isPending}
-                  onPress={() => runLineDownWhatIf(c.resourceId)}
-                />
-              ))}
-              {demandConditions.map((c) => (
-                <ConditionCard
-                  key={`demand-${c.demandLineId}`}
-                  title={t('whatif:condition.demand', { line: c.demandLineId })}
-                  detail={t('whatif:condition.demandDetail', { from: c.from, to: c.to })}
-                  cta={t('whatif:trigger.seeOptions')}
-                  loading={whatIf.isPending}
-                  onPress={() => runDemandWhatIf(c.demandLineId, c.to)}
-                />
-              ))}
+              {lineDownConditions.map((c) => {
+                const open = whatIfOpenFor(`down-${c.resourceId}`)
+                return (
+                  <ConditionCard
+                    key={`down-${c.resourceId}`}
+                    title={t('whatif:condition.lineDown', { resource: c.name })}
+                    detail={t('whatif:condition.lineDownDetail', { count: c.affected })}
+                    cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
+                    loading={whatIf.isPending && whatIfTrigger === `down-${c.resourceId}`}
+                    onPress={() => (open ? closeWhatIf() : runLineDownWhatIf(c.resourceId))}
+                  />
+                )
+              })}
+              {demandConditions.map((c) => {
+                const open = whatIfOpenFor(`demand-${c.demandLineId}`)
+                return (
+                  <ConditionCard
+                    key={`demand-${c.demandLineId}`}
+                    title={t('whatif:condition.demand', { line: c.demandLineId })}
+                    detail={t('whatif:condition.demandDetail', { from: c.from, to: c.to })}
+                    cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
+                    loading={whatIf.isPending && whatIfTrigger === `demand-${c.demandLineId}`}
+                    onPress={() => (open ? closeWhatIf() : runDemandWhatIf(c.demandLineId, c.to))}
+                  />
+                )
+              })}
             </YStack>
           )}
           {whatIfError ? (
@@ -550,7 +569,7 @@ export function BoardContent() {
                   // Select the new draft (now in the refreshed version list) and clear the
                   // option-set so it can't be re-applied.
                   setVersionId(v)
-                  setWhatIfResult(null)
+                  closeWhatIf()
                 }}
               />
             </YStack>

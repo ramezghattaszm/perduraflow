@@ -59,7 +59,8 @@
   "infeasible.noResource": "No eligible resource once the line is offline",
   "trigger": {
     "title": "Conditions",
-    "seeOptions": "See options"
+    "seeOptions": "See options",
+    "closeOptions": "Close options"
   },
   "condition": {
     "lineDown": "{{resource}} is down",
