@@ -24,8 +24,12 @@ export interface DateRangeNavProps {
   /** The navigated date (UTC-midnight ms). In `week` mode it selects the week it falls in. */
   valueMs: number
   onChange: (ms: number) => void
-  /** Mark closed days in the picker (Sunday/holiday) — unselectable + greyed. */
+  /** Mark closed days in the picker (Sunday/holiday) — greyed (still selectable). */
   isDayClosed?: (dayMs: number) => boolean
+  /** Clamp prev/next stepping to `[minMs, maxMs]` (UTC-day); arrows disable at the edges.
+   *  **Today** is exempt — it always jumps to the real current date (may be outside). */
+  minMs?: number
+  maxMs?: number
   labels: { today: string; prev: string; next: string; pickTitle: string }
 }
 
@@ -48,12 +52,15 @@ const rangeLabel = (ms: number): string => {
  * @example
  * <DateRangeNav mode="day" valueMs={viewDate} onChange={setViewDate} labels={{today:'Today',…}} />
  */
-export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, labels }: DateRangeNavProps) {
+export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, minMs, maxMs, labels }: DateRangeNavProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [anchor, setAnchor] = useState<Anchor | null>(null)
   const triggerRef = useRef<Measurable | null>(null)
   const step = mode === 'week' ? 7 * MS_PER_DAY : MS_PER_DAY
   const label = mode === 'week' ? rangeLabel(valueMs) : dayLabel(valueMs)
+  const clamp = (ms: number) => (minMs != null && ms < minMs ? minMs : maxMs != null && ms > maxMs ? maxMs : ms)
+  const prevDisabled = minMs != null && utcDay(valueMs) <= minMs
+  const nextDisabled = maxMs != null && utcDay(valueMs) >= maxMs
 
   // Measure the trigger so the popover (larger screens) anchors under it; the sheet
   // (small screens) ignores the anchor.
@@ -66,7 +73,7 @@ export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, labels }: D
   return (
     <>
       <XStack alignItems="center" gap="$2">
-        <IconButton icon={ChevronLeft} label={labels.prev} onPress={() => onChange(utcDay(valueMs) - step)} />
+        <IconButton icon={ChevronLeft} label={labels.prev} disabled={prevDisabled} onPress={() => onChange(clamp(utcDay(valueMs) - step))} />
         <XStack
           ref={triggerRef as never}
           paddingHorizontal="$3"
@@ -84,7 +91,7 @@ export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, labels }: D
             {label}
           </P>
         </XStack>
-        <IconButton icon={ChevronRight} label={labels.next} onPress={() => onChange(utcDay(valueMs) + step)} />
+        <IconButton icon={ChevronRight} label={labels.next} disabled={nextDisabled} onPress={() => onChange(clamp(utcDay(valueMs) + step))} />
         <AppButton variant="ghost" size="$3" onPress={() => onChange(utcDay(Date.now()))}>
           {labels.today}
         </AppButton>

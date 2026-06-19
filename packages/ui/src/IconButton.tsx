@@ -10,6 +10,8 @@ export interface IconButtonProps {
   iconSize?: number
   color?: ColorTokens
   active?: boolean
+  /** Dimmed + non-interactive (e.g. a stepper arrow at its range edge). */
+  disabled?: boolean
 }
 
 /**
@@ -21,21 +23,24 @@ export interface IconButtonProps {
  * @example
  * <IconButton icon={Menu} label="Open menu" onPress={openDrawer} />
  */
-export function IconButton({ icon: Icon, label, onPress, iconSize = 20, color = '$textSecondary', active }: IconButtonProps) {
+export function IconButton({ icon: Icon, label, onPress, iconSize = 20, color = '$textSecondary', active, disabled }: IconButtonProps) {
   return (
     <XStack
-      onPress={onPress}
-      cursor="pointer"
+      onPress={disabled ? undefined : onPress}
+      cursor={disabled ? 'default' : 'pointer'}
+      opacity={disabled ? 0.35 : 1}
+      pointerEvents={disabled ? 'none' : 'auto'}
       width={36}
       height={36}
       borderRadius="$4"
       alignItems="center"
       justifyContent="center"
       backgroundColor={active ? '$primarySoft' : 'transparent'}
-      hoverStyle={{ backgroundColor: active ? '$primarySoft' : '$hoverFill' }}
-      pressStyle={{ opacity: 0.7 }}
+      hoverStyle={disabled ? undefined : { backgroundColor: active ? '$primarySoft' : '$hoverFill' }}
+      pressStyle={disabled ? undefined : { opacity: 0.7 }}
       role="button"
       aria-label={label}
+      aria-disabled={disabled}
     >
       <Icon size={iconSize} color={active ? '$primary' : color} />
     </XStack>

@@ -37,6 +37,7 @@ import {
 import { useLearnedParameters, usePredictions, useVariance } from '../../../hooks/useLearning'
 import { useWhatIf } from '../../../hooks/useWhatIf'
 import { useToast } from '../../../hooks/useToast'
+import { useSessionState } from '../../../hooks/useSessionState'
 import { AdminShell } from '../../shell/admin-shell'
 import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
 
@@ -80,18 +81,12 @@ export function BoardContent() {
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   // Shift-model work-area (C1): Day|Week horizon + the navigated date (UTC-midnight ms).
-  const [horizonMode, setHorizonMode] = useState<'day' | 'week'>('day')
-  const [viewDate, setViewDate] = useState<number>(() => Math.floor(Date.now() / MS_PER_DAY) * MS_PER_DAY)
+  // Both default to today's view but are **session-tracked** (web: sessionStorage, so a
+  // refresh returns to the last day/horizon you were on; native: in-memory only — no refresh).
+  const [horizonMode, setHorizonMode] = useSessionState<'day' | 'week'>('board.horizonMode', 'day')
+  const [viewDate, setViewDate] = useSessionState<number>('board.viewDate', utcDay(Date.now()))
   const { showToast } = useToast()
   const wearShown = useRef<Set<string>>(new Set())
-
-  // Open on the day the schedule lives on (the version's horizon start), not literal
-  // "today" — so the board isn't empty when the seed's dates differ from the clock.
-  // Re-anchors only when the committed/selected version changes (date nav never re-fetches).
-  useEffect(() => {
-    if (detail) setViewDate(Math.floor(new Date(detail.version.horizonStart).getTime() / MS_PER_DAY) * MS_PER_DAY)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.version.id])
 
   // default/repair version selection: newest committed, else newest
   useEffect(() => {
@@ -181,6 +176,16 @@ export function BoardContent() {
     if (!ww.workingDays.includes(new Date(dayMs).getUTCDay())) return true
     return ww.holidays.includes(new Date(dayMs).toISOString().slice(0, 10))
   }
+
+  // View-only when the whole visible range is in the past — the day(s) are over, so the
+  // schedule is read-only: signals + lane/job detail still show, but Re-solve / what-if
+  // options are disabled (no rolling-horizon machinery; the demo just bounds the past).
+  const today = utcDay(Date.now())
+  const readOnly = rangeEnd <= today
+  // Date navigation clamps to the version horizon, buffered to whole weeks; prev/next
+  // disable at the edges. (Today is exempt — it jumps to the real date even if outside.)
+  const navMin = detail ? weekStartMon(new Date(detail.version.horizonStart).getTime()) : undefined
+  const navMax = detail ? weekStartMon(new Date(detail.version.horizonEnd).getTime()) + 6 * MS_PER_DAY : undefined
 
   // Per-resource behind-plan chip (BOARD-SIGNALS item 2): the variance is about the
   // resource, so it lives on the lane. Threshold-gated + settled; per the selected
@@ -287,7 +292,7 @@ export function BoardContent() {
     })
 
   const onSolve = () => {
-    if (!plantId) return
+    if (!plantId || readOnly) return
     solve.mutate(plantId, { onSuccess: (v) => setVersionId(v.id) })
   }
 
@@ -297,7 +302,7 @@ export function BoardContent() {
   // (e.g. the whole plant infeasible — every eligible line down) surface honestly
   // instead of vanishing.
   const runWhatIf = (changeSet: ChangeSet, triggerKey: string) => {
-    if (!plantId) return
+    if (!plantId || readOnly) return
     // Close the bar-detail sheet (native: a bottom sheet) when options are requested
     // from within it — otherwise it stays open over the option-set. No-op when the
     // trigger is a condition card (nothing selected).
@@ -458,7 +463,7 @@ export function BoardContent() {
       subtitle={t('board.down.subtitle')}
       status={{ label: t('board.down.pill'), tone: 'danger' }}
       warning={{ title: t('board.down.title'), body: t('board.down.body', { count: lineOpsN, resource: resName }) }}
-      action={{ label: t('whatif:trigger.seeOptions'), onPress: () => runLineDownWhatIf(selectedResourceId!), loading: whatIf.isPending }}
+      action={readOnly ? undefined : { label: t('whatif:trigger.seeOptions'), onPress: () => runLineDownWhatIf(selectedResourceId!), loading: whatIf.isPending }}
       emptyText=""
     />
   ) : null
@@ -479,7 +484,7 @@ export function BoardContent() {
           : undefined
       }
       action={
-        linePred || lineWear
+        (linePred || lineWear) && !readOnly
           ? { label: t('whatif:trigger.seeOptions'), onPress: () => runWearWhatIf(selectedResourceId!), loading: whatIf.isPending }
           : undefined
       }
@@ -502,15 +507,19 @@ export function BoardContent() {
                 {t('board.commit')}
               </AppButton>
             ) : null}
-            <AppButton
-              variant={planStale ? 'primary' : 'ghost'}
-              size="$3"
-              icon={planStale ? TriangleAlert : undefined}
-              loading={solve.isPending}
-              onPress={onSolve}
-            >
-              {t('board.resolve')}
-            </AppButton>
+            {/* Re-solve is disabled in view-only (past) mode — the day is over (UI-§5:
+                simulate disabled with opacity + pointerEvents, not a Button `disabled`). */}
+            <YStack opacity={readOnly ? 0.4 : 1} pointerEvents={readOnly ? 'none' : 'auto'}>
+              <AppButton
+                variant={planStale && !readOnly ? 'primary' : 'ghost'}
+                size="$3"
+                icon={planStale && !readOnly ? TriangleAlert : undefined}
+                loading={solve.isPending}
+                onPress={onSolve}
+              >
+                {t('board.resolve')}
+              </AppButton>
+            </YStack>
           </XStack>
         }
       />
@@ -565,6 +574,7 @@ export function BoardContent() {
                     detail={t('whatif:condition.lineDownDetail', { count: c.affected })}
                     cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
                     loading={whatIf.isPending && whatIfTrigger === `down-${c.resourceId}`}
+                    disabled={readOnly}
                     onPress={() => (open ? closeWhatIf() : runLineDownWhatIf(c.resourceId))}
                   />
                 )
@@ -578,6 +588,7 @@ export function BoardContent() {
                     detail={t('whatif:condition.demandDetail', { from: c.from, to: c.to })}
                     cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
                     loading={whatIf.isPending && whatIfTrigger === `demand-${c.demandLineId}`}
+                    disabled={readOnly}
                     onPress={() => (open ? closeWhatIf() : runDemandWhatIf(c.demandLineId, c.to))}
                   />
                 )
@@ -596,6 +607,7 @@ export function BoardContent() {
             <YStack marginTop="$3">
               <WhatIfOptionSet
                 result={whatIfResult}
+                previewOnly={readOnly}
                 onApplied={(v) => {
                   // Select the new draft (now in the refreshed version list) and clear the
                   // option-set so it can't be re-applied.
@@ -638,6 +650,8 @@ export function BoardContent() {
             valueMs={viewDate}
             onChange={setViewDate}
             isDayClosed={isDayClosed}
+            minMs={navMin}
+            maxMs={navMax}
             labels={{ today: t('board.nav.today'), prev: t('board.nav.prev'), next: t('board.nav.next'), pickTitle: t('board.nav.pick') }}
           />
         </XStack>
@@ -660,6 +674,7 @@ export function BoardContent() {
             setHorizonMode('day')
           }}
           closedText={t('board.closedDay')}
+          noWorkText={t('board.noWorkDay')}
           horizonStartMs={new Date(detail.version.horizonStart).getTime()}
           horizonEndMs={new Date(detail.version.horizonEnd).getTime()}
           workingWindow={detail.workingWindow}
@@ -714,7 +729,7 @@ export function BoardContent() {
 }
 
 /** A detected-condition card on the board (line down / demand change) → review options. */
-function ConditionCard({ title, detail, cta, loading, onPress }: { title: string; detail: string; cta: string; loading?: boolean; onPress: () => void }) {
+function ConditionCard({ title, detail, cta, loading, disabled, onPress }: { title: string; detail: string; cta: string; loading?: boolean; disabled?: boolean; onPress: () => void }) {
   return (
     <XStack
       gap="$3"
@@ -734,9 +749,13 @@ function ConditionCard({ title, detail, cta, loading, onPress }: { title: string
           {detail}
         </P>
       </YStack>
-      <AppButton variant="ghost" size="$3" loading={loading} onPress={onPress}>
-        {cta}
-      </AppButton>
+      {/* View-only (past day): the signal stays visible but the action is disabled
+          (UI-§5: simulate disabled with opacity + pointerEvents, not Button `disabled`). */}
+      {disabled ? null : (
+        <AppButton variant="ghost" size="$3" loading={loading} onPress={onPress}>
+          {cta}
+        </AppButton>
+      )}
     </XStack>
   )
 }

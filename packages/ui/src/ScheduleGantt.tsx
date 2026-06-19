@@ -92,6 +92,9 @@ export interface ScheduleGanttProps {
   onDaySelect?: (dayMs: number) => void
   /** Shown centered when a `day`-mode view lands on a closed day (Sunday/holiday). */
   closedText?: string
+  /** Shown centered when a `day`-mode view is a working day with no scheduled work
+   *  (reads as "nothing scheduled", not a broken/blank board). */
+  noWorkText?: string
   /**
    * Lightweight **hover preview** content (Tier 1, web only) — a transient tooltip
    * shown while hovering a bar (never on native, which has no hover). Supplementary:
@@ -120,8 +123,6 @@ const BAR_H = 38
 const PX_PER_HOUR = 90
 /** Compressed per-hour scale in week mode — working time dominates; 6 days fit ~one viewport. */
 const WEEK_PX_PER_HOUR = 11
-/** Width of a fully-closed day column (Sunday/holiday) in week mode. */
-const CLOSED_DAY_W = 46
 /** The overnight gap drawn between two adjacent working-day columns (week mode). */
 const DAY_GAP = 12
 const MIN_TRACK = 480
@@ -156,7 +157,7 @@ interface DayCell {
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, workingWindow, horizon = 'day', viewDateMs, onDaySelect, closedText, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, workingWindow, horizon = 'day', viewDateMs, onDaySelect, closedText, noWorkText, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
   // Hover preview only (web). The selected/open bar is owned by the parent
@@ -224,7 +225,10 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
         const dayEnd = dayMs + MS_PER_DAY
         for (const b of bars) if (b.startMs >= dayMs && b.startMs < dayEnd && b.endMs > closeMs) closeMs = b.endMs
       }
-      const w = working ? Math.max(((closeMs - openMs) / MS_PER_HOUR) * pph, 1) : weekMode ? CLOSED_DAY_W : Math.max(((closeMin - openMin) / 60) * pph, MIN_TRACK)
+      // A closed DAY renders at full working-day width (a whole day is closed), so it reads
+      // as a complete hatched day column — not a thin sliver. (Overnight gaps stay thin.)
+      const fullDayW = ((closeMin - openMin) / 60) * pph
+      const w = working ? Math.max(((closeMs - openMs) / MS_PER_HOUR) * pph, 1) : weekMode ? fullDayW : Math.max(fullDayW, MIN_TRACK)
       const cell: DayCell = { dayMs, working, openMs, closeMs, x, w }
       x += w
       return cell
@@ -262,6 +266,31 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
   const rowIndex = new Map(resources.map((r, i) => [r.id, i]))
   const hhmm = (ms: number) => `${String(new Date(ms).getUTCHours()).padStart(2, '0')}:00`
   const dayHeader = (ms: number) => new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(ms))
+  // Diagonal hatch filling a closed-day column (the "unavailable" Gantt convention) — 45°
+  // anti-diagonals clipped to the column box by min/max (no clipPath needed).
+  const closedHatch = (cell: DayCell): ReactNode[] => {
+    const x = cell.x
+    const y = AXIS_H
+    const w = cell.w
+    const h = laneAreaH
+    const step = 7
+    const lines: ReactNode[] = []
+    for (let o = step; o < w + h; o += step) {
+      lines.push(
+        <Line
+          key={`hx${cell.dayMs}-${o}`}
+          x1={x + Math.max(0, o - h)}
+          y1={y + Math.min(o, h)}
+          x2={x + Math.min(o, w)}
+          y2={y + Math.max(0, o - w)}
+          stroke={c.axisText}
+          strokeWidth={1}
+          opacity={0.55}
+        />,
+      )
+    }
+    return lines
+  }
 
   return (
     <XStack borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden" backgroundColor="$surface">
@@ -336,16 +365,20 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
               cells.map((cell, i) => (
                 <G key={`cell${cell.dayMs}`}>
                   {i > 0 ? <Rect x={cell.x - DAY_GAP} y={AXIS_H} width={DAY_GAP} height={laneAreaH} fill={c.grid} opacity={0.18} /> : null}
-                  {!cell.working ? <Rect x={cell.x} y={AXIS_H} width={cell.w} height={laneAreaH} fill={c.grid} opacity={0.18} /> : null}
+                  {/* Closed day (Sunday/holiday): a solid opaque base (wipes the alternating
+                      lane tint so the whole column reads uniformly) + a grey tint + diagonal
+                      hatch = clearly "not available", no label (the date header carries the day). */}
+                  {!cell.working ? (
+                    <>
+                      <Rect x={cell.x} y={AXIS_H} width={cell.w} height={laneAreaH} fill={c.axisBg} opacity={1} />
+                      <Rect x={cell.x} y={AXIS_H} width={cell.w} height={laneAreaH} fill={c.axisText} opacity={0.28} />
+                      {closedHatch(cell)}
+                    </>
+                  ) : null}
                   <Line x1={cell.x} y1={0} x2={cell.x} y2={svgH} stroke={c.grid} strokeWidth={1} />
-                  <SvgText x={cell.x + (cell.working ? 6 : cell.w / 2)} y={24} fontSize={11} fontWeight="600" fill={c.axisText} textAnchor={cell.working ? 'start' : 'middle'}>
+                  <SvgText x={cell.x + (cell.working ? 6 : cell.w / 2)} y={24} fontSize={11} fontWeight="600" fill={c.axisText} textAnchor={cell.working ? 'start' : 'middle'} opacity={cell.working ? 1 : 0.6}>
                     {dayHeader(cell.dayMs)}
                   </SvgText>
-                  {!cell.working ? (
-                    <SvgText x={cell.x + cell.w / 2} y={AXIS_H + laneAreaH / 2} fontSize={10} fill={c.axisText} textAnchor="middle">
-                      closed
-                    </SvgText>
-                  ) : null}
                 </G>
               ))
             ) : workingWindow ? (
@@ -446,11 +479,13 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
                 />
               ))
             : null}
-          {/* Day mode on a closed day (Sunday/holiday) → centered closed message. */}
-          {dayClosed && closedText ? (
+          {/* Day mode → centered message when there's nothing to show: a closed day
+              (Sunday/holiday) or a working day with no scheduled work. Reads as
+              intentional ("nothing scheduled"), not a broken/blank board. */}
+          {!weekMode && (dayClosed ? closedText : bars.length === 0 ? noWorkText : null) ? (
             <YStack position="absolute" top={AXIS_H} left={0} right={0} height={laneAreaH} alignItems="center" justifyContent="center" pointerEvents="none">
               <P size={3} weight="m" color="$textTertiary">
-                {closedText}
+                {dayClosed ? closedText : noWorkText}
               </P>
             </YStack>
           ) : null}
