@@ -38,14 +38,20 @@ export function useWhatIfResult(id: string | undefined) {
 /**
  * Render a what-if result's structured rationale into prose (A19). Async + never in
  * the commit path; a failure returns `status: 'unavailable'` (zero functional impact).
+ *
+ * **Cached** per (result, mode, option): a what-if result is immutable, so the prose
+ * never changes — `staleTime: Infinity` means re-opening an option reuses the cached
+ * answer instead of re-fetching (and the API itself reuses the stored narration rather
+ * than re-calling the model). The first open is the only model call.
  */
-export function useNarration() {
-  return useMutation({
-    mutationFn: (vars: { resultId: string; mode: NarrationMode; optionId?: string }) =>
-      post<WhatIfNarrationDto, { mode: NarrationMode; optionId?: string }>(`/scheduling/what-if/${vars.resultId}/narrate`, {
-        mode: vars.mode,
-        optionId: vars.optionId,
-      }),
+export function useNarration(resultId: string | undefined, mode: NarrationMode, optionId?: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.narration(resultId ?? '', mode, optionId ?? ''),
+    queryFn: () =>
+      post<WhatIfNarrationDto, { mode: NarrationMode; optionId?: string }>(`/scheduling/what-if/${resultId}/narrate`, { mode, optionId }),
+    enabled: Boolean(resultId),
+    staleTime: Infinity,
+    gcTime: Infinity,
   })
 }
 

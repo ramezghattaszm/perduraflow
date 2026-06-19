@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import type { NarrationMode } from '@perduraflow/contracts'
+import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { SCHEDULING_DB, type SchedulingDatabase } from './scheduling.db'
 import {
   conversation,
@@ -163,6 +164,32 @@ export class SchedulingRepository {
   async createNarration(data: NewWhatIfNarration): Promise<WhatIfNarration> {
     const [row] = await this.db.insert(whatIfNarration).values(data).returning()
     return row!
+  }
+
+  /**
+   * A previously-rendered, **ready** narration for the same (result, option, mode) at
+   * the current prompt version — the cache hit that lets a re-opened option reuse the
+   * prose instead of re-calling the model. A what-if result is immutable, so the only
+   * reason to regenerate is a prompt change (captured by `promptVersion`).
+   */
+  findReadyNarration(
+    tenantId: string,
+    resultId: string,
+    mode: NarrationMode,
+    optionId: string | null,
+    promptVersion: string,
+  ): Promise<WhatIfNarration | undefined> {
+    return this.db.query.whatIfNarration.findFirst({
+      where: and(
+        eq(whatIfNarration.tenantId, tenantId),
+        eq(whatIfNarration.resultId, resultId),
+        eq(whatIfNarration.mode, mode),
+        optionId == null ? isNull(whatIfNarration.optionId) : eq(whatIfNarration.optionId, optionId),
+        eq(whatIfNarration.status, 'ready'),
+        eq(whatIfNarration.promptVersion, promptVersion),
+      ),
+      orderBy: desc(whatIfNarration.createdAt),
+    })
   }
 
   // --- phase 5: historical outcomes (measured_historical arm) ----------------

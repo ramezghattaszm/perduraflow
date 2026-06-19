@@ -12,6 +12,7 @@
   "constraintsTitle": "Constraints",
   "comparativesTitle": "Versus the others",
   "narrationTitle": "In plain language",
+  "narrationSummaryTitle": "Why this is recommended",
   "narrationLoading": "Writing the explanation…",
   "narrationUnavailable": "Explanation unavailable — the options and rationale above are the answer.",
   "narrationNote": "Generated from the structured rationale (translation only).",

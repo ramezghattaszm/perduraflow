@@ -33,6 +33,24 @@ export class NarrationService {
     const options = result.options as WhatIfOption[]
     const input = inputFor(mode, options, result.recommendedOptionId, optionId)
 
+    // Cache hit: a what-if result is immutable, so a prior `ready` narration at the
+    // current prompt version is reusable — re-opening an option returns instantly
+    // without re-calling the model. Regeneration only happens when the prompt changes.
+    const promptVersion = this.llm.narrationPromptVersion()
+    const cached = await this.repo.findReadyNarration(tenantId, resultId, mode, optionId ?? null, promptVersion)
+    if (cached) {
+      return {
+        resultId,
+        optionId: optionId ?? null,
+        mode,
+        status: 'ready',
+        prose: cached.prose,
+        model: cached.model,
+        promptVersion: cached.promptVersion,
+        createdAt: cached.createdAt.toISOString(),
+      }
+    }
+
     try {
       const res = await this.llm.narrate(input)
       const row = await this.repo.createNarration({

@@ -117,6 +117,16 @@ export class LlmGateway implements LlmGatewayContract {
    * and runs it through {@link complete}.
    * @throws on provider failure (after retries) — the caller maps it to NARRATION_UNAVAILABLE.
    */
+  /**
+   * The current narration prompt fingerprint (`LLM_PROMPT_VERSION` + a hash of the
+   * system prompt). Stable for a given build, so a stored narration with a matching
+   * `promptVersion` is **reusable without re-calling the model**; it only changes when
+   * the prompt does, which is exactly when prior prose should be regenerated.
+   */
+  narrationPromptVersion(): string {
+    return PROMPT_VERSION
+  }
+
   async narrate(input: NarrationInput): Promise<NarrationResult> {
     const userContent = [input.headline, ...input.facts.map((f) => `- ${f}`)].join('\n')
     const config = this.resolveConfig()

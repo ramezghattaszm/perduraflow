@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { CostedKpis, WhatIfOption, WhatIfResultDto } from '@perduraflow/contracts'
 import {
   NarrationBlock,
@@ -48,46 +48,57 @@ export interface WhatIfOptionSetProps {
 }
 
 /**
+ * A grounded narration for a single result/mode — its own async, non-blocking call so
+ * one card's narration never blocks render and a failure is isolated to that block.
+ * `mode:'option'` translates THAT option's rationale; `mode:'across_options'` is the
+ * one "why the winner won" summary. Translate-only (the backend grounds it in the
+ * stored rationale).
+ */
+function Narration({ resultId, mode, optionId, title }: { resultId: string; mode: 'option' | 'across_options'; optionId?: string; title: string }) {
+  const { t } = useTranslation()
+  const q = useNarration(resultId, mode, optionId)
+  const state: NarrationState = q.isError
+    ? 'unavailable'
+    : q.isPending
+      ? 'loading'
+      : q.data?.status === 'ready'
+        ? 'ready'
+        : 'unavailable'
+  return (
+    <NarrationBlock
+      state={state}
+      prose={q.data?.prose ?? null}
+      title={title}
+      loadingText={t('whatif:narrationLoading')}
+      unavailableText={t('whatif:narrationUnavailable')}
+      note={t('whatif:narrationNote')}
+    />
+  )
+}
+
+/**
  * WhatIfOptionSet — the Cockpit costed-options surface (View 1, D55/A19). Renders the
- * ranked options with their **structured rationale always visible**, the **narration
- * alongside** (fetched async, non-blocking), and **Apply** (live the moment the
- * rationale exists). Maps the contract DTOs (i18n keys + params) to resolved UI props
- * via {@link resolveKey}. Reused by the board change-evaluation and the so-what scene.
+ * ranked options with their **structured rationale always visible**, a **per-option
+ * narration** explaining THAT option (async, non-blocking, isolated failure), and
+ * **Apply** (live the moment the rationale exists). The across-options "why the winner
+ * won" summary renders **once** at the top, not on every card. Reused by the board
+ * change-evaluation and the so-what scene (the fix lives here so it can't recur per-path).
  */
 export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOptionSetProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState<string | null>(result.recommendedOptionId)
   const [appliedId, setAppliedId] = useState<string | null>(null)
-  const narrate = useNarration()
   const apply = useApplyOption()
-  const [narrState, setNarrState] = useState<NarrationState>('idle')
-  const [prose, setProse] = useState<string | null>(null)
-
-  // Narrate the across-options summary once the result exists (async, non-blocking).
-  useEffect(() => {
-    let cancelled = false
-    setNarrState('loading')
-    setProse(null)
-    narrate
-      .mutateAsync({ resultId: result.id, mode: 'across_options' })
-      .then((n) => {
-        if (cancelled) return
-        setNarrState(n.status === 'ready' ? 'ready' : 'unavailable')
-        setProse(n.prose ?? null)
-      })
-      .catch(() => {
-        if (!cancelled) setNarrState('unavailable')
-      })
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result.id])
+  const feasibleCount = result.options.filter((o) => o.feasible).length
 
   const optionLabel = (o: WhatIfOption) => resolveKey(o.labelKey)
 
   return (
     <YStack gap="$3">
+      {/* The across-options "why the winner won" — ONE place, not on every card. */}
+      {feasibleCount >= 2 ? (
+        <Narration resultId={result.id} mode="across_options" title={t('whatif:narrationSummaryTitle')} />
+      ) : null}
       {result.options.map((o, idx) => {
         const isRec = o.id === result.recommendedOptionId
         const rationale = o.feasible ? (
@@ -130,16 +141,7 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
             expanded={expanded === o.id}
             onToggle={() => setExpanded(expanded === o.id ? null : o.id)}
             rationale={rationale}
-            narration={
-              <NarrationBlock
-                state={narrState}
-                prose={prose}
-                title={t('whatif:narrationTitle')}
-                loadingText={t('whatif:narrationLoading')}
-                unavailableText={t('whatif:narrationUnavailable')}
-                note={t('whatif:narrationNote')}
-              />
-            }
+            narration={o.feasible ? <Narration resultId={result.id} mode="option" optionId={o.id} title={t('whatif:narrationTitle')} /> : undefined}
             applyCta={t('whatif:applyCta')}
             appliedLabel={t('whatif:applied')}
             hideApply={previewOnly}
