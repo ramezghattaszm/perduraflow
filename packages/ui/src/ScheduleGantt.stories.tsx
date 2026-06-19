@@ -62,3 +62,37 @@ export const Learned: Story = {
     </YStack>
   ),
 }
+
+const DAY = 86_400_000
+const mon = Date.UTC(2026, 5, 15) // Monday
+const ww = { startMinute: 360, endMinute: 1320, workingDays: [1, 2, 3, 4, 5, 6], holidays: [] }
+const work = (day: number, h: number) => day + h * 3_600_000
+
+/** Week view — continuous Mon–Sun; overnight gaps + Sunday closed as literal gaps/columns;
+ *  work flows across days; compressed scale (day headers, no hourly ticks). */
+export const Week: Story = {
+  render: () => (
+    <YStack padding="$4">
+      <ScheduleGantt
+        horizon="week"
+        viewDateMs={mon}
+        workingWindow={ww}
+        resources={[
+          { id: 'pa', label: 'Press Line A', subLabel: 'Stamping' },
+          { id: 'pb', label: 'Press Line B', subLabel: 'Stamping' },
+        ]}
+        horizonStartMs={mon}
+        horizonEndMs={mon + 3 * DAY}
+        barDetail={(b) => <YStack padding="$1"><P size={3}>{b.label}</P></YStack>}
+        bars={[
+          { id: '1', resourceId: 'pa', label: 'GP-1142', sourceTag: 'std', startMs: work(mon, 6), endMs: work(mon, 12), setupMin: 30, runMin: 330, atRisk: false, changeover: false },
+          { id: '2', resourceId: 'pa', label: 'DL-1004', sourceTag: 'std', startMs: work(mon, 12), endMs: work(mon, 20), setupMin: 30, runMin: 450, atRisk: false, changeover: true },
+          { id: '3', resourceId: 'pa', label: 'DL-1008', sourceTag: 'std', startMs: work(mon + DAY, 6), endMs: work(mon + DAY, 14), setupMin: 30, runMin: 450, atRisk: false, changeover: true },
+          { id: '4', resourceId: 'pb', label: 'DL-1002', sourceTag: 'std', startMs: work(mon, 6), endMs: work(mon, 16), setupMin: 30, runMin: 570, atRisk: false, changeover: false },
+          { id: '5', resourceId: 'pb', label: 'DL-1003', sourceTag: 'std', startMs: work(mon + DAY, 6), endMs: work(mon + DAY, 15), setupMin: 28, runMin: 512, atRisk: true, changeover: true },
+          { id: '6', resourceId: 'pb', label: 'DL-1010', sourceTag: 'std', startMs: work(mon + 2 * DAY, 6), endMs: work(mon + 2 * DAY, 13), setupMin: 30, runMin: 390, atRisk: false, changeover: false },
+        ]}
+      />
+    </YStack>
+  ),
+}

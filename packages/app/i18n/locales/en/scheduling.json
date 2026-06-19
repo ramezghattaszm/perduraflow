@@ -34,6 +34,9 @@
       "empty": "No actuals yet — recorded after this version runs."
     },
     "predictedWear": "predicted wear ~{{time}}",
+    "horizon": { "day": "Day", "week": "Week" },
+    "nav": { "today": "Today", "prev": "Previous", "next": "Next", "pick": "Pick a date" },
+    "closedDay": "Closed — no shift scheduled this day",
     "pred": {
       "pointer": "{{resource}} predicted wear — see line",
       "lineSubtitle": "Tool wear & forecast",

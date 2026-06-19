@@ -130,6 +130,10 @@ export interface ScheduledOperationDto {
 export interface WorkingWindowDto {
   startMinute: number
   endMinute: number
+  /** UTC weekdays the plant operates (0=Sun … 6=Sat) — drives the week view's closed days. */
+  workingDays: number[]
+  /** `YYYY-MM-DD` (UTC) full-day closures in scope — rendered closed in the week view. */
+  holidays: string[]
 }
 
 /** Board payload: a version header + its run + ordered scheduled operations. */

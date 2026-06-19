@@ -77,7 +77,21 @@ export interface ScheduleGanttProps {
    * — opening at shift start (no dead pre-shift period) and closing at shift end (showing
    * open capacity past the last op). Omitted → the axis falls back to the horizon range.
    */
-  workingWindow?: { startMinute: number; endMinute: number } | null
+  workingWindow?: { startMinute: number; endMinute: number; workingDays?: number[]; holidays?: string[] } | null
+  /**
+   * Axis horizon (the FS14 seam): `day` (default) shows one working day at high resolution;
+   * `week` shows the Mon–Sun week containing {@link viewDateMs} as a continuous multi-day
+   * Gantt — each working day a compressed 06:00–22:00 column, overnight gaps + closed days
+   * (Sunday/holiday) rendered as literal gaps/closed columns, work flowing across days.
+   */
+  horizon?: 'day' | 'week'
+  /** The navigated date (UTC-midnight ms): which day (`day`) or which week (`week`) to show.
+   *  Falls back to `horizonStartMs`. Requires `workingWindow` for the calendar-aware axis. */
+  viewDateMs?: number
+  /** Week-mode drill-down: tapping a day column reports its date (UTC-midnight ms). */
+  onDaySelect?: (dayMs: number) => void
+  /** Shown centered when a `day`-mode view lands on a closed day (Sunday/holiday). */
+  closedText?: string
   /**
    * Lightweight **hover preview** content (Tier 1, web only) — a transient tooltip
    * shown while hovering a bar (never on native, which has no hover). Supplementary:
@@ -104,6 +118,12 @@ const LANE_H = 62
 const BAR_TOP = 12
 const BAR_H = 38
 const PX_PER_HOUR = 90
+/** Compressed per-hour scale in week mode — working time dominates; 6 days fit ~one viewport. */
+const WEEK_PX_PER_HOUR = 11
+/** Width of a fully-closed day column (Sunday/holiday) in week mode. */
+const CLOSED_DAY_W = 46
+/** The overnight gap drawn between two adjacent working-day columns (week mode). */
+const DAY_GAP = 12
 const MIN_TRACK = 480
 const LABEL_MIN_W = 74
 const MS_PER_HOUR = 3_600_000
@@ -111,6 +131,16 @@ const MS_PER_MINUTE = 60_000
 const MS_PER_DAY = 86_400_000
 /** Minimum hours shown so the track pans forward/back even when the schedule is short. */
 const DISPLAY_MIN_HOURS = 14
+
+/** A day column on the axis: its working window (epoch ms) + laid-out x/width. */
+interface DayCell {
+  dayMs: number
+  working: boolean
+  openMs: number
+  closeMs: number
+  x: number
+  w: number
+}
 
 /**
  * ScheduleGantt — read-first Gantt (scheduling spec / GANTT-FIX-NOTE). Bars are
@@ -126,7 +156,7 @@ const DISPLAY_MIN_HOURS = 14
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, workingWindow, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, workingWindow, horizon = 'day', viewDateMs, onDaySelect, closedText, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
   // Hover preview only (web). The selected/open bar is owned by the parent
@@ -156,36 +186,82 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
     laneTint: theme.hoverFill?.val ?? 'rgba(255,255,255,0.03)',
   }
 
-  // Display window. With a calendar working window, the axis spans the working day —
-  // it opens at shift start (dropping the dead pre-shift hours, e.g. 00:00–06:00) and
-  // closes at shift end (showing open capacity past the last op, e.g. to 22:00),
-  // extended only if the schedule itself runs past close (overtime). Without one, it
-  // falls back to the horizon range (floored to the hour) with a minimum pannable span.
-  let displayStart: number
-  let displayEnd: number
+  const startOfDay = (ms: number) => Math.floor(ms / MS_PER_DAY) * MS_PER_DAY
+  const dateKey = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+  const weekMode = horizon === 'week'
+
+  // ── Axis model ────────────────────────────────────────────────────────────
+  // With a calendar working window the axis is built from **day cells**: each working day
+  // is its 06:00–22:00 span (compressed in week mode), closed days are thin "Closed"
+  // columns, and the overnight gap is a literal gutter between days. One mechanism drives
+  // both day mode (a single cell at high resolution) and week mode (Mon–Sun). Without a
+  // working window it falls back to the legacy linear horizon axis (no calendar known).
+  let cells: DayCell[] = []
+  let contentW: number
+  let xFor: (ms: number) => number
+  let linearTicks: number[] = []
+
   if (workingWindow) {
-    const startOfDay = (ms: number) => Math.floor(ms / MS_PER_DAY) * MS_PER_DAY
-    displayStart = startOfDay(horizonStartMs) + workingWindow.startMinute * MS_PER_MINUTE
-    const close = startOfDay(horizonEndMs) + workingWindow.endMinute * MS_PER_MINUTE
-    displayEnd = Math.max(close, Math.ceil(horizonEndMs / MS_PER_HOUR) * MS_PER_HOUR)
+    const openMin = workingWindow.startMinute
+    const closeMin = workingWindow.endMinute
+    const workingDays = workingWindow.workingDays ?? [0, 1, 2, 3, 4, 5, 6]
+    const holidays = new Set(workingWindow.holidays ?? [])
+    const isWorkingDay = (dayMs: number) => workingDays.includes(new Date(dayMs).getUTCDay()) && !holidays.has(dateKey(dayMs))
+    const pph = weekMode ? WEEK_PX_PER_HOUR : PX_PER_HOUR
+
+    const base = startOfDay(viewDateMs ?? horizonStartMs)
+    const days = weekMode
+      ? Array.from({ length: 7 }, (_, i) => base - ((new Date(base).getUTCDay() + 6) % 7) * MS_PER_DAY + i * MS_PER_DAY)
+      : [base]
+
+    let x = 0
+    cells = days.map((dayMs, i) => {
+      if (i > 0) x += weekMode ? DAY_GAP : 0
+      const working = isWorkingDay(dayMs)
+      const openMs = dayMs + openMin * MS_PER_MINUTE
+      let closeMs = dayMs + closeMin * MS_PER_MINUTE
+      if (working) {
+        const dayEnd = dayMs + MS_PER_DAY
+        for (const b of bars) if (b.startMs >= dayMs && b.startMs < dayEnd && b.endMs > closeMs) closeMs = b.endMs
+      }
+      const w = working ? Math.max(((closeMs - openMs) / MS_PER_HOUR) * pph, 1) : weekMode ? CLOSED_DAY_W : Math.max(((closeMin - openMin) / 60) * pph, MIN_TRACK)
+      const cell: DayCell = { dayMs, working, openMs, closeMs, x, w }
+      x += w
+      return cell
+    })
+    contentW = x
+    xFor = (ms: number) => {
+      for (const cell of cells) {
+        if (ms >= cell.dayMs && ms < cell.dayMs + MS_PER_DAY) {
+          if (!cell.working) return cell.x
+          const t = (ms - cell.openMs) / Math.max(cell.closeMs - cell.openMs, 1)
+          return cell.x + Math.max(0, Math.min(1, t)) * cell.w
+        }
+      }
+      return ms < (cells[0]?.dayMs ?? 0) ? 0 : contentW
+    }
   } else {
-    displayStart = Math.floor(horizonStartMs / MS_PER_HOUR) * MS_PER_HOUR
-    displayEnd = Math.max(
-      Math.ceil(horizonEndMs / MS_PER_HOUR) * MS_PER_HOUR,
-      displayStart + DISPLAY_MIN_HOURS * MS_PER_HOUR,
-    )
+    // Legacy linear axis (no calendar): hour scale over the horizon, min pannable span.
+    const displayStart = Math.floor(horizonStartMs / MS_PER_HOUR) * MS_PER_HOUR
+    const displayEnd = Math.max(Math.ceil(horizonEndMs / MS_PER_HOUR) * MS_PER_HOUR, displayStart + DISPLAY_MIN_HOURS * MS_PER_HOUR)
+    contentW = ((displayEnd - displayStart) / MS_PER_HOUR) * PX_PER_HOUR
+    xFor = (ms: number) => ((ms - displayStart) / MS_PER_HOUR) * PX_PER_HOUR
+    for (let m = displayStart; xFor(m) <= contentW; m += MS_PER_HOUR) linearTicks.push(m)
   }
-  const spanMs = Math.max(displayEnd - displayStart, MS_PER_HOUR)
-  const trackW = Math.max((spanMs / MS_PER_HOUR) * PX_PER_HOUR, trackArea, MIN_TRACK)
+
+  const trackW = Math.max(contentW, trackArea, MIN_TRACK)
+  // Day-mode hour ticks (within the single working cell); week mode uses day headers instead.
+  const dayCell = !weekMode && cells.length === 1 ? cells[0]! : null
+  const hourTicks: number[] = []
+  if (dayCell?.working) for (let m = dayCell.openMs; m <= dayCell.closeMs; m += MS_PER_HOUR) hourTicks.push(m)
+  // A day-mode view that landed on a closed day → show the "closed" empty state.
+  const dayClosed = !weekMode && cells.length === 1 && !cells[0]!.working
+
   const laneAreaH = resources.length * LANE_H
   const svgH = AXIS_H + laneAreaH
   const rowIndex = new Map(resources.map((r, i) => [r.id, i]))
-  const xFor = (ms: number) => ((ms - displayStart) / MS_PER_HOUR) * PX_PER_HOUR
-
-  // hour ticks across the FULL track (so gridlines run all the way across)
-  const ticks: number[] = []
-  for (let m = displayStart; xFor(m) <= trackW; m += MS_PER_HOUR) ticks.push(m)
   const hhmm = (ms: number) => `${String(new Date(ms).getUTCHours()).padStart(2, '0')}:00`
+  const dayHeader = (ms: number) => new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(ms))
 
   return (
     <XStack borderWidth={1} borderColor="$borderColor" borderRadius="$4" overflow="hidden" backgroundColor="$surface">
@@ -247,22 +323,55 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
             {/* axis header band (matches the RESOURCE corner) */}
             <Rect x={0} y={0} width={trackW} height={AXIS_H} fill={c.axisBg} />
             <Line x1={0} y1={AXIS_H} x2={trackW} y2={AXIS_H} stroke={c.grid} strokeWidth={1} />
-            {/* hour gridlines across the full track + labels */}
-            {ticks.map((m) => (
-              <Line key={`tk${m}`} x1={xFor(m)} y1={AXIS_H} x2={xFor(m)} y2={svgH} stroke={c.grid} strokeWidth={1} opacity={0.6} />
-            ))}
-            {ticks.map((m) => (
-              <SvgText key={`tl${m}`} x={xFor(m) + 5} y={24} fontSize={11} fill={c.axisText}>
-                {hhmm(m)}
-              </SvgText>
-            ))}
-            {/* lanes: alt tint + separators */}
+            {/* lanes: alt tint + separators (drawn first so closed-day fills overlay them) */}
             {resources.map((r, i) => (
               <Rect key={`ln${r.id}`} x={0} y={AXIS_H + i * LANE_H} width={trackW} height={LANE_H} fill={i % 2 === 0 ? c.laneTint : 'transparent'} />
             ))}
             {resources.map((r, i) => (
               <Line key={`ls${r.id}`} x1={0} y1={AXIS_H + i * LANE_H} x2={trackW} y2={AXIS_H + i * LANE_H} stroke={c.grid} strokeWidth={1} />
             ))}
+            {/* axis structure: week = day columns (overnight gaps + closed days + date headers);
+                day = hour gridlines + labels; no calendar = legacy hour ticks */}
+            {workingWindow && weekMode ? (
+              cells.map((cell, i) => (
+                <G key={`cell${cell.dayMs}`}>
+                  {i > 0 ? <Rect x={cell.x - DAY_GAP} y={AXIS_H} width={DAY_GAP} height={laneAreaH} fill={c.grid} opacity={0.18} /> : null}
+                  {!cell.working ? <Rect x={cell.x} y={AXIS_H} width={cell.w} height={laneAreaH} fill={c.grid} opacity={0.18} /> : null}
+                  <Line x1={cell.x} y1={0} x2={cell.x} y2={svgH} stroke={c.grid} strokeWidth={1} />
+                  <SvgText x={cell.x + (cell.working ? 6 : cell.w / 2)} y={24} fontSize={11} fontWeight="600" fill={c.axisText} textAnchor={cell.working ? 'start' : 'middle'}>
+                    {dayHeader(cell.dayMs)}
+                  </SvgText>
+                  {!cell.working ? (
+                    <SvgText x={cell.x + cell.w / 2} y={AXIS_H + laneAreaH / 2} fontSize={10} fill={c.axisText} textAnchor="middle">
+                      closed
+                    </SvgText>
+                  ) : null}
+                </G>
+              ))
+            ) : workingWindow ? (
+              <>
+                {hourTicks.map((m) => (
+                  <Line key={`tk${m}`} x1={xFor(m)} y1={AXIS_H} x2={xFor(m)} y2={svgH} stroke={c.grid} strokeWidth={1} opacity={0.6} />
+                ))}
+                {hourTicks.map((m) => (
+                  <SvgText key={`tl${m}`} x={xFor(m) + 5} y={24} fontSize={11} fill={c.axisText}>
+                    {hhmm(m)}
+                  </SvgText>
+                ))}
+                {dayClosed ? <Rect x={0} y={AXIS_H} width={trackW} height={laneAreaH} fill={c.grid} opacity={0.15} /> : null}
+              </>
+            ) : (
+              <>
+                {linearTicks.map((m) => (
+                  <Line key={`tk${m}`} x1={xFor(m)} y1={AXIS_H} x2={xFor(m)} y2={svgH} stroke={c.grid} strokeWidth={1} opacity={0.6} />
+                ))}
+                {linearTicks.map((m) => (
+                  <SvgText key={`tl${m}`} x={xFor(m) + 5} y={24} fontSize={11} fill={c.axisText}>
+                    {hhmm(m)}
+                  </SvgText>
+                ))}
+              </>
+            )}
             {/* bars (rounded all around; setup + top-stripe clipped to the rounded shape) */}
             {bars.map((b) => {
               const ri = rowIndex.get(b.resourceId)
@@ -321,6 +430,30 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
                 )
               })
             : null}
+          {/* Week mode: each day column is a drill target → switch to day mode on that date. */}
+          {weekMode && onDaySelect
+            ? cells.map((cell) => (
+                <YStack
+                  key={`drill${cell.dayMs}`}
+                  position="absolute"
+                  left={cell.x}
+                  top={0}
+                  width={cell.w}
+                  height={AXIS_H}
+                  cursor="pointer"
+                  hoverStyle={{ backgroundColor: '$hoverFill' }}
+                  onPress={() => onDaySelect(cell.dayMs)}
+                />
+              ))
+            : null}
+          {/* Day mode on a closed day (Sunday/holiday) → centered closed message. */}
+          {dayClosed && closedText ? (
+            <YStack position="absolute" top={AXIS_H} left={0} right={0} height={laneAreaH} alignItems="center" justifyContent="center" pointerEvents="none">
+              <P size={3} weight="m" color="$textTertiary">
+                {closedText}
+              </P>
+            </YStack>
+          ) : null}
         </YStack>
       </ScrollView>
 

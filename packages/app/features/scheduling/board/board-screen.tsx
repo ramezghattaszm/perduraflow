@@ -8,12 +8,14 @@ import {
   AppButton,
   BarDetailSheet,
   ContextSelectors,
+  DateRangeNav,
   LearnedParamPanel,
   P,
   PageHeader,
   Panel,
   ResourceWearPanel,
   ScheduleGantt,
+  SegmentedControl,
   StatusPill,
   VarianceStrip,
   XStack,
@@ -42,6 +44,10 @@ import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
 const WEAR_PCT = 0.05
 /** Behind-plan fraction at/above which a calm lane chip appears (BOARD-SIGNALS item 2). */
 const BEHIND_PCT = 0.05
+const MS_PER_DAY = 86_400_000
+const utcDay = (ms: number): number => Math.floor(ms / MS_PER_DAY) * MS_PER_DAY
+/** Monday (UTC) of the week containing `ms`. */
+const weekStartMon = (ms: number): number => utcDay(ms) - ((new Date(ms).getUTCDay() + 6) % 7) * MS_PER_DAY
 
 /**
  * Board body (shell-agnostic) — selectors, run strip, Gantt. Rendered inside the
@@ -73,8 +79,19 @@ export function BoardContent() {
   const [whatIfTrigger, setWhatIfTrigger] = useState<string | null>(null)
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
+  // Shift-model work-area (C1): Day|Week horizon + the navigated date (UTC-midnight ms).
+  const [horizonMode, setHorizonMode] = useState<'day' | 'week'>('day')
+  const [viewDate, setViewDate] = useState<number>(() => Math.floor(Date.now() / MS_PER_DAY) * MS_PER_DAY)
   const { showToast } = useToast()
   const wearShown = useRef<Set<string>>(new Set())
+
+  // Open on the day the schedule lives on (the version's horizon start), not literal
+  // "today" — so the board isn't empty when the seed's dates differ from the clock.
+  // Re-anchors only when the committed/selected version changes (date nav never re-fetches).
+  useEffect(() => {
+    if (detail) setViewDate(Math.floor(new Date(detail.version.horizonStart).getTime() / MS_PER_DAY) * MS_PER_DAY)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.version.id])
 
   // default/repair version selection: newest committed, else newest
   useEffect(() => {
@@ -151,6 +168,20 @@ export function BoardContent() {
       confidence: o.cycleConfidence ?? o.setupConfidence,
     }
   })
+  // Visible range for the Gantt: the selected day (day mode) or its Mon–Sun week (week
+  // mode). The committed version holds the whole multi-day schedule; this just scopes
+  // which slice renders (no re-fetch — date nav is pure client scoping).
+  const rangeStart = horizonMode === 'week' ? weekStartMon(viewDate) : utcDay(viewDate)
+  const rangeEnd = horizonMode === 'week' ? rangeStart + 7 * MS_PER_DAY : rangeStart + MS_PER_DAY
+  const visibleBars = bars.filter((b) => b.startMs >= rangeStart && b.startMs < rangeEnd)
+  // A day is closed (non-working weekday / holiday) per the same calendar the engine used.
+  const ww = detail?.workingWindow
+  const isDayClosed = (dayMs: number): boolean => {
+    if (!ww) return false
+    if (!ww.workingDays.includes(new Date(dayMs).getUTCDay())) return true
+    return ww.holidays.includes(new Date(dayMs).toISOString().slice(0, 10))
+  }
+
   // Per-resource behind-plan chip (BOARD-SIGNALS item 2): the variance is about the
   // resource, so it lives on the lane. Threshold-gated + settled; per the selected
   // version's actuals (a clean version → none).
@@ -591,6 +622,27 @@ export function BoardContent() {
 
       {variance && varianceChips.length > 0 ? <VarianceStrip chips={varianceChips} /> : null}
 
+      {/* Shift-model work-area (C1): Day|Week horizon toggle + date navigation. */}
+      {detail ? (
+        <XStack gap="$3" alignItems="center" justifyContent="space-between" flexWrap="wrap">
+          <SegmentedControl<'day' | 'week'>
+            options={[
+              { value: 'day', label: t('board.horizon.day') },
+              { value: 'week', label: t('board.horizon.week') },
+            ]}
+            value={horizonMode}
+            onChange={setHorizonMode}
+          />
+          <DateRangeNav
+            mode={horizonMode}
+            valueMs={viewDate}
+            onChange={setViewDate}
+            isDayClosed={isDayClosed}
+            labels={{ today: t('board.nav.today'), prev: t('board.nav.prev'), next: t('board.nav.next'), pickTitle: t('board.nav.pick') }}
+          />
+        </XStack>
+      ) : null}
+
       {detail ? <GanttLegend /> : null}
 
       {versions.length === 0 ? (
@@ -600,7 +652,14 @@ export function BoardContent() {
       ) : detail ? (
         <ScheduleGantt
           resources={ganttResources}
-          bars={bars}
+          bars={visibleBars}
+          horizon={horizonMode}
+          viewDateMs={viewDate}
+          onDaySelect={(d) => {
+            setViewDate(d)
+            setHorizonMode('day')
+          }}
+          closedText={t('board.closedDay')}
           horizonStartMs={new Date(detail.version.horizonStart).getTime()}
           horizonEndMs={new Date(detail.version.horizonEnd).getTime()}
           workingWindow={detail.workingWindow}

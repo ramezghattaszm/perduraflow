@@ -88,12 +88,18 @@ function maintenanceToIntervals(v: unknown): Array<[number, number]> {
 function workingWindowOf(cals: Map<string, WorkingCalendar>): WorkingWindowDto | null {
   let start = Number.POSITIVE_INFINITY
   let end = Number.NEGATIVE_INFINITY
+  const workingDays = new Set<number>()
+  const holidays = new Set<string>()
   for (const cal of cals.values()) {
     if (cal.dayWindows.length === 0) continue
     start = Math.min(start, cal.dayWindows[0]![0])
     end = Math.max(end, cal.dayWindows[cal.dayWindows.length - 1]![1])
+    for (const d of cal.workingDays) workingDays.add(d)
+    for (const h of cal.holidays) holidays.add(h)
   }
-  return Number.isFinite(start) && Number.isFinite(end) && end > start ? { startMinute: start, endMinute: end } : null
+  return Number.isFinite(start) && Number.isFinite(end) && end > start
+    ? { startMinute: start, endMinute: end, workingDays: [...workingDays].sort((a, b) => a - b), holidays: [...holidays] }
+    : null
 }
 /** Confidence a held learned value must clear before the scheduler overlays it (A18 bounded). */
 const LEARNED_CONF_USE = 0.6
