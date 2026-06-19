@@ -34,9 +34,11 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * option-generation/scoring/collapse logic **invalidates cached results** (a stored
  * result is only re-used when the inputs AND the engine that produced it match).
  * Bump on any behavioural change. `wi-2` = distinct-plan de-duplication;
- * `wi-3` = line-down option set (bare resource_window → reroute/overtime, no defer).
+ * `wi-3` = line-down option set (bare resource_window → reroute/overtime, no defer);
+ * `wi-4` = calendar-aware placement (shift windows / Sundays / holidays / line-down
+ * time-boxed as closures + OT) — supersedes all 24/7-era cached results.
  */
-export const ENGINE_VERSION = 'wi-3'
+export const ENGINE_VERSION = 'wi-4'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000

@@ -121,11 +121,24 @@ export interface ScheduledOperationDto {
   actual?: OperationActualDto | null
 }
 
+/**
+ * The plant's daily operating window (minutes from UTC midnight) — the union of the
+ * resources' calendar shift patterns (D-shift). Drives the board Gantt axis so it spans
+ * the working day (e.g. 06:00–22:00) instead of a naive midnight-to-last-op range. Null
+ * when no calendar resolves (the Gantt falls back to the horizon range).
+ */
+export interface WorkingWindowDto {
+  startMinute: number
+  endMinute: number
+}
+
 /** Board payload: a version header + its run + ordered scheduled operations. */
 export interface ScheduleVersionDetailDto {
   version: ScheduleVersionDto
   run: OptimizerRunDto
   operations: ScheduledOperationDto[]
+  /** The plant's daily working window for the Gantt axis (D-shift); null if no calendar. */
+  workingWindow: WorkingWindowDto | null
 }
 
 // --- Phase 3: performance variance / scorecard / workforce (api-spec §12.6/§12.8/§12.10) ---

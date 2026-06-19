@@ -72,6 +72,13 @@ export interface ScheduleGanttProps {
   horizonStartMs: number
   horizonEndMs: number
   /**
+   * The plant's daily working window (minutes from UTC midnight, e.g. 360–1320 for
+   * 06:00–22:00) from the resources' calendar. When set, the axis spans the working day
+   * — opening at shift start (no dead pre-shift period) and closing at shift end (showing
+   * open capacity past the last op). Omitted → the axis falls back to the horizon range.
+   */
+  workingWindow?: { startMinute: number; endMinute: number } | null
+  /**
    * Lightweight **hover preview** content (Tier 1, web only) — a transient tooltip
    * shown while hovering a bar (never on native, which has no hover). Supplementary:
    * every fact here is repeated in the click/tap panel, so nothing is hover-only.
@@ -100,6 +107,8 @@ const PX_PER_HOUR = 90
 const MIN_TRACK = 480
 const LABEL_MIN_W = 74
 const MS_PER_HOUR = 3_600_000
+const MS_PER_MINUTE = 60_000
+const MS_PER_DAY = 86_400_000
 /** Minimum hours shown so the track pans forward/back even when the schedule is short. */
 const DISPLAY_MIN_HOURS = 14
 
@@ -117,7 +126,7 @@ const DISPLAY_MIN_HOURS = 14
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, workingWindow, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
   // Hover preview only (web). The selected/open bar is owned by the parent
@@ -147,15 +156,25 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, b
     laneTint: theme.hoverFill?.val ?? 'rgba(255,255,255,0.03)',
   }
 
-  // Display window: from the horizon start (floored to the hour) to the later of
-  // the horizon end and a minimum span, so the track always has room to pan
-  // forward/back; gridlines fill it, and it scrolls (hidden bar) when wider than
-  // the viewport.
-  const displayStart = Math.floor(horizonStartMs / MS_PER_HOUR) * MS_PER_HOUR
-  const displayEnd = Math.max(
-    Math.ceil(horizonEndMs / MS_PER_HOUR) * MS_PER_HOUR,
-    displayStart + DISPLAY_MIN_HOURS * MS_PER_HOUR,
-  )
+  // Display window. With a calendar working window, the axis spans the working day —
+  // it opens at shift start (dropping the dead pre-shift hours, e.g. 00:00–06:00) and
+  // closes at shift end (showing open capacity past the last op, e.g. to 22:00),
+  // extended only if the schedule itself runs past close (overtime). Without one, it
+  // falls back to the horizon range (floored to the hour) with a minimum pannable span.
+  let displayStart: number
+  let displayEnd: number
+  if (workingWindow) {
+    const startOfDay = (ms: number) => Math.floor(ms / MS_PER_DAY) * MS_PER_DAY
+    displayStart = startOfDay(horizonStartMs) + workingWindow.startMinute * MS_PER_MINUTE
+    const close = startOfDay(horizonEndMs) + workingWindow.endMinute * MS_PER_MINUTE
+    displayEnd = Math.max(close, Math.ceil(horizonEndMs / MS_PER_HOUR) * MS_PER_HOUR)
+  } else {
+    displayStart = Math.floor(horizonStartMs / MS_PER_HOUR) * MS_PER_HOUR
+    displayEnd = Math.max(
+      Math.ceil(horizonEndMs / MS_PER_HOUR) * MS_PER_HOUR,
+      displayStart + DISPLAY_MIN_HOURS * MS_PER_HOUR,
+    )
+  }
   const spanMs = Math.max(displayEnd - displayStart, MS_PER_HOUR)
   const trackW = Math.max((spanMs / MS_PER_HOUR) * PX_PER_HOUR, trackArea, MIN_TRACK)
   const laneAreaH = resources.length * LANE_H

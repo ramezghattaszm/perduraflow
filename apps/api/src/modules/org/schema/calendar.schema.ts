@@ -19,6 +19,9 @@ export const calendar = orgSchema.table(
     shiftPatterns: jsonb('shift_patterns').notNull().default([]),
     holidays: jsonb('holidays').notNull().default([]),
     maintenanceWindows: jsonb('maintenance_windows').notNull().default([]),
+    // Shift model (D-shift): UTC weekdays the calendar operates (0=Sun … 6=Sat).
+    // Default Mon–Sat; Sunday closed. Consumed by the calendar-aware sequencer.
+    workingDays: jsonb('working_days').notNull().default([1, 2, 3, 4, 5, 6]),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common'
 import {
   MASTERDATA_READ_CONTRACT,
   type AtRiskOrderDto,
+  type CalendarDto,
   type CoverageAxisDto,
   type CoverageCell,
   type CoverageProposalDto,
@@ -20,6 +21,7 @@ import {
   type ScheduleVersionDto,
   type ScorecardDto,
   type WorkforceCoverageDto,
+  type WorkingWindowDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { EVENTS } from '../../events'
@@ -36,6 +38,7 @@ import {
 import { SchedulingRepository } from './scheduling.repository'
 import type { DemandInput } from './schema'
 import { sequence, type EffectiveTimes, type ResolveEffective, type SequencerItem } from './sequencer'
+import { buildWorkingCalendar, type WorkingCalendar } from './working-calendar'
 
 /** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
 export interface BaseContext {
@@ -45,9 +48,53 @@ export interface BaseContext {
   demand: DemandInput[]
   resourceById: Map<string, ResourceDto>
   partNoById: Map<string, string>
+  /** Per-resource operating calendar (working windows / closures / OT) for the sequencer. */
+  resourceCalendars: Map<string, WorkingCalendar>
 }
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
+
+// --- calendar JSON coercion (CalendarDto fields are untyped jsonb) -----------
+/** `unknown` → `number[]`, or undefined so {@link buildWorkingCalendar} applies its default. */
+function asNumberArray(v: unknown): number[] | undefined {
+  return Array.isArray(v) && v.every((n) => typeof n === 'number') && v.length > 0 ? (v as number[]) : undefined
+}
+/** `unknown` → `string[]` (e.g. holiday `YYYY-MM-DD` list). */
+function asStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
+}
+/** `unknown` → shift patterns with `HH:MM` `start`/`end` strings. */
+function asShiftPatterns(v: unknown): Array<{ start: string; end: string }> {
+  if (!Array.isArray(v)) return []
+  return v.filter((p): p is { start: string; end: string } => !!p && typeof p.start === 'string' && typeof p.end === 'string')
+}
+/** Maintenance windows (`{start,end}` ISO) → epoch-ms `[start,end]` closed intervals. */
+function maintenanceToIntervals(v: unknown): Array<[number, number]> {
+  if (!Array.isArray(v)) return []
+  const out: Array<[number, number]> = []
+  for (const w of v) {
+    const s = w && typeof w.start === 'string' ? Date.parse(w.start) : NaN
+    const e = w && typeof w.end === 'string' ? Date.parse(w.end) : NaN
+    if (Number.isFinite(s) && Number.isFinite(e) && e > s) out.push([s, e])
+  }
+  return out
+}
+
+/**
+ * The daily working window spanning a set of resource calendars — the earliest shift
+ * open to the latest shift close (minutes from midnight), for the Gantt axis (D-shift).
+ * Null when no calendar has any window (24/7 fallback → the Gantt uses the horizon range).
+ */
+function workingWindowOf(cals: Map<string, WorkingCalendar>): WorkingWindowDto | null {
+  let start = Number.POSITIVE_INFINITY
+  let end = Number.NEGATIVE_INFINITY
+  for (const cal of cals.values()) {
+    if (cal.dayWindows.length === 0) continue
+    start = Math.min(start, cal.dayWindows[0]![0])
+    end = Math.max(end, cal.dayWindows[cal.dayWindows.length - 1]![1])
+  }
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? { startMinute: start, endMinute: end } : null
+}
 /** Confidence a held learned value must clear before the scheduler overlays it (A18 bounded). */
 const LEARNED_CONF_USE = 0.6
 
@@ -94,9 +141,14 @@ export class SchedulingService {
     // board's bar-detail panel can show planned-vs-actual without a second call.
     const actuals = await this.learning.listActualsForVersion(tenantId, version.id)
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
+    // The plant's daily working window for the Gantt axis — derived from the SAME
+    // calendars the sequencer placed against (D-shift), so the axis spans the working day.
+    const plantResources = (await (await this.resolveMasterData(tenantId)).listResources(tenantId)).filter((r) => r.plantId === version.plantId)
+    const workingWindow = workingWindowOf(await this.resolveResourceCalendars(tenantId, plantResources))
     return {
       version: toScheduleVersionDto(version),
       run: toOptimizerRunDto(run!),
+      workingWindow,
       operations: ops.map((o) => {
         const a = actualByOp.get(o.id)
         return {
@@ -192,7 +244,7 @@ export class SchedulingService {
     const items = ctx.items
     const demand = ctx.demand
     const resolveEffective = await this.buildLearnedOverlay(tenantId, items)
-    const result = sequence(items, resolveEffective)
+    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars)
     const run = await this.repo.createRun({
       tenantId,
       plantId,
@@ -340,7 +392,49 @@ export class SchedulingService {
       }
       if (infeasibleReason) break
     }
-    return { items, infeasibleReason, demand, resourceById, partNoById }
+    const resourceCalendars = await this.resolveResourceCalendars(tenantId, resources)
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars }
+  }
+
+  /**
+   * Resolve each resource's operating calendar into a normalized {@link WorkingCalendar}
+   * for the calendar-aware sequencer (D-shift): the org calendar (working days / shift
+   * windows / holidays / maintenance) plus the resource-type shift config (splittable /
+   * OT cap, with a per-resource OT override). `extraClosedByResource` injects time-boxed
+   * closures (e.g. a what-if line-down window) as additional closed intervals. A resource
+   * whose calendar can't be resolved is omitted → the sequencer falls back to 24/7.
+   */
+  async resolveResourceCalendars(
+    tenantId: string,
+    resources: ResourceDto[],
+    extraClosedByResource?: Map<string, Array<[number, number]>>,
+  ): Promise<Map<string, WorkingCalendar>> {
+    const cfgByType = new Map(
+      (await (await this.resolveMasterData(tenantId)).listResourceTypeConfigs(tenantId)).map((c) => [c.resourceType, c]),
+    )
+    const calCache = new Map<string, CalendarDto | null>()
+    const out = new Map<string, WorkingCalendar>()
+    for (const r of resources) {
+      let calDto = calCache.get(r.calendarId)
+      if (calDto === undefined) {
+        calDto = await this.org.getCalendar(tenantId, r.calendarId)
+        calCache.set(r.calendarId, calDto)
+      }
+      if (!calDto) continue
+      const cfg = cfgByType.get(r.resourceType)
+      out.set(
+        r.id,
+        buildWorkingCalendar({
+          workingDays: asNumberArray(calDto.workingDays),
+          shiftPatterns: asShiftPatterns(calDto.shiftPatterns),
+          holidays: asStringArray(calDto.holidays),
+          closedIntervals: [...maintenanceToIntervals(calDto.maintenanceWindows), ...(extraClosedByResource?.get(r.id) ?? [])],
+          splittable: cfg?.splittable ?? false,
+          otCapMinutes: r.otCapMinutes ?? cfg?.otCapMinutes ?? 0,
+        }),
+      )
+    }
+    return out
   }
 
   /**

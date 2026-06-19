@@ -16,8 +16,9 @@ import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception
 import { LEARNING_READ } from '../learning/learning-read.service'
 import { toScheduleVersionDto } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
-import { SchedulingService } from './scheduling.service'
+import { SchedulingService, type BaseContext } from './scheduling.service'
 import { sequence, type Placement, type ResolveEffective, type SequencePolicy, type SequencerItem } from './sequencer'
+import type { WorkingCalendar } from './working-calendar'
 import { placementSignature } from './whatif.signature'
 import { scorePlan, type ResourceRate, type ScoredPlan } from './whatif.scoring'
 import { ENGINE_VERSION, RATIONALE_SCHEMA_VERSION, WEIGHT_SET_VERSION } from './whatif.weights'
@@ -75,17 +76,19 @@ export class WhatIfService {
       ? baseVersionId
       : (await this.repo.findCommittedVersion(tenantId, plantId))?.id ?? 'live'
 
-    // The live (current) plan — the comparison anchor + displacement reference.
+    // The live (current) plan — the comparison anchor + displacement reference. Uses the
+    // plain (pre-disruption) calendars; the option world adds any line-down closures.
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars).placements
 
     // Apply the change-set to the items (feasibility-honest).
     const changed = this.applyChangeSet(ctx.items, changeSet)
     const rateByResource = this.rates(ctx.resourceById)
     const predicted = await this.predictedCycles(tenantId, changeSet)
+    const optionCalendars = await this.optionCalendars(tenantId, ctx, changeSet)
 
     const specs = this.optionSpecs(changeSet, predicted)
-    const evaluated = specs.map((spec) => this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource))
+    const evaluated = specs.map((spec) => this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars))
 
     const feasible = evaluated.filter((e) => e.feasible)
     if (feasible.length === 0) {
@@ -173,14 +176,15 @@ export class WhatIfService {
     const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
     if (ctx.infeasibleReason) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars).placements
     const changed = this.applyChangeSet(ctx.items, changeSet)
     const rateByResource = this.rates(ctx.resourceById)
     const predicted = await this.predictedCycles(tenantId, changeSet)
+    const optionCalendars = await this.optionCalendars(tenantId, ctx, changeSet)
 
     const spec = this.optionSpecs(changeSet, predicted).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
-    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource)
+    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars)
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
@@ -299,17 +303,12 @@ export class WhatIfService {
     }
 
     // Line-down set (a bare resource_window, no wear): reroute / overtime — no defer.
+    // The down window is a **time-boxed closure** on the resource's calendar (applied to
+    // every option via optionCalendars), so the sequencer reroutes to other eligible lines
+    // or flows work around the window — honestly infeasible only if an op is fully starved.
     if (windowChanges.length > 0) {
-      const downResources = windowChanges.map((c) => c.resourceId)
       return [
-        {
-          id: 'reroute',
-          labelKey: 'whatif.option.reroute',
-          overtimeHours: 0,
-          // Take the down line(s) offline → re-solve onto the remaining eligible lines;
-          // honestly infeasible if an op has no other eligible resource (no alternative).
-          itemTransform: (items) => downResources.reduce((acc, r) => dropResource(acc, r), items),
-        },
+        { id: 'reroute', labelKey: 'whatif.option.reroute', overtimeHours: 0, itemTransform: (items) => items },
         { id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items },
       ]
     }
@@ -334,12 +333,34 @@ export class WhatIfService {
   }
 
   // --- running + scoring one option ------------------------------------------
+  /**
+   * Calendars for the option ("with the disruption") world — the base calendars plus any
+   * `resource_window` (line-down) intervals applied as **time-boxed closures** so the
+   * sequencer flows work around the down period (D-shift). No windows → the base calendars.
+   */
+  private async optionCalendars(tenantId: string, ctx: BaseContext, changeSet: ChangeSet): Promise<Map<string, WorkingCalendar>> {
+    const windows = changeSet.changes.filter((c): c is Extract<Change, { kind: 'resource_window' }> => c.kind === 'resource_window')
+    if (windows.length === 0) return ctx.resourceCalendars
+    const extra = new Map<string, Array<[number, number]>>()
+    for (const w of windows) {
+      const from = Date.parse(w.downFrom)
+      const to = Date.parse(w.downTo)
+      if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+        const arr = extra.get(w.resourceId) ?? []
+        arr.push([from, to])
+        extra.set(w.resourceId, arr)
+      }
+    }
+    return this.scheduling.resolveResourceCalendars(tenantId, [...ctx.resourceById.values()], extra)
+  }
+
   private runOption(
     spec: OptionSpec,
     changed: SequencerItem[],
     baseOverlay: ResolveEffective,
     basePlacements: Placement[],
     rateByResource: Map<string, ResourceRate>,
+    resourceCalendars: Map<string, WorkingCalendar>,
   ): { spec: OptionSpec; feasible: boolean; infeasibleReasonKey: string | null; scored: ScoredPlan | null; placements: Placement[] } {
     const items = spec.itemTransform(changed)
     const starved = items.find((i) => i.eligibleResourceIds.length === 0)
@@ -347,7 +368,13 @@ export class WhatIfService {
       return { spec, feasible: false, infeasibleReasonKey: 'whatif.infeasible.noResource', scored: null, placements: [] }
     }
     const overlay = spec.overlayWrap ? spec.overlayWrap(baseOverlay) : baseOverlay
-    const placements = sequence(items, overlay, spec.policy).placements
+    // The overtime option grants the day's OT budget so placement may run past shift-end
+    // into closed time (capped per day) — not just a scoring penalty (D-shift).
+    const cals =
+      spec.overtimeHours > 0
+        ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.max(c.otCapMinutes, spec.overtimeHours * 60) }]))
+        : resourceCalendars
+    const placements = sequence(items, overlay, spec.policy, cals).placements
     const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: spec.overtimeHours })
     return { spec, feasible: true, infeasibleReasonKey: null, scored, placements }
   }

@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, index, text, timestamp } from 'drizzle-orm/pg-core'
+import { boolean, doublePrecision, index, integer, text, timestamp } from 'drizzle-orm/pg-core'
 import type { MasterDataStatus, ResourceType } from '@perduraflow/contracts'
 import { generateId } from '../../../db/ulid'
 import { masterDataSchema } from './_schema'
@@ -25,6 +25,9 @@ export const resource = masterDataSchema.table(
     runCostPerHour: doublePrecision('run_cost_per_hour'),
     setupCost: doublePrecision('setup_cost'),
     overheadPerUnit: doublePrecision('overhead_per_unit'),
+    // Shift model (D-shift): per-resource overtime cap override; null → inherit the
+    // resource-type default (resource_type_config). Splittability is resource-type-only.
+    otCapMinutes: integer('ot_cap_minutes'),
     status: text('status').$type<MasterDataStatus>().notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -69,8 +72,30 @@ export const resourceGroupMember = masterDataSchema.table(
   }),
 )
 
+/**
+ * Resource-type shift configuration (D-shift) — per `(tenant, resourceType)` defaults for
+ * the calendar-aware sequencer: whether ops on this type are **splittable** (interruptible
+ * across closed gaps) and the default **overtime cap** (minutes/day a resource may run past
+ * its shift windows; a per-resource `resource.otCapMinutes` overrides it).
+ */
+export const resourceTypeConfig = masterDataSchema.table(
+  'resource_type_config',
+  {
+    id: text('id').primaryKey().$defaultFn(generateId),
+    tenantId: text('tenant_id').notNull(),
+    resourceType: text('resource_type').$type<ResourceType>().notNull(),
+    splittable: boolean('splittable').notNull().default(false),
+    otCapMinutes: integer('ot_cap_minutes').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ tenantIdx: index('resource_type_config_tenant_idx').on(t.tenantId) }),
+)
+
 export type Resource = typeof resource.$inferSelect
 export type NewResource = typeof resource.$inferInsert
+export type ResourceTypeConfig = typeof resourceTypeConfig.$inferSelect
+export type NewResourceTypeConfig = typeof resourceTypeConfig.$inferInsert
 export type ResourceGroup = typeof resourceGroup.$inferSelect
 export type NewResourceGroup = typeof resourceGroup.$inferInsert
 export type ResourceGroupMember = typeof resourceGroupMember.$inferSelect

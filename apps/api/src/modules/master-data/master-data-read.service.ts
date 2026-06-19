@@ -8,6 +8,7 @@ import {
   type PartDto,
   type ResourceDto,
   type ResourceGroupDto,
+  type ResourceTypeConfigDto,
   type RoutingDto,
 } from '@perduraflow/contracts'
 import {
@@ -16,6 +17,7 @@ import {
   toPartDto,
   toResourceDto,
   toResourceGroupDto,
+  toResourceTypeConfigDto,
   toRoutingDto,
 } from './master-data.mapper'
 import { MasterDataRepository } from './master-data.repository'
@@ -117,5 +119,10 @@ export class MasterDataReadService implements MasterDataReadContract {
   async listOperators(tenantId: string): Promise<OperatorDto[]> {
     const rows = await this.repo.listOperators(tenantId)
     return Promise.all(rows.map(async (r) => toOperatorDto(r, await this.repo.certificationIdsForOperator(r.id))))
+  }
+
+  /** Resource-type shift config (splittable / OT cap) — the calendar-aware sequencer (D-shift). */
+  async listResourceTypeConfigs(tenantId: string): Promise<ResourceTypeConfigDto[]> {
+    return (await this.repo.listResourceTypeConfigs(tenantId)).map(toResourceTypeConfigDto)
   }
 }

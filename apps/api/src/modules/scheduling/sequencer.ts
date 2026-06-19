@@ -14,6 +14,8 @@
  * tie-break keeps it deterministic.
  */
 
+import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type WorkingCalendar } from './working-calendar'
+
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
 export const CHANGEOVER_BONUS_HOURS = 24
 /** Expedite pull-ahead for the what-if protect-delivery policy (front-loads the expedited lines). */
@@ -114,9 +116,12 @@ export interface SequencerResult {
 }
 
 interface ResourceState {
+  /** The resource's next-available wall-clock instant (the calendar-walking cursor). */
   freeMs: number
   currentAttr: string | null
   seq: number
+  /** Per-day overtime ledger for this resource (only spent when its calendar allows OT). */
+  ot: OvertimeState
 }
 
 const firmRank = (f: 'firm' | 'forecast') => (f === 'firm' ? 0 : 1)
@@ -131,7 +136,15 @@ function startOfDayUtc(ms: number): number {
  * least one eligible resource (the service performs the feasibility hard gate
  * before calling this).
  */
-export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffective, policy?: SequencePolicy): SequencerResult {
+export function sequence(
+  items: SequencerItem[],
+  resolveEffective?: ResolveEffective,
+  policy?: SequencePolicy,
+  resourceCalendars?: Map<string, WorkingCalendar>,
+): SequencerResult {
+  // A resource's operating calendar (working windows / closures / OT). Resources without
+  // one fall back to ALWAYS_ON (24/7) so existing callers and tests are unaffected.
+  const calFor = (resourceId: string): WorkingCalendar => resourceCalendars?.get(resourceId) ?? ALWAYS_ON
   const effectiveFor = (item: SequencerItem, resourceId: string): EffectiveTimes =>
     resolveEffective?.(item.routingOperationId, resourceId, item.setupTime, item.cycleTime) ?? {
       setupTime: item.setupTime,
@@ -150,7 +163,7 @@ export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffec
   const stateFor = (id: string): ResourceState => {
     let s = state.get(id)
     if (!s) {
-      s = { freeMs: origin, currentAttr: null, seq: 0 }
+      s = { freeMs: origin, currentAttr: null, seq: 0, ot: newOvertimeState() }
       state.set(id, s)
     }
     return s
@@ -200,13 +213,19 @@ export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffec
     const item = bestItem
     const st = stateFor(bestRes)
     const eff = effectiveFor(item, bestRes)
-    const startMs = Math.max(st.freeMs, origin)
+    const cal = calFor(bestRes)
     const durMs = (eff.setupTime + eff.cycleTime * item.qty) * MS_PER_MINUTE
-    const endMs = startMs + durMs
+    // Calendar-aware placement: advance the cursor through working time only (skipping
+    // nights / Sundays / holidays / maintenance / down). A null result means the op cannot
+    // fit (non-split op longer than any working segment, no OT) — the service feasibility
+    // gate is responsible for rejecting those; fall back to contiguous + at-risk defensively.
+    const placed = placeJob(cal, Math.max(st.freeMs, origin), durMs, st.ot)
+    const startMs = placed?.startMs ?? Math.max(st.freeMs, origin)
+    const endMs = placed?.endMs ?? startMs + durMs
     st.freeMs = endMs
     st.currentAttr = item.changeoverValue
     st.seq += 1
-    const atRisk = endMs > item.requiredDate
+    const atRisk = endMs > item.requiredDate || placed === null
     placements.push({
       demandLineId: item.demandLineId,
       partId: item.partId,
@@ -224,7 +243,7 @@ export function sequence(items: SequencerItem[], resolveEffective?: ResolveEffec
       setupConfidence: eff.setupConfidence,
       cycleConfidence: eff.cycleConfidence,
       atRisk,
-      atRiskReason: atRisk ? 'late' : null,
+      atRiskReason: placed === null ? 'exceeds_working_window' : atRisk ? 'late' : null,
       requiredDateMs: item.requiredDate,
       firmness: item.firmness,
       changeoverValue: item.changeoverValue,

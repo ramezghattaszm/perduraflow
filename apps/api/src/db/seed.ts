@@ -14,6 +14,7 @@ import {
   resource,
   resourceGroup,
   resourceGroupMember,
+  resourceTypeConfig,
   routing,
   routingOperation,
 } from '../modules/master-data/schema'
@@ -146,8 +147,9 @@ export async function seed(): Promise<void> {
     const [gmProgram] = await db.insert(program).values({ tenantId, customerId: gm!.id, name: 'Silverado/Sierra body', firmFenceDays: 21 }).returning()
     const [stelProgram] = await db.insert(program).values({ tenantId, customerId: stellantis!.id, name: 'RAM 1500 underbody', firmFenceDays: 18 }).returning()
 
-    // calendars — one standard two-shift pattern per producing plant
-    const shifts = { shiftPatterns: [{ name: 'A', start: '06:00', end: '14:00' }, { name: 'B', start: '14:00', end: '22:00' }], holidays: [], maintenanceWindows: [] }
+    // calendars — one standard two-shift pattern per producing plant (Mon–Sat, 06:00–22:00;
+    // Sunday closed). workingDays drives the calendar-aware sequencer (D-shift).
+    const shifts = { shiftPatterns: [{ name: 'A', start: '06:00', end: '14:00' }, { name: 'B', start: '14:00', end: '22:00' }], holidays: [], maintenanceWindows: [], workingDays: [1, 2, 3, 4, 5, 6] }
     const [calSaltillo] = await db.insert(calendar).values({ tenantId, plantId: saltillo!.id, name: 'Saltillo two-shift', ...shifts }).returning()
     const [calRamos] = await db.insert(calendar).values({ tenantId, plantId: ramos!.id, name: 'Ramos Arizpe two-shift', ...shifts }).returning()
 
@@ -156,6 +158,13 @@ export async function seed(): Promise<void> {
     const [pressB] = await db.insert(resource).values({ tenantId, name: 'Press Line B', resourceType: 'line', plantId: saltillo!.id, calendarId: calSaltillo!.id, rate: 11, rateUom: 'strokes/min', runCostPerHour: 140, setupCost: 125, overheadPerUnit: 0.6 }).returning()
     const [weld1] = await db.insert(resource).values({ tenantId, name: 'Weld Cell 1', resourceType: 'cell', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 98, setupCost: 75, overheadPerUnit: 0.48 }).returning()
     const [weld2] = await db.insert(resource).values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 95, setupCost: 70, overheadPerUnit: 0.45 }).returning()
+    // Resource-type shift config (D-shift): presses run non-interruptible setups
+    // (non-splittable); weld cells may pause across shifts (splittable). Both may run up
+    // to 2h/day overtime past shift-end (the what-if "overtime" option spends it).
+    await db.insert(resourceTypeConfig).values([
+      { tenantId, resourceType: 'line', splittable: false, otCapMinutes: 120 },
+      { tenantId, resourceType: 'cell', splittable: true, otCapMinutes: 120 },
+    ])
     const [pressGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Saltillo stamping presses', plantId: saltillo!.id }).returning()
     const [weldGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Ramos weld cells', plantId: ramos!.id }).returning()
     await db.insert(resourceGroupMember).values([

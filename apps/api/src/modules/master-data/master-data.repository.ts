@@ -9,6 +9,7 @@ import {
   resource,
   resourceGroup,
   resourceGroupMember,
+  resourceTypeConfig,
   routing,
   routingOperation,
   type Certification,
@@ -23,6 +24,7 @@ import {
   type Part,
   type Resource,
   type ResourceGroup,
+  type ResourceTypeConfig,
   type Routing,
   type RoutingOperation,
 } from './schema'
@@ -75,6 +77,11 @@ export class MasterDataRepository {
   // --- resource --------------------------------------------------------------
   listResources(tenantId: string): Promise<Resource[]> {
     return this.db.select().from(resource).where(eq(resource.tenantId, tenantId)).orderBy(asc(resource.name))
+  }
+
+  /** Resource-type shift config rows (D-shift) — splittable / OT cap per resource type. */
+  listResourceTypeConfigs(tenantId: string): Promise<ResourceTypeConfig[]> {
+    return this.db.select().from(resourceTypeConfig).where(eq(resourceTypeConfig.tenantId, tenantId))
   }
 
   findResource(tenantId: string, id: string): Promise<Resource | undefined> {

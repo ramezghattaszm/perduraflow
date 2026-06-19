@@ -75,7 +75,19 @@ export interface ResourceDto {
   runCostPerHour: number | null
   setupCost: number | null
   overheadPerUnit: number | null
+  /** Per-resource overtime-cap override (min/day); null → inherit the resource-type default. */
+  otCapMinutes: number | null
   status: MasterDataStatus
+}
+
+/**
+ * Resource-type shift defaults (D-shift) — drives the calendar-aware sequencer: whether ops
+ * on the type are interruptible (`splittable`) and the default overtime cap (min/day).
+ */
+export interface ResourceTypeConfigDto {
+  resourceType: ResourceType
+  splittable: boolean
+  otCapMinutes: number
 }
 
 export interface ResourceGroupDto {
@@ -164,6 +176,8 @@ export interface MasterDataReadContract {
   getOperator(tenantId: string, id: string): Promise<OperatorDto | null>
   /** All operators (with held cert ids) — workforce coverage view (added in `1.2`). */
   listOperators(tenantId: string): Promise<OperatorDto[]>
+  /** Resource-type shift config (splittable / OT cap) — the calendar-aware sequencer (D-shift). */
+  listResourceTypeConfigs(tenantId: string): Promise<ResourceTypeConfigDto[]>
 }
 
 // --- admin CRUD request schemas (master-data screens) ------------------------

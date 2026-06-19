@@ -82,6 +82,8 @@ export interface CalendarDto {
   holidays: unknown
   /** Plant-level in phase 0; no resource_id reference yet (SKIP-52). */
   maintenanceWindows: unknown
+  /** UTC weekdays the calendar operates (0=Sun … 6=Sat); default Mon–Sat (D-shift). */
+  workingDays: unknown
   /** Soft-delete flag. */
   isActive: boolean
 }

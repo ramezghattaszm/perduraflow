@@ -4,6 +4,7 @@ import type {
   PartDto,
   ResourceDto,
   ResourceGroupDto,
+  ResourceTypeConfigDto,
   RoutingDto,
   RoutingOperationDto,
 } from '@perduraflow/contracts'
@@ -13,6 +14,7 @@ import type {
   Part,
   Resource,
   ResourceGroup,
+  ResourceTypeConfig,
   Routing,
   RoutingOperation,
 } from './schema'
@@ -42,7 +44,15 @@ export const toResourceDto = (r: Resource): ResourceDto => ({
   runCostPerHour: r.runCostPerHour,
   setupCost: r.setupCost,
   overheadPerUnit: r.overheadPerUnit,
+  otCapMinutes: r.otCapMinutes,
   status: r.status,
+})
+
+/** Map a resource-type-config row to its DTO (D-shift). */
+export const toResourceTypeConfigDto = (c: ResourceTypeConfig): ResourceTypeConfigDto => ({
+  resourceType: c.resourceType,
+  splittable: c.splittable,
+  otCapMinutes: c.otCapMinutes,
 })
 
 /** Map a resource-group row (+ member ids) to its DTO. */

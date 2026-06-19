@@ -603,6 +603,7 @@ export function BoardContent() {
           bars={bars}
           horizonStartMs={new Date(detail.version.horizonStart).getTime()}
           horizonEndMs={new Date(detail.version.horizonEnd).getTime()}
+          workingWindow={detail.workingWindow}
           barDetail={(bar) => (
             <YStack gap="$2" minWidth={210}>
               <P size={3} weight="b" color="$textPrimary">
