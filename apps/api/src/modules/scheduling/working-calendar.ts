@@ -41,8 +41,15 @@ export interface WorkingCalendar {
   closedIntervals: Array<[number, number]>
   /** Interruptible ops may pause across closed gaps (resource-type level). */
   splittable: boolean
-  /** Max OT minutes the resource may run past its windows into closed time, **per UTC day**. */
+  /**
+   * **Spendable** OT budget for THIS run — minutes placeJob may run past a window into
+   * closed time, per UTC day. **Zero by default** (a normal solve never spends OT); only
+   * an explicit overtime policy raises it (up to {@link otCeilingMinutes}).
+   */
   otCapMinutes: number
+  /** The policy **ceiling** (config: resource override ?? resource-type) the overtime option
+   *  may raise `otCapMinutes` to. Carried for the option layer; placeJob ignores it. */
+  otCeilingMinutes: number
 }
 
 /** Per-resource overtime ledger — minutes already spent on a given UTC day (mutated in place). */
@@ -65,6 +72,7 @@ export const ALWAYS_ON: WorkingCalendar = {
   closedIntervals: [],
   splittable: false,
   otCapMinutes: 0,
+  otCeilingMinutes: 0,
 }
 
 /** UTC midnight (epoch ms) of the day containing `ms`. */
@@ -101,7 +109,10 @@ export function buildWorkingCalendar(input: {
   holidays?: string[]
   closedIntervals?: Array<[number, number]>
   splittable?: boolean
+  /** Spendable OT this run (default 0 — a normal solve passes nothing). */
   otCapMinutes?: number
+  /** Policy ceiling the overtime option may raise the spendable budget to (default 0). */
+  otCeilingMinutes?: number
 }): WorkingCalendar {
   return {
     workingDays: input.workingDays ?? [1, 2, 3, 4, 5, 6],
@@ -110,6 +121,7 @@ export function buildWorkingCalendar(input: {
     closedIntervals: mergeIntervals(input.closedIntervals ?? []),
     splittable: input.splittable ?? false,
     otCapMinutes: input.otCapMinutes ?? 0,
+    otCeilingMinutes: input.otCeilingMinutes ?? 0,
   }
 }
 

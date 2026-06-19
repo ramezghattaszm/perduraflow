@@ -430,7 +430,10 @@ export class SchedulingService {
           holidays: asStringArray(calDto.holidays),
           closedIntervals: [...maintenanceToIntervals(calDto.maintenanceWindows), ...(extraClosedByResource?.get(r.id) ?? [])],
           splittable: cfg?.splittable ?? false,
-          otCapMinutes: r.otCapMinutes ?? cfg?.otCapMinutes ?? 0,
+          // A normal solve spends NO overtime; the resource's OT cap is only the ceiling the
+          // what-if overtime option may opt into (decision: OT is policy-only, never auto-spent).
+          otCapMinutes: 0,
+          otCeilingMinutes: r.otCapMinutes ?? cfg?.otCapMinutes ?? 0,
         }),
       )
     }

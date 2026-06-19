@@ -369,10 +369,11 @@ export class WhatIfService {
     }
     const overlay = spec.overlayWrap ? spec.overlayWrap(baseOverlay) : baseOverlay
     // The overtime option grants the day's OT budget so placement may run past shift-end
-    // into closed time (capped per day) — not just a scoring penalty (D-shift).
+    // into closed time — the requested hours, clamped to each resource's policy ceiling
+    // (otCeilingMinutes). A normal solve spends none; this is the lever that opts in (D-shift).
     const cals =
       spec.overtimeHours > 0
-        ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.max(c.otCapMinutes, spec.overtimeHours * 60) }]))
+        ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.min(spec.overtimeHours * 60, c.otCeilingMinutes) }]))
         : resourceCalendars
     const placements = sequence(items, overlay, spec.policy, cals).placements
     const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: spec.overtimeHours })

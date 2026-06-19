@@ -160,10 +160,13 @@ export async function seed(): Promise<void> {
     const [weld2] = await db.insert(resource).values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 95, setupCost: 70, overheadPerUnit: 0.45 }).returning()
     // Resource-type shift config (D-shift): presses run non-interruptible setups
     // (non-splittable); weld cells may pause across shifts (splittable). Both may run up
-    // to 2h/day overtime past shift-end (the what-if "overtime" option spends it).
+    // to 4h/day overtime past shift-end (an extended shift) — the ceiling the what-if
+    // "overtime" option spends; a normal solve uses none. 4h is enough that, against a
+    // moderate disruption on a realistically-full line, OT genuinely competes with reroute
+    // (finish on the same line late-but-OT vs move work elsewhere) instead of collapsing.
     await db.insert(resourceTypeConfig).values([
-      { tenantId, resourceType: 'line', splittable: false, otCapMinutes: 120 },
-      { tenantId, resourceType: 'cell', splittable: true, otCapMinutes: 120 },
+      { tenantId, resourceType: 'line', splittable: false, otCapMinutes: 240 },
+      { tenantId, resourceType: 'cell', splittable: true, otCapMinutes: 240 },
     ])
     const [pressGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Saltillo stamping presses', plantId: saltillo!.id }).returning()
     const [weldGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Ramos weld cells', plantId: ramos!.id }).returning()
@@ -241,19 +244,36 @@ export async function seed(): Promise<void> {
     // DL-1006 is due before it can finish → the sequencer COMPUTES it at-risk (never flagged).
     const D = (iso: string) => new Date(iso)
     type Firmness = 'firm' | 'forecast'
+    // Quantities are sized for a realistically-FULL plant: with the calendar-aware
+    // sequencer (Mon–Sat 06:00–22:00) the two Saltillo presses run ~90% of the shift and
+    // the two Ramos weld cells ~80% — most of the working day utilized, with normal slack
+    // (stamping runs thousands of parts/shift at ~0.3 min/unit). Due dates spread Tue–Thu
+    // so the heavy Monday run still meets them under EDD; DL-1006 (due before the shift
+    // even opens) is the one COMPUTED-late anchor. This load is what makes the seeded
+    // disruptions bite: a demand bump / wear / line-down now pushes work past the shift
+    // boundary, where OT and lateness become meaningful levers (with light load there was
+    // always slack to absorb everything in-shift, so OT/reroute always collapsed).
     const demand: {
       line: string; ref: string; part: string; plant: string; cust: string; prog: string | null; firm: Firmness; qty: number; due: string
     }[] = [
-      // Saltillo (presses)
-      { line: 'GP-1142', ref: 'GM-830-1142', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 100, due: '2026-06-15T12:00:00Z' },
-      { line: 'DL-1002', ref: 'GM-830-1002', part: fg2002, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 80, due: '2026-06-15T12:00:00Z' },
-      { line: 'DL-1003', ref: 'NIS-862-1003', part: fg2004, plant: saltillo!.id, cust: nissan!.id, prog: null, firm: 'forecast', qty: 120, due: '2026-06-16T12:00:00Z' },
-      { line: 'DL-1004', ref: 'GM-830-1004', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 60, due: '2026-06-17T12:00:00Z' },
-      { line: 'DL-1005', ref: 'AM-1005', part: fg2004, plant: saltillo!.id, cust: aftermarket!.id, prog: null, firm: 'forecast', qty: 40, due: '2026-06-16T12:00:00Z' },
-      { line: 'DL-1006', ref: 'GM-830-1006', part: fg2002, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 70, due: '2026-06-15T00:45:00Z' }, // computed late
-      // Ramos Arizpe (weld)
-      { line: 'ST-8830', ref: 'STL-862-8830', part: fg3001, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 90, due: '2026-06-16T12:00:00Z' },
-      { line: 'DL-2002', ref: 'STL-862-2002', part: fg3002, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 60, due: '2026-06-17T12:00:00Z' },
+      // Saltillo (presses) — ~1730 press-minutes across 2 lines ≈ 90% of one shift each.
+      { line: 'GP-1142', ref: 'GM-830-1142', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 600, due: '2026-06-16T12:00:00Z' },
+      { line: 'DL-1002', ref: 'GM-830-1002', part: fg2002, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 550, due: '2026-06-16T12:00:00Z' },
+      { line: 'DL-1003', ref: 'NIS-862-1003', part: fg2004, plant: saltillo!.id, cust: nissan!.id, prog: null, firm: 'forecast', qty: 500, due: '2026-06-17T12:00:00Z' },
+      { line: 'DL-1004', ref: 'GM-830-1004', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 450, due: '2026-06-17T12:00:00Z' },
+      { line: 'DL-1005', ref: 'AM-1005', part: fg2004, plant: saltillo!.id, cust: aftermarket!.id, prog: null, firm: 'forecast', qty: 350, due: '2026-06-17T12:00:00Z' },
+      { line: 'DL-1006', ref: 'GM-830-1006', part: fg2002, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 350, due: '2026-06-15T00:45:00Z' }, // computed late
+      { line: 'DL-1007', ref: 'GM-830-1007', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 550, due: '2026-06-16T18:00:00Z' },
+      { line: 'DL-1008', ref: 'NIS-862-1008', part: fg2002, plant: saltillo!.id, cust: nissan!.id, prog: null, firm: 'firm', qty: 500, due: '2026-06-17T12:00:00Z' },
+      { line: 'DL-1009', ref: 'AM-1009', part: fg2004, plant: saltillo!.id, cust: aftermarket!.id, prog: null, firm: 'forecast', qty: 400, due: '2026-06-18T12:00:00Z' },
+      { line: 'DL-1010', ref: 'GM-830-1010', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 450, due: '2026-06-18T12:00:00Z' },
+      // Ramos Arizpe (weld) — ~1740 weld-minutes across 2 cells ≈ 90% of one shift each.
+      // Monday-anchored, due dates clear the big weld runs (a 9h+ op can't meet a noon due),
+      // so Ramos's baseline is clean — Saltillo's DL-1006 is the only intended at-risk.
+      { line: 'ST-8830', ref: 'STL-862-8830', part: fg3001, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 380, due: '2026-06-15T20:00:00Z' },
+      { line: 'DL-2002', ref: 'STL-862-2002', part: fg3002, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 340, due: '2026-06-16T12:00:00Z' },
+      { line: 'DL-2003', ref: 'STL-862-2003', part: fg3001, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'forecast', qty: 250, due: '2026-06-17T12:00:00Z' },
+      { line: 'DL-2004', ref: 'STL-862-2004', part: fg3002, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'forecast', qty: 200, due: '2026-06-17T12:00:00Z' },
     ]
     await db.insert(demandInput).values(
       demand.map((r) => ({
@@ -305,22 +325,26 @@ export async function seed(): Promise<void> {
       label: 'representative seed',
       source: 'seed',
     })
+    // Throughput is weekly units (≈ daily plan output × 5 working days) — scaled to the
+    // realistically-full demand above so the measured_historical baseline stays coherent
+    // (live ~thousands/week vs history ~thousands/week, not thousands-vs-hundreds). OTIF /
+    // cost-per-unit / OEE are ratios → unchanged by load.
     await db.insert(historicalOutcome).values([
       // Saltillo plant-level — three prior weeks (pre-platform performance).
-      ho(saltillo!.id, null, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.84, 8.9, 0.88, 0.79, 0.965, 3, 980),
-      ho(saltillo!.id, null, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.86, 8.7, 0.89, 0.8, 0.97, 2, 1010),
-      ho(saltillo!.id, null, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.85, 8.8, 0.88, 0.81, 0.968, 3, 995),
+      ho(saltillo!.id, null, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.84, 8.9, 0.88, 0.79, 0.965, 3, 22600),
+      ho(saltillo!.id, null, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.86, 8.7, 0.89, 0.8, 0.97, 2, 23400),
+      ho(saltillo!.id, null, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.85, 8.8, 0.88, 0.81, 0.968, 3, 23000),
       // Press Line A line-level — the wear story's line, slightly worse historically.
-      ho(saltillo!.id, pressA!.id, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.8, 9.4, 0.85, 0.77, 0.96, 2, 520),
-      ho(saltillo!.id, pressA!.id, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.82, 9.2, 0.86, 0.78, 0.962, 1, 540),
-      ho(saltillo!.id, pressA!.id, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.81, 9.3, 0.85, 0.78, 0.96, 2, 530),
+      ho(saltillo!.id, pressA!.id, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.8, 9.4, 0.85, 0.77, 0.96, 2, 11300),
+      ho(saltillo!.id, pressA!.id, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.82, 9.2, 0.86, 0.78, 0.962, 1, 11800),
+      ho(saltillo!.id, pressA!.id, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.81, 9.3, 0.85, 0.78, 0.96, 2, 11500),
       // Ramos Arizpe plant-level.
-      ho(ramos!.id, null, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.88, 6.4, 0.9, 0.82, 0.975, 1, 760),
-      ho(ramos!.id, null, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.9, 6.2, 0.91, 0.83, 0.978, 1, 780),
-      ho(ramos!.id, null, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.89, 6.3, 0.9, 0.83, 0.976, 1, 770),
+      ho(ramos!.id, null, '2026-05-25T00:00:00Z', '2026-05-29T23:59:59Z', 0.88, 6.4, 0.9, 0.82, 0.975, 1, 5000),
+      ho(ramos!.id, null, '2026-06-01T00:00:00Z', '2026-06-05T23:59:59Z', 0.9, 6.2, 0.91, 0.83, 0.978, 1, 5300),
+      ho(ramos!.id, null, '2026-06-08T00:00:00Z', '2026-06-12T23:59:59Z', 0.89, 6.3, 0.9, 0.83, 0.976, 1, 5150),
     ])
 
-    console.log('  ✓ Magna de México scenario: 3 plants, 4 customers, 4 resources, 6 parts, 4 certs, 7 operators, 8 demand lines')
+    console.log('  ✓ Magna de México scenario: 3 plants, 4 customers, 4 resources, 6 parts, 4 certs, 7 operators, 14 demand lines')
     console.log('  ✓ historical outcomes: 9 rows (Saltillo + Press Line A + Ramos); Monterrey/Press Line B = none (empty-state)')
   }
 
