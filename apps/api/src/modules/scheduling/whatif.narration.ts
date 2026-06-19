@@ -21,6 +21,8 @@ const OPTION_LABELS: Record<string, string> = {
   'whatif.option.defer': 'Defer (keep running)',
   'whatif.option.overtime': 'Add overtime',
   'whatif.option.reroute': 'Re-route to other line(s)',
+  'whatif.option.wait': 'Wait for material',
+  'whatif.option.resequence': 'Re-sequence around the gap',
 }
 const label = (key: string): string => OPTION_LABELS[key] ?? key
 /** EN option label for a label key — reused by the conversation layer's artifact. */

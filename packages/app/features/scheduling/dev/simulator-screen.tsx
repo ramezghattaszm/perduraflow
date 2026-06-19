@@ -14,14 +14,23 @@ import {
 import { useTranslation } from '../../../i18n'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
-import { useScheduleDemand, useScheduleResources, useScheduleVersions, useUpdateDemandQty } from '../../../hooks/useScheduling'
+import { useMaterialAvailability, useScheduleDemand, useScheduleResources, useScheduleVersions, useSetMaterialAvailability, useUpdateDemandQty } from '../../../hooks/useScheduling'
 import { useResourceMutations } from '../../../hooks/useMasterData'
 import { useSimulateActuals } from '../../../hooks/useLearning'
 import { queryClient } from '../../../lib/query-client'
 import { QUERY_KEYS } from '../../../lib/query-keys'
 import { AdminShell } from '../../shell/admin-shell'
 
-type Scenario = 'wear' | 'demand' | 'lineDown'
+type Scenario = 'wear' | 'demand' | 'lineDown' | 'material'
+
+const MS_PER_DAY = 86_400_000
+/** Build an ISO datetime for `HH:MM` on today's UTC day (the schedule day). */
+const todayAt = (hhmm: string): string => {
+  const [h, m] = hhmm.split(':')
+  const day = Math.floor(Date.now() / MS_PER_DAY) * MS_PER_DAY
+  return new Date(day + (Number(h) || 0) * 3_600_000 + (Number(m) || 0) * 60_000).toISOString()
+}
+const hhmmOf = (iso: string): string => new Date(iso).toISOString().slice(11, 16)
 
 /**
  * **Demo/dev-only scenario launcher** (SKIP-51). NOT in the operational/admin nav —
@@ -53,9 +62,14 @@ export function SimulatorContent() {
   const [newQty, setNewQty] = useState('200')
   // Line-down controls
   const [downLine, setDownLine] = useState<string | null>(null)
+  // Material-arrival controls
+  const { data: materials = [] } = useMaterialAvailability(plantId ?? undefined)
+  const [matComponent, setMatComponent] = useState<string | null>(null)
+  const [matTime, setMatTime] = useState('16:00')
 
   const simulate = useSimulateActuals()
   const updateDemandQty = useUpdateDemandQty()
+  const setMaterial = useSetMaterialAvailability(plantId ?? undefined)
   const { update: updateResource } = useResourceMutations()
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState<string | null>(null)
@@ -68,14 +82,24 @@ export function SimulatorContent() {
     const o = demand.find((d) => d.demandLineId === orderId)
     if (o) setNewQty(String(o.requiredQty))
   }, [orderId, demand])
+  // Default the component to the first available; prefill the time with its current arrival.
+  useEffect(() => {
+    if (!matComponent && materials.length > 0) setMatComponent(materials[0]!.componentPartId)
+  }, [materials, matComponent])
+  useEffect(() => {
+    const m = materials.find((x) => x.componentPartId === matComponent)
+    if (m) setMatTime(hhmmOf(m.availableAt))
+  }, [matComponent, materials])
 
   const versionOptions = committed.map((v) => ({ value: v.id, label: `committed · ${new Date(v.createdAt).toLocaleString()}` }))
   const resourceOptions = resources.map((r) => ({ value: r.id, label: r.name }))
   const orderOptions = demand.map((d) => ({ value: d.demandLineId, label: `${d.demandLineId} · qty ${d.requiredQty}` }))
+  const materialOptions = materials.map((m) => ({ value: m.componentPartId, label: `${m.componentPartNo} · now ${hhmmOf(m.availableAt)}` }))
   const scenarioOptions: { value: Scenario; label: string }[] = [
     { value: 'wear', label: t('simulator.scenarioWear') },
     { value: 'demand', label: t('simulator.scenarioDemand') },
     { value: 'lineDown', label: t('simulator.scenarioLineDown') },
+    { value: 'material', label: t('simulator.scenarioMaterial') },
   ]
 
   const runWear = () => {
@@ -113,6 +137,17 @@ export function SimulatorContent() {
       // condition without a manual refresh.
       await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.resources(plantId) })
       setApplied(status === 'inactive' ? t('simulator.conditionDown') : t('simulator.conditionUp'))
+    } finally {
+      setApplying(false)
+    }
+  }
+  const setMaterialCondition = async (hhmm: string, reset = false) => {
+    if (!matComponent) return
+    setApplying(true)
+    setApplied(null)
+    try {
+      await setMaterial.mutateAsync({ componentPartId: matComponent, availableAt: todayAt(hhmm) })
+      setApplied(reset ? t('simulator.conditionMaterialReset') : t('simulator.conditionMaterial'))
     } finally {
       setApplying(false)
     }
@@ -204,6 +239,28 @@ export function SimulatorContent() {
               </AppButton>
               <AppButton variant="ghost" size="$3" loading={applying} onPress={() => setLineCondition('active')}>
                 {t('simulator.bringBackUp')}
+              </AppButton>
+            </XStack>
+          </>
+        ) : null}
+
+        {scenario === 'material' ? (
+          <>
+            <P size={4} color="$textSecondary">
+              {t('simulator.conditionHint')}
+            </P>
+            <FormField label={t('simulator.component')}>
+              <AppSelect options={materialOptions} value={matComponent} onChange={setMatComponent} placeholder={t('simulator.needComponent')} />
+            </FormField>
+            <FormField label={t('simulator.arrivalTime')}>
+              <AppInput value={matTime} onChangeText={setMatTime} placeholder="HH:MM" />
+            </FormField>
+            <XStack gap="$2" flexWrap="wrap">
+              <AppButton variant="primary" size="$3" loading={applying} onPress={() => setMaterialCondition(matTime)}>
+                {t('simulator.setCondition')}
+              </AppButton>
+              <AppButton variant="ghost" size="$3" loading={applying} onPress={() => setMaterialCondition('06:00', true)}>
+                {t('simulator.materialOnHand')}
               </AppButton>
             </XStack>
           </>

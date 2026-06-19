@@ -1,7 +1,9 @@
 import { Body, Controller, Param, Patch, Post, UseGuards } from '@nestjs/common'
 import {
+  setMaterialAvailabilitySchema,
   simulateActualsSchema,
   updateDemandQtySchema,
+  type SetMaterialAvailabilityRequest,
   type SimulateActualsRequest,
   type UpdateDemandQtyRequest,
 } from '@perduraflow/contracts'
@@ -39,5 +41,15 @@ export class DevController {
     @Body(new ZodValidationPipe(updateDemandQtySchema)) dto: UpdateDemandQtyRequest,
   ) {
     return this.simulator.updateDemandQty(user.tenantId, demandLineId, dto.requiredQty)
+  }
+
+  /** `PATCH /dev/scheduling/material/:componentPartId` — set a component's availability (scenario launcher). */
+  @Patch('material/:componentPartId')
+  setMaterial(
+    @CurrentUser() user: JwtPayload,
+    @Param('componentPartId') componentPartId: string,
+    @Body(new ZodValidationPipe(setMaterialAvailabilitySchema)) dto: SetMaterialAvailabilityRequest,
+  ) {
+    return this.simulator.setMaterialAvailability(user.tenantId, dto.plantId, componentPartId, new Date(dto.availableAt))
   }
 }

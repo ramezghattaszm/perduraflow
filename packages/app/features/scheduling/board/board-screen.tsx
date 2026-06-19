@@ -28,6 +28,7 @@ import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts } from '../../../hooks/useMasterData'
 import {
   useCommitSchedule,
+  useMaterialConditions,
   useScheduleDemand,
   useScheduleResources,
   useScheduleVersion,
@@ -66,6 +67,7 @@ export function BoardContent() {
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
   const { data: demand = [] } = useScheduleDemand(plantId ?? undefined)
+  const { data: materialConditions = [] } = useMaterialConditions(plantId ?? undefined, versionId ?? undefined)
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
   const { data: variance } = useVariance(versionId ?? undefined)
   const { data: learned = [] } = useLearnedParameters()
@@ -333,6 +335,8 @@ export function BoardContent() {
   }
   const runWearWhatIf = (resourceId: string) =>
     runWhatIf({ origin: { type: 'prediction', ref: resourceId }, changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }] }, `wear-${resourceId}`)
+  const runMaterialWhatIf = (componentPartId: string, availableAt: string) =>
+    runWhatIf({ origin: { type: 'collision', ref: componentPartId }, changes: [{ kind: 'material_arrival', componentPartId, availableAt }] }, `material-${componentPartId}`)
 
   // Self-contained bar detail (identity + learned/std + performance). Identity is
   // repeated so the panel/sheet stands alone (the tap target never assumes a hover).
@@ -493,7 +497,7 @@ export function BoardContent() {
   ) : null
 
   const detailPanel = opPanel ?? downPanel ?? resourcePanel
-  const conditionCount = lineDownConditions.length + demandConditions.length
+  const conditionCount = lineDownConditions.length + demandConditions.length + materialConditions.length
 
   return (
     <>
@@ -590,6 +594,20 @@ export function BoardContent() {
                     loading={whatIf.isPending && whatIfTrigger === `demand-${c.demandLineId}`}
                     disabled={readOnly}
                     onPress={() => (open ? closeWhatIf() : runDemandWhatIf(c.demandLineId, c.to))}
+                  />
+                )
+              })}
+              {materialConditions.map((c) => {
+                const open = whatIfOpenFor(`material-${c.componentPartId}`)
+                return (
+                  <ConditionCard
+                    key={`material-${c.componentPartId}`}
+                    title={t('whatif:condition.material', { component: c.componentPartNo, time: new Date(c.availableAt).toISOString().slice(11, 16) })}
+                    detail={t('whatif:condition.materialDetail', { count: c.gatedDemandLineIds.length })}
+                    cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
+                    loading={whatIf.isPending && whatIfTrigger === `material-${c.componentPartId}`}
+                    disabled={readOnly}
+                    onPress={() => (open ? closeWhatIf() : runMaterialWhatIf(c.componentPartId, c.availableAt))}
                   />
                 )
               })}

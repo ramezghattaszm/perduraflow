@@ -41,7 +41,9 @@
     "service": "Service now",
     "defer": "Defer (keep running)",
     "overtime": "Add overtime",
-    "reroute": "Re-route to other line(s)"
+    "reroute": "Re-route to other line(s)",
+    "wait": "Wait for material",
+    "resequence": "Re-sequence around the gap"
   },
   "headline": {
     "option": "{{label}} — {{lateOrders}} late order(s), cost/unit {{costPerUnit}}",
@@ -66,6 +68,8 @@
     "lineDown": "{{resource}} is down",
     "lineDownDetail": "{{count}} scheduled op(s) stranded — reroute or add overtime.",
     "demand": "{{line}} demand changed",
-    "demandDetail": "Order quantity {{from}} → {{to}} — re-evaluate the plan."
+    "demandDetail": "Order quantity {{from}} → {{to}} — re-evaluate the plan.",
+    "material": "{{component}} arrives {{time}}",
+    "materialDetail": "{{count}} op(s) gated by material — wait or re-sequence around it."
   }
 }

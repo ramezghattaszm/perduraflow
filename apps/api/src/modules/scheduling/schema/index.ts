@@ -1,5 +1,6 @@
 export * from './_schema'
 export * from './demand-input.schema'
+export * from './material.schema'
 export * from './schedule.schema'
 export * from './whatif.schema'
 export * from './conversation.schema'

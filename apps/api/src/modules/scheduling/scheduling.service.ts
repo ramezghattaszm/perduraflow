@@ -9,6 +9,8 @@ import {
   type LearnedParameterDto,
   type LearningReadContract,
   type MasterDataReadContract,
+  type MaterialAvailabilityDto,
+  type MaterialConditionDto,
   type OeeDto,
   type OperatorDto,
   type OrgPriority,
@@ -176,6 +178,53 @@ export class SchedulingService {
   /** Lists the plant's seeded demand (read-only). */
   async listDemand(tenantId: string, plantId: string) {
     return (await this.repo.listDemand(tenantId, plantId)).map(toDemandInputDto)
+  }
+
+  /** The plant's buy-component availability (§4.8 input) — the scenario launcher dropdown. */
+  async listMaterialAvailability(tenantId: string, plantId: string): Promise<MaterialAvailabilityDto[]> {
+    const partNo = new Map((await (await this.resolveMasterData(tenantId)).listParts(tenantId)).map((p) => [p.id, p.partNo]))
+    return (await this.repo.listMaterialAvailability(tenantId, plantId)).map((a) => ({
+      componentPartId: a.componentPartId,
+      componentPartNo: partNo.get(a.componentPartId) ?? a.componentPartId,
+      availableAt: a.availableAt.toISOString(),
+    }))
+  }
+
+  /**
+   * Detected material conditions (D36) for the board: a component whose availability gates
+   * committed consuming ops (ops planned to start before the material arrives). Plan-relative,
+   * like the line-down / demand cards — fires when the §4.8 data diverges from the committed
+   * plan; self-clears when the material is early enough (reset) or the plan is re-sequenced.
+   */
+  async materialConditions(tenantId: string, plantId: string, versionId?: string): Promise<MaterialConditionDto[]> {
+    const avail = await this.repo.listMaterialAvailability(tenantId, plantId)
+    if (avail.length === 0) return []
+    const version = versionId ? await this.repo.findVersion(tenantId, versionId) : await this.repo.findCommittedVersion(tenantId, plantId)
+    if (!version) return []
+    const ops = await this.repo.operationsForVersion(version.id)
+    const reqs = await this.repo.listMaterialRequirements(tenantId, plantId)
+    const partsByComponent = new Map<string, Set<string>>()
+    for (const r of reqs) {
+      const set = partsByComponent.get(r.componentPartId) ?? new Set<string>()
+      set.add(r.partId)
+      partsByComponent.set(r.componentPartId, set)
+    }
+    const partNo = new Map((await (await this.resolveMasterData(tenantId)).listParts(tenantId)).map((p) => [p.id, p.partNo]))
+    const conditions: MaterialConditionDto[] = []
+    for (const a of avail) {
+      const parts = partsByComponent.get(a.componentPartId)
+      if (!parts) continue
+      const gated = ops.filter((o) => parts.has(o.partId) && o.plannedStart.getTime() < a.availableAt.getTime())
+      if (gated.length > 0) {
+        conditions.push({
+          componentPartId: a.componentPartId,
+          componentPartNo: partNo.get(a.componentPartId) ?? a.componentPartId,
+          availableAt: a.availableAt.toISOString(),
+          gatedDemandLineIds: [...new Set(gated.map((o) => o.demandLineId))],
+        })
+      }
+    }
+    return conditions
   }
 
   /** Board rows: the plant's resources, via the bound `masterdata.read`. */
@@ -362,6 +411,20 @@ export class SchedulingService {
     const partCache = new Map<string, PartDto | null>()
     const priorityCache = new Map<string, number>()
 
+    // Material gate (D36, §4.8): per finished part, the earliest start its consumed
+    // buy-components allow = the latest component availability. Sourced from the interim
+    // material_requirement (BOM-lite; retires when the master-data BOM lands, SKIP-45) and
+    // the material_availability input. Components with no availability row = fully on-hand.
+    const availMs = new Map<string, number>()
+    for (const a of await this.repo.listMaterialAvailability(tenantId, plantId)) {
+      availMs.set(a.componentPartId, Math.max(availMs.get(a.componentPartId) ?? 0, a.availableAt.getTime()))
+    }
+    const earliestByPart = new Map<string, number>()
+    for (const r of await this.repo.listMaterialRequirements(tenantId, plantId)) {
+      const ms = availMs.get(r.componentPartId)
+      if (ms != null) earliestByPart.set(r.partId, Math.max(earliestByPart.get(r.partId) ?? 0, ms))
+    }
+
     const items: SequencerItem[] = []
     let infeasibleReason: string | null = null
     for (const line of demand) {
@@ -394,6 +457,7 @@ export class SchedulingService {
           firmness: line.firmness,
           priorityRank,
           eligibleResourceIds: eligible,
+          earliestStartMs: earliestByPart.get(line.partId),
         })
       }
       if (infeasibleReason) break

@@ -252,11 +252,12 @@ export class WhatIfService {
         }
         return items.map((i) => (i.demandLineId === change.demandLineId ? { ...i, requiredDate: ms } : i))
       }
-      // resource_window / overtime are option-level levers (handled by option specs),
-      // not item rewrites — they pass through here unchanged.
+      // resource_window / overtime / material_arrival are option-level levers (handled by
+      // option specs) and the material gate lives in the data — pass through unchanged.
       case 'resource_window':
       case 'overtime':
       case 'wear_remediation':
+      case 'material_arrival':
         return items
     }
   }
@@ -276,7 +277,19 @@ export class WhatIfService {
   private optionSpecs(changeSet: ChangeSet, predicted: Map<string, number>): OptionSpec[] {
     const wearChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'wear_remediation' }> => c.kind === 'wear_remediation')
     const windowChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'resource_window' }> => c.kind === 'resource_window')
+    const materialChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'material_arrival' }> => c.kind === 'material_arrival')
     const isWear = changeSet.origin.type === 'prediction' || wearChanges.length > 0
+
+    // Material gate (D36): the component-availability floor is already in the data, so both
+    // options re-solve against it — wait (accept the gated plan; the cell idles until the
+    // component arrives) vs re-sequence-around (run ungated work into the pre-arrival gap).
+    // NO "expedite material" (deferred). Honest to the trigger, like wear→service/defer.
+    if (materialChanges.length > 0) {
+      return [
+        { id: 'wait', labelKey: 'whatif.option.wait', overtimeHours: 0, itemTransform: (i) => i },
+        { id: 'resequence', labelKey: 'whatif.option.resequence', overtimeHours: 0, itemTransform: (i) => i, policy: { readyFirst: true } },
+      ]
+    }
 
     // Wear / prediction remediation set: service / defer / overtime.
     if (isWear) {

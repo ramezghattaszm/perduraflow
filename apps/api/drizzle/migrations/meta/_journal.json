@@ -71,6 +71,13 @@
       "when": 1781823188838,
       "tag": "0009_overconfident_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781884238269,
+      "tag": "0010_brown_doomsday",
+      "breakpoints": true
     }
   ]
 }

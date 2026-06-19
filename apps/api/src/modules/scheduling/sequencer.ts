@@ -20,6 +20,8 @@ import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type Working
 export const CHANGEOVER_BONUS_HOURS = 24
 /** Expedite pull-ahead for the what-if protect-delivery policy (front-loads the expedited lines). */
 export const EXPEDITE_BONUS_HOURS = 100_000
+/** Deferral applied to a not-yet-material-ready op under readyFirst (push it behind ready work). */
+export const READY_DEFER_HOURS = 50_000
 const MS_PER_HOUR = 3_600_000
 const MS_PER_MINUTE = 60_000
 
@@ -43,6 +45,12 @@ export interface SequencerItem {
   priorityRank: number
   /** Active eligible member resource ids for the op's group, **sorted ascending**. */
   eligibleResourceIds: string[]
+  /**
+   * Earliest the op may start (epoch ms) — the D36 material gate: the latest availability of
+   * its consumed buy-components (on-hand + receipts). A floor on placement; absent/0 = no
+   * material constraint. Resolved upstream from the §4.8 material-availability input.
+   */
+  earliestStartMs?: number
 }
 
 /**
@@ -107,6 +115,12 @@ export interface SequencePolicy {
   changeoverBonusAllFirmness?: boolean
   /** These demand lines get an expedite pull-ahead (protect-delivery policy). */
   expediteDemandLineIds?: Set<string>
+  /**
+   * Re-sequence around a material gate: defer an op that isn't yet material-ready at its
+   * resource's current free time, so ungated work fills the pre-arrival gap instead of the
+   * cell idling. The "re-sequence-around" remediation vs. plain "wait".
+   */
+  readyFirst?: boolean
 }
 
 export interface SequencerResult {
@@ -201,7 +215,10 @@ export function sequence(
       const allowBonus = item.firmness === 'forecast' || policy?.changeoverBonusAllFirmness === true
       const bonus = allowBonus && sameAttr ? CHANGEOVER_BONUS_HOURS : 0
       const expedite = policy?.expediteDemandLineIds?.has(item.demandLineId) ? EXPEDITE_BONUS_HOURS : 0
-      const rank = (item.requiredDate - origin) / MS_PER_HOUR - bonus - expedite
+      // readyFirst: an op not yet material-ready at this resource's free time is deferred so
+      // ready (ungated) work takes the early slots — fills the pre-arrival gap (re-sequence-around).
+      const notReady = policy?.readyFirst === true && (item.earliestStartMs ?? 0) > st.freeMs ? READY_DEFER_HOURS : 0
+      const rank = (item.requiredDate - origin) / MS_PER_HOUR - bonus - expedite + notReady
       if (rank < bestRank || (rank === bestRank && tieBreakLess(item, bestItem))) {
         bestRank = rank
         bestIdx = i
@@ -215,12 +232,22 @@ export function sequence(
     const eff = effectiveFor(item, bestRes)
     const cal = calFor(bestRes)
     const durMs = (eff.setupTime + eff.cycleTime * item.qty) * MS_PER_MINUTE
+    // The op can't start before its consumed buy-components are available (the D36 material
+    // gate, resolved upstream into earliestStartMs) — a third floor on the cursor, alongside
+    // the resource's free time and the schedule origin. placeJob then walks that floor into
+    // working time exactly as it does the others; the gate adds no placement machinery.
+    const earliest = item.earliestStartMs ?? 0
+    const prevFree = st.freeMs
+    const floor = Math.max(prevFree, origin, earliest)
+    // The material gate is the binding constraint when it set the floor (later than the
+    // resource's free time and the origin) — names the cause for the board/narration (D36).
+    const materialBound = earliest > 0 && earliest >= prevFree && earliest >= origin
     // Calendar-aware placement: advance the cursor through working time only (skipping
     // nights / Sundays / holidays / maintenance / down). A null result means the op cannot
     // fit (non-split op longer than any working segment, no OT) — the service feasibility
     // gate is responsible for rejecting those; fall back to contiguous + at-risk defensively.
-    const placed = placeJob(cal, Math.max(st.freeMs, origin), durMs, st.ot)
-    const startMs = placed?.startMs ?? Math.max(st.freeMs, origin)
+    const placed = placeJob(cal, floor, durMs, st.ot)
+    const startMs = placed?.startMs ?? floor
     const endMs = placed?.endMs ?? startMs + durMs
     st.freeMs = endMs
     st.currentAttr = item.changeoverValue
@@ -243,7 +270,7 @@ export function sequence(
       setupConfidence: eff.setupConfidence,
       cycleConfidence: eff.cycleConfidence,
       atRisk,
-      atRiskReason: placed === null ? 'exceeds_working_window' : atRisk ? 'late' : null,
+      atRiskReason: placed === null ? 'exceeds_working_window' : atRisk ? (materialBound ? 'material' : 'late') : null,
       requiredDateMs: item.requiredDate,
       firmness: item.firmness,
       changeoverValue: item.changeoverValue,

@@ -7,6 +7,8 @@ import {
   conversationTurn,
   demandInput,
   historicalOutcome,
+  materialAvailability,
+  materialRequirement,
   optimizerRun,
   scheduledOperation,
   scheduleVersion,
@@ -16,6 +18,8 @@ import {
   type ConversationTurn,
   type DemandInput,
   type HistoricalOutcome,
+  type MaterialAvailability,
+  type MaterialRequirement,
   type NewConversation,
   type NewConversationTurn,
   type NewHistoricalOutcome,
@@ -58,6 +62,44 @@ export class SchedulingRepository {
         ),
       )
       .orderBy(asc(demandInput.requiredDate), asc(demandInput.demandLineId))
+  }
+
+  // --- material gate (§4.8 inputs, D36) --------------------------------------
+  /** Buy-component requirements (BOM-lite) for the plant — interim until master-data BOM. */
+  listMaterialRequirements(tenantId: string, plantId: string): Promise<MaterialRequirement[]> {
+    return this.db
+      .select()
+      .from(materialRequirement)
+      .where(and(eq(materialRequirement.tenantId, tenantId), eq(materialRequirement.plantId, plantId)))
+  }
+
+  /** Component availability dates for the plant (on-hand + receipts → availableAt). */
+  listMaterialAvailability(tenantId: string, plantId: string): Promise<MaterialAvailability[]> {
+    return this.db
+      .select()
+      .from(materialAvailability)
+      .where(and(eq(materialAvailability.tenantId, tenantId), eq(materialAvailability.plantId, plantId)))
+  }
+
+  /** Set a component's availability date (scenario launcher) — upsert by (tenant, plant, component). */
+  async setMaterialAvailability(tenantId: string, plantId: string, componentPartId: string, availableAt: Date): Promise<MaterialAvailability | undefined> {
+    const existing = await this.db.query.materialAvailability.findFirst({
+      where: and(
+        eq(materialAvailability.tenantId, tenantId),
+        eq(materialAvailability.plantId, plantId),
+        eq(materialAvailability.componentPartId, componentPartId),
+      ),
+    })
+    if (existing) {
+      const [row] = await this.db
+        .update(materialAvailability)
+        .set({ availableAt })
+        .where(eq(materialAvailability.id, existing.id))
+        .returning()
+      return row
+    }
+    const [row] = await this.db.insert(materialAvailability).values({ tenantId, plantId, componentPartId, availableAt }).returning()
+    return row
   }
 
   // --- runs ------------------------------------------------------------------

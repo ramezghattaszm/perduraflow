@@ -36,9 +36,11 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * Bump on any behavioural change. `wi-2` = distinct-plan de-duplication;
  * `wi-3` = line-down option set (bare resource_window → reroute/overtime, no defer);
  * `wi-4` = calendar-aware placement (shift windows / Sundays / holidays / line-down
- * time-boxed as closures + OT) — supersedes all 24/7-era cached results.
+ * time-boxed as closures + OT) — supersedes all 24/7-era cached results;
+ * `wi-5` = material gate (D36) — earliest-start floor on the consuming op from component
+ * availability — changes placement, so re-narrate/re-evaluate.
  */
-export const ENGINE_VERSION = 'wi-4'
+export const ENGINE_VERSION = 'wi-5'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000

@@ -49,6 +49,16 @@ export class SimulatorService {
   }
 
   /**
+   * Dev scenario launcher — set a buy-component's availability date (the §4.8 material gate
+   * input). Mutates `material_availability` only (no solve/commit); the board detects the
+   * gated condition and a re-solve reflects it. Reset = set an early time (on-hand).
+   */
+  async setMaterialAvailability(tenantId: string, plantId: string, componentPartId: string, availableAt: Date) {
+    const row = await this.repo.setMaterialAvailability(tenantId, plantId, componentPartId, availableAt)
+    return { componentPartId, availableAt: (row?.availableAt ?? availableAt).toISOString() }
+  }
+
+  /**
    * Emit `cyclesPerOp` deterministic actuals for every op of a committed version.
    * @throws AppException SCHEDULE_VERSION_NOT_FOUND / SCHEDULE_VERSION_NOT_COMMITTED
    */

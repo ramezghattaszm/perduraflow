@@ -19,7 +19,7 @@ import {
   routingOperation,
 } from '../modules/master-data/schema'
 import { contractBinding } from '../modules/binding/schema'
-import { demandInput, historicalOutcome } from '../modules/scheduling/schema'
+import { demandInput, historicalOutcome, materialAvailability, materialRequirement } from '../modules/scheduling/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48). Idempotent. Aggregates every
@@ -185,10 +185,10 @@ export async function seed(): Promise<void> {
     const fg2004 = await mkPart({ partNo: 'FG-2004', description: 'Front seat cross-member', material: 'Steel', gauge: '1.0mm', colour: 'Black' })
     const fg3001 = await mkPart({ partNo: 'FG-3001', description: 'Front rail weldment, LH', material: 'Steel', gauge: '2.0mm' })
     const fg3002 = await mkPart({ partNo: 'FG-3002', description: 'Rear shock-tower weldment', material: 'Steel', gauge: '1.8mm' })
-    // Collision-3 ANCHOR (not a live mechanism): a purchased component whose shortage
-    // forces priority allocation. NMA is deferred (SKIP-13) — this is a staged data
-    // anchor + the Exception-Queue row (phases 4–5); REPLACE when NMA lands.
-    await db.insert(part).values({ tenantId, partNo: 'PV-22', description: 'Reinforcement gusset (purchased — Collision-3 anchor; NMA SKIP-13)', partType: 'component', uom: 'EA', material: 'Steel', gauge: '2.0mm' })
+    // Collision-3: a purchased component (PV-22) consumed by FG-3001 (welded at Ramos). Now a
+    // LIVE mechanism via the scheduler material gate (D36): a requirement link + a seeded
+    // availability date drive an earliest-start floor on the consuming weld op.
+    const [pv22] = await db.insert(part).values({ tenantId, partNo: 'PV-22', description: 'Reinforcement gusset (purchased) — Collision-3: FG-3001 material gate', partType: 'component', uom: 'EA', material: 'Steel', gauge: '2.0mm' }).returning()
 
     // routings (1 primary op each; std times = the `standard` baseline, D7).
     // Stamped FGs → presses (changeover on colour); welded FGs → weld cells (on material).
@@ -295,6 +295,12 @@ export async function seed(): Promise<void> {
         requiredDate: r.due,
       })),
     )
+    // Collision-3 — the material gate, live (D36, §4.8). FG-3001 consumes PV-22 (requirement
+    // link, BOM-lite); PV-22 isn't available until 14:00 today (availability input). The weld
+    // op can't start before then → ST-8830 (FG-3001, due today 20:00) is pushed past close and
+    // computed material-at-risk; DL-2003 (FG-3001, due +3) is gated too but has the runway.
+    await db.insert(materialRequirement).values({ tenantId, plantId: ramos!.id, partId: fg3001, componentPartId: pv22!.id, qtyPerUnit: 1 })
+    await db.insert(materialAvailability).values({ tenantId, plantId: ramos!.id, componentPartId: pv22!.id, availableAt: at(0, 14), qty: 100000 })
     // Historical outcomes (phase 5, D57 measured_historical) — representative seed:
     // prior weeks' recorded actuals the baseline arm computes from. Saltillo (plant +
     // Press Line A) and Ramos have history; **Monterrey and Press Line B deliberately

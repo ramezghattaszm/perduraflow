@@ -256,11 +256,38 @@ export interface WorkforceCoverageDto {
   proposals: CoverageProposalDto[]
 }
 
+// --- material gate (§4.8 / D36) ----------------------------------------------
+
+/** A buy-component's availability (the §4.8 input) — for the scenario launcher dropdown. */
+export interface MaterialAvailabilityDto {
+  componentPartId: string
+  componentPartNo: string
+  availableAt: string
+}
+
+/**
+ * A detected material condition (board): a component whose availability gates committed
+ * consuming ops (planned before the material arrives). Mirrors the line-down / demand cards.
+ */
+export interface MaterialConditionDto {
+  componentPartId: string
+  componentPartNo: string
+  availableAt: string
+  /** Demand lines whose committed ops are gated (start before `availableAt`). */
+  gatedDemandLineIds: string[]
+}
+
 // --- request schemas ---------------------------------------------------------
 
 /** `POST /admin/scheduling/solve` — run the deterministic sequencer for a plant. */
 export const solveScheduleSchema = z.object({ plantId: z.string().min(1) }).strict()
 export type SolveScheduleRequest = z.infer<typeof solveScheduleSchema>
+
+/** `PATCH /dev/scheduling/material/:componentPartId` — set a component's availability (launcher). */
+export const setMaterialAvailabilitySchema = z
+  .object({ plantId: z.string().min(1), availableAt: z.string().min(1) })
+  .strict()
+export type SetMaterialAvailabilityRequest = z.infer<typeof setMaterialAvailabilitySchema>
 
 // =============================================================================
 // Phase 5 — what-if (D55) + plan-comparison/baselines (D57) + narration (A19)
@@ -283,6 +310,10 @@ export const changeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('resource_window'), resourceId: z.string().min(1), downFrom: z.string().min(1), downTo: z.string().min(1) }),
   z.object({ kind: z.literal('overtime'), resourceId: z.string().min(1), hours: z.number().positive() }),
   z.object({ kind: z.literal('wear_remediation'), resourceId: z.string().min(1), action: z.enum(['service', 'defer', 'ot']) }),
+  // Material arrival (D36 gate): a buy-component's availability gates its consuming ops. The
+  // gate itself lives in the §4.8 material-availability data; this marks the trigger so the
+  // engine offers the wait / re-sequence-around remediation. `availableAt` is informational.
+  z.object({ kind: z.literal('material_arrival'), componentPartId: z.string().min(1), availableAt: z.string().min(1) }),
 ])
 export type Change = z.infer<typeof changeSchema>
 

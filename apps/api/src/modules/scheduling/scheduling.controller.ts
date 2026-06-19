@@ -56,6 +56,22 @@ export class SchedulingController {
     return this.scheduling.listResources(user.tenantId, plantId)
   }
 
+  /** `GET /scheduling/material-availability?plantId=` — buy-component availability (§4.8; launcher). */
+  @Get('material-availability')
+  materialAvailability(@CurrentUser() user: JwtPayload, @Query('plantId') plantId: string) {
+    return this.scheduling.listMaterialAvailability(user.tenantId, plantId)
+  }
+
+  /** `GET /scheduling/material-conditions?plantId=&versionId=` — components gating committed ops (D36). */
+  @Get('material-conditions')
+  materialConditions(
+    @CurrentUser() user: JwtPayload,
+    @Query('plantId') plantId: string,
+    @Query('versionId') versionId?: string,
+  ) {
+    return this.scheduling.materialConditions(user.tenantId, plantId, versionId)
+  }
+
   /** `GET /scheduling/variance?versionId=` — performance variance (board strip + Scorecard). */
   @Get('variance')
   variance(@CurrentUser() user: JwtPayload, @Query('versionId') versionId: string) {

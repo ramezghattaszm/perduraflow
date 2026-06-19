@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   DemandInputDto,
+  MaterialAvailabilityDto,
+  MaterialConditionDto,
   ResourceDto,
   ScheduleVersionDetailDto,
   ScheduleVersionDto,
@@ -61,6 +63,49 @@ export function useScheduleDemand(plantId: string | undefined) {
     queryFn: () => get<DemandInputDto[]>(`/scheduling/demand?plantId=${plantId}`),
     enabled: Boolean(plantId),
     refetchOnMount: 'always',
+  })
+}
+
+/** The plant's buy-component availability (§4.8) — the scenario launcher's component dropdown. */
+export function useMaterialAvailability(plantId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.materialAvailability(plantId ?? ''),
+    queryFn: () => get<MaterialAvailabilityDto[]>(`/scheduling/material-availability?plantId=${plantId}`),
+    enabled: Boolean(plantId),
+    refetchOnMount: 'always',
+  })
+}
+
+/**
+ * Detected material conditions (D36) — components whose availability gates committed ops.
+ * Drives the board's material condition card (plan-relative); `refetchOnMount: 'always'`.
+ */
+export function useMaterialConditions(plantId: string | undefined, versionId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.materialConditions(plantId ?? '', versionId ?? ''),
+    queryFn: () => get<MaterialConditionDto[]>(`/scheduling/material-conditions?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}`),
+    enabled: Boolean(plantId),
+    refetchOnMount: 'always',
+  })
+}
+
+/**
+ * **Dev scenario launcher** — set a buy-component's availability date (`PATCH
+ * /dev/scheduling/material/:componentPartId`). Mutates the §4.8 material data only; the board
+ * detects the gated condition. Invalidates the plant's availability + condition queries.
+ */
+export function useSetMaterialAvailability(plantId: string | undefined) {
+  return useMutation({
+    mutationFn: ({ componentPartId, availableAt }: { componentPartId: string; availableAt: string }) =>
+      patch<{ componentPartId: string; availableAt: string }, { plantId: string; availableAt: string }>(
+        `/dev/scheduling/material/${componentPartId}`,
+        { plantId: plantId ?? '', availableAt },
+      ),
+    onSuccess: () => {
+      if (!plantId) return
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.materialAvailability(plantId) })
+      void queryClient.invalidateQueries({ queryKey: ['scheduling', 'material-conditions', plantId] })
+    },
   })
 }
 
