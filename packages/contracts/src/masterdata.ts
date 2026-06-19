@@ -208,6 +208,12 @@ export const createResourceSchema = z
     calendarId: z.string().min(1),
     rate: z.number().nonnegative().nullable().default(null),
     rateUom: z.string().max(16).nullable().default(null),
+    // Tier-B cost rates (scheduling computes cost/unit from these) + the shift-model
+    // per-resource overtime-cap override (min/day; null → inherit the resource-type default).
+    runCostPerHour: z.number().nonnegative().nullable().default(null),
+    setupCost: z.number().nonnegative().nullable().default(null),
+    overheadPerUnit: z.number().nonnegative().nullable().default(null),
+    otCapMinutes: z.number().int().nonnegative().nullable().default(null),
   })
   .strict()
 export type CreateResourceRequest = z.infer<typeof createResourceSchema>

@@ -24,6 +24,10 @@
       "calendarId": "Calendar",
       "rate": "Rate",
       "rateUom": "Rate UoM",
+      "runCostPerHour": "Run cost / hour",
+      "setupCost": "Setup cost",
+      "overheadPerUnit": "Overhead / unit",
+      "otCapMinutes": "Overtime cap (min/day)",
       "status": "Status"
     },
     "types": { "line": "Line", "machine": "Machine", "cell": "Cell", "work_center": "Work centre" }

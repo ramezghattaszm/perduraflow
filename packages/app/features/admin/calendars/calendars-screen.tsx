@@ -12,6 +12,7 @@ import {
   PageHeader,
   SelectField,
   StatusPill,
+  WeekdayPicker,
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { useCanConfigure } from '../../../stores/auth.store'
@@ -44,6 +45,7 @@ export function CalendarsScreen() {
   const [shifts, setShifts] = useState('[]')
   const [holidays, setHolidays] = useState('[]')
   const [maint, setMaint] = useState('[]')
+  const [workingDays, setWorkingDays] = useState<number[]>([1, 2, 3, 4, 5, 6])
 
   const { show } = usePopup()
 
@@ -77,6 +79,7 @@ export function CalendarsScreen() {
     setShifts('[]')
     setHolidays('[]')
     setMaint('[]')
+    setWorkingDays([1, 2, 3, 4, 5, 6])
     setOpen(true)
   }
   const openEdit = (c: CalendarDto) => {
@@ -86,6 +89,7 @@ export function CalendarsScreen() {
     setShifts(stringify(c.shiftPatterns))
     setHolidays(stringify(c.holidays))
     setMaint(stringify(c.maintenanceWindows))
+    setWorkingDays(Array.isArray(c.workingDays) ? (c.workingDays as number[]) : [1, 2, 3, 4, 5, 6])
     setOpen(true)
   }
   const submit = () => {
@@ -95,6 +99,7 @@ export function CalendarsScreen() {
       shiftPatterns: parseJson(shifts),
       holidays: parseJson(holidays),
       maintenanceWindows: parseJson(maint),
+      workingDays,
     }
     const onSuccess = () => setOpen(false)
     if (editingId) update.mutate({ id: editingId, body }, { onSuccess })
@@ -168,6 +173,9 @@ export function CalendarsScreen() {
         <AppInput label={t('calendars.fields.name')} value={name} onChangeText={setName} />
         <FormField label={t('calendars.fields.plantId')}>
           <SelectField options={plantOptions} value={plantId} onChange={setPlantId} />
+        </FormField>
+        <FormField label={t('calendars.fields.workingDays')}>
+          <WeekdayPicker value={workingDays} onChange={setWorkingDays} />
         </FormField>
         <AppInput
           type="multiline"

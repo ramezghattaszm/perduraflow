@@ -179,6 +179,7 @@ export class OrgService {
       shiftPatterns: dto.shiftPatterns ?? [],
       holidays: dto.holidays ?? [],
       maintenanceWindows: dto.maintenanceWindows ?? [],
+      workingDays: dto.workingDays ?? [1, 2, 3, 4, 5, 6],
     })
     await this.events.publish(EVENTS.CALENDAR_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
     return toCalendarDto(row)

@@ -40,6 +40,10 @@ export function ResourcesScreen() {
   const [calendarId, setCalendarId] = useState<string | null>(null)
   const [rate, setRate] = useState('')
   const [rateUom, setRateUom] = useState('')
+  const [runCostPerHour, setRunCostPerHour] = useState('')
+  const [setupCost, setSetupCost] = useState('')
+  const [overheadPerUnit, setOverheadPerUnit] = useState('')
+  const [otCapMinutes, setOtCapMinutes] = useState('')
 
   const plantName = useMemo(() => new Map(plants.map((p) => [p.id, p.name])), [plants])
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
@@ -59,6 +63,10 @@ export function ResourcesScreen() {
     setCalendarId(null)
     setRate('')
     setRateUom('')
+    setRunCostPerHour('')
+    setSetupCost('')
+    setOverheadPerUnit('')
+    setOtCapMinutes('')
     setOpen(true)
   }
   const openEdit = (r: ResourceDto) => {
@@ -69,8 +77,13 @@ export function ResourcesScreen() {
     setCalendarId(r.calendarId)
     setRate(r.rate?.toString() ?? '')
     setRateUom(r.rateUom ?? '')
+    setRunCostPerHour(r.runCostPerHour?.toString() ?? '')
+    setSetupCost(r.setupCost?.toString() ?? '')
+    setOverheadPerUnit(r.overheadPerUnit?.toString() ?? '')
+    setOtCapMinutes(r.otCapMinutes?.toString() ?? '')
     setOpen(true)
   }
+  const num = (s: string): number | null => (s.trim() === '' ? null : Number(s))
   const submit = () => {
     if (!resourceType || !plantId || !calendarId) return
     const body = {
@@ -78,8 +91,12 @@ export function ResourcesScreen() {
       resourceType,
       plantId,
       calendarId,
-      rate: rate.trim() === '' ? null : Number(rate),
+      rate: num(rate),
       rateUom: rateUom.trim() || null,
+      runCostPerHour: num(runCostPerHour),
+      setupCost: num(setupCost),
+      overheadPerUnit: num(overheadPerUnit),
+      otCapMinutes: num(otCapMinutes),
     }
     const onSuccess = () => setOpen(false)
     if (editingId) update.mutate({ id: editingId, body }, { onSuccess })
@@ -191,6 +208,10 @@ export function ResourcesScreen() {
           keyboardType="numeric"
         />
         <AppInput label={t('resources.fields.rateUom')} value={rateUom} onChangeText={setRateUom} />
+        <AppInput label={t('resources.fields.runCostPerHour')} value={runCostPerHour} onChangeText={setRunCostPerHour} keyboardType="numeric" />
+        <AppInput label={t('resources.fields.setupCost')} value={setupCost} onChangeText={setSetupCost} keyboardType="numeric" />
+        <AppInput label={t('resources.fields.overheadPerUnit')} value={overheadPerUnit} onChangeText={setOverheadPerUnit} keyboardType="numeric" />
+        <AppInput label={t('resources.fields.otCapMinutes')} value={otCapMinutes} onChangeText={setOtCapMinutes} keyboardType="numeric" />
         {editingId ? (
           canConfigure ? (
           <AppButton variant="danger" size="$3" onPress={confirmDeactivate}>

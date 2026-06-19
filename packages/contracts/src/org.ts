@@ -184,6 +184,8 @@ export const createCalendarSchema = z
     shiftPatterns: z.unknown().default([]),
     holidays: z.unknown().default([]),
     maintenanceWindows: z.unknown().default([]),
+    // UTC weekdays the calendar operates (0=Sun … 6=Sat); default Mon–Sat (D-shift).
+    workingDays: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5, 6]),
   })
   .strict()
 export type CreateCalendarRequest = z.infer<typeof createCalendarSchema>
