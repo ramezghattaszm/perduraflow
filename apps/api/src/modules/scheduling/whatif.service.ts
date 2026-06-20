@@ -17,7 +17,7 @@ import { LEARNING_READ } from '../learning/learning-read.service'
 import { toScheduleVersionDto } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
 import { SchedulingService, type BaseContext } from './scheduling.service'
-import { sequence, type Placement, type ResolveEffective, type SequencePolicy, type SequencerItem } from './sequencer'
+import { sequence, type Placement, type ResolveEffective, type ResolveOperatorFactor, type SequencePolicy, type SequencerItem } from './sequencer'
 import type { WorkingCalendar } from './working-calendar'
 import { placementSignature } from './whatif.signature'
 import { scorePlan, type ResourceRate, type ScoredPlan } from './whatif.scoring'
@@ -79,7 +79,7 @@ export class WhatIfService {
     // The live (current) plan — the comparison anchor + displacement reference. Uses the
     // plain (pre-disruption) calendars; the option world adds any line-down closures.
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor).placements
 
     // Apply the change-set to the items (feasibility-honest).
     const changed = this.applyChangeSet(ctx.items, changeSet)
@@ -88,7 +88,9 @@ export class WhatIfService {
     const optionCalendars = await this.optionCalendars(tenantId, ctx, changeSet)
 
     const specs = this.optionSpecs(changeSet, predicted)
-    const evaluated = specs.map((spec) => this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars))
+    const evaluated = specs.map((spec) =>
+      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor),
+    )
 
     const feasible = evaluated.filter((e) => e.feasible)
     if (feasible.length === 0) {
@@ -176,7 +178,7 @@ export class WhatIfService {
     const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
     if (ctx.infeasibleReason) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor).placements
     const changed = this.applyChangeSet(ctx.items, changeSet)
     const rateByResource = this.rates(ctx.resourceById)
     const predicted = await this.predictedCycles(tenantId, changeSet)
@@ -184,7 +186,7 @@ export class WhatIfService {
 
     const spec = this.optionSpecs(changeSet, predicted).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
-    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars)
+    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor)
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
@@ -374,6 +376,7 @@ export class WhatIfService {
     basePlacements: Placement[],
     rateByResource: Map<string, ResourceRate>,
     resourceCalendars: Map<string, WorkingCalendar>,
+    resolveOperatorFactor: ResolveOperatorFactor,
   ): { spec: OptionSpec; feasible: boolean; infeasibleReasonKey: string | null; scored: ScoredPlan | null; placements: Placement[] } {
     const items = spec.itemTransform(changed)
     const starved = items.find((i) => i.eligibleResourceIds.length === 0)
@@ -388,7 +391,7 @@ export class WhatIfService {
       spec.overtimeHours > 0
         ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.min(spec.overtimeHours * 60, c.otCeilingMinutes) }]))
         : resourceCalendars
-    const placements = sequence(items, overlay, spec.policy, cals).placements
+    const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor).placements
     const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: spec.overtimeHours })
     return { spec, feasible: true, infeasibleReasonKey: null, scored, placements }
   }

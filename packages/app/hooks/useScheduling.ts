@@ -4,6 +4,7 @@ import type {
   MaterialAvailabilityDto,
   MaterialConditionDto,
   ResourceDto,
+  ResourceOperatorAssignmentDto,
   ScheduleVersionDetailDto,
   ScheduleVersionDto,
 } from '@perduraflow/contracts'
@@ -105,6 +106,36 @@ export function useSetMaterialAvailability(plantId: string | undefined) {
       if (!plantId) return
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.materialAvailability(plantId) })
       void queryClient.invalidateQueries({ queryKey: ['scheduling', 'material-conditions', plantId] })
+    },
+  })
+}
+
+/** The plant's pinned resource↔operator assignments (§4.8 performance input, C5) — launcher view. */
+export function useResourceOperatorAssignments(plantId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.operatorAssignments(plantId ?? ''),
+    queryFn: () => get<ResourceOperatorAssignmentDto[]>(`/scheduling/operator-assignments?plantId=${plantId}`),
+    enabled: Boolean(plantId),
+    refetchOnMount: 'always',
+  })
+}
+
+/**
+ * **Dev scenario launcher** — pin/swap the operator running a line (`PATCH
+ * /dev/scheduling/operator-assignment/:resourceId`, C5). Mutates the §4.8 assignment only; a
+ * re-solve reflects the new operator's performanceFactor on that line's run time. (The factor
+ * itself is changed via the master-data operator update — it lives on the operator.)
+ */
+export function useSetResourceOperatorAssignment(plantId: string | undefined) {
+  return useMutation({
+    mutationFn: ({ resourceId, operatorId }: { resourceId: string; operatorId: string }) =>
+      patch<{ resourceId: string; operatorId: string }, { plantId: string; operatorId: string; effectiveFrom: null; effectiveTo: null }>(
+        `/dev/scheduling/operator-assignment/${resourceId}`,
+        { plantId: plantId ?? '', operatorId, effectiveFrom: null, effectiveTo: null },
+      ),
+    onSuccess: () => {
+      if (!plantId) return
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.operatorAssignments(plantId) })
     },
   })
 }

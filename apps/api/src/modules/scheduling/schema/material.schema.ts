@@ -55,7 +55,42 @@ export const materialRequirement = schedulingSchema.table(
   }),
 )
 
+/**
+ * Resource ↔ operator assignment (C5, §4.8) — a **consumed pinned** scheduler input: who
+ * runs which line, for which window. The scheduler READS this to apply the assigned operator's
+ * `operator.performanceFactor` to the op's run time (effectiveCycle = baseCycle / performanceFactor);
+ * it **never assigns or optimizes** the roster — that stays outside the labor boundary. **Seeded**
+ * for the demo (a couple of pointed assignments); production fills it from a real roster. The
+ * factor lives on the operator, not here (operator-level performance; task-specific factor-on-row
+ * and recurring shift windows are documented future refinements). `resource_id`/`operator_id` →
+ * master-data, `plant_id` → kernel `org` — text refs, **no cross-schema FK** (O4). The window is a
+ * nullable `[effective_from, effective_to]` range (null = open-ended), point-resolved at op start.
+ * A resource with no assignment covering the op's start = factor 1.0 (standard) — exactly like a
+ * component with no material row = on-hand.
+ */
+export const resourceOperatorAssignment = schedulingSchema.table(
+  'resource_operator_assignment',
+  {
+    id: text('id').primaryKey().$defaultFn(generateId),
+    tenantId: text('tenant_id').notNull(),
+    plantId: text('plant_id').notNull(),
+    resourceId: text('resource_id').notNull(),
+    operatorId: text('operator_id').notNull(),
+    /** Window start (epoch via timestamptz); null = open start. */
+    effectiveFrom: timestamp('effective_from', { withTimezone: true }),
+    /** Window end; null = open end. */
+    effectiveTo: timestamp('effective_to', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index('resource_operator_assignment_tenant_idx').on(t.tenantId),
+    resourceIdx: index('resource_operator_assignment_resource_idx').on(t.resourceId),
+  }),
+)
+
 export type MaterialAvailability = typeof materialAvailability.$inferSelect
 export type NewMaterialAvailability = typeof materialAvailability.$inferInsert
 export type MaterialRequirement = typeof materialRequirement.$inferSelect
 export type NewMaterialRequirement = typeof materialRequirement.$inferInsert
+export type ResourceOperatorAssignment = typeof resourceOperatorAssignment.$inferSelect
+export type NewResourceOperatorAssignment = typeof resourceOperatorAssignment.$inferInsert

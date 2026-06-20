@@ -36,6 +36,8 @@ export function OperatorsScreen() {
   const [name, setName] = useState('')
   const [homePlantId, setHomePlantId] = useState<string | null>(null)
   const [laborRate, setLaborRate] = useState('')
+  // Performance / efficiency rating, edited as a percent (100 = standard); stored as a ratio.
+  const [perfPct, setPerfPct] = useState('100')
 
   const plantName = useMemo(() => new Map(plants.map((p) => [p.id, p.name])), [plants])
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
@@ -47,6 +49,7 @@ export function OperatorsScreen() {
     setName('')
     setHomePlantId(null)
     setLaborRate('')
+    setPerfPct('100')
     setOpen(true)
   }
   const openEdit = (o: OperatorDto) => {
@@ -54,6 +57,7 @@ export function OperatorsScreen() {
     setName(o.name)
     setHomePlantId(o.homePlantId)
     setLaborRate(o.laborRate?.toString() ?? '')
+    setPerfPct(String(Math.round(o.performanceFactor * 100)))
     setOpen(true)
   }
   const submit = () => {
@@ -62,6 +66,8 @@ export function OperatorsScreen() {
       name,
       homePlantId,
       laborRate: laborRate.trim() === '' ? null : Number(laborRate),
+      // percent → ratio; "higher = faster" (the field divides run time). Never below 0.1.
+      performanceFactor: perfPct.trim() === '' ? 1 : Math.max(0.1, Number(perfPct) / 100),
     }
     const onSuccess = () => setOpen(false)
     if (editingId) update.mutate({ id: editingId, body }, { onSuccess })
@@ -159,6 +165,12 @@ export function OperatorsScreen() {
           label={t('operators.fields.laborRate')}
           value={laborRate}
           onChangeText={setLaborRate}
+          keyboardType="numeric"
+        />
+        <AppInput
+          label={t('operators.fields.performance')}
+          value={perfPct}
+          onChangeText={setPerfPct}
           keyboardType="numeric"
         />
         {editingId ? (

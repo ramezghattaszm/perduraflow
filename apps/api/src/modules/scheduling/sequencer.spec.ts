@@ -55,3 +55,37 @@ describe('sequence — calendar integration', () => {
     expect(sequence(items, undefined, undefined, cals)).toEqual(sequence(items, undefined, undefined, cals))
   })
 })
+
+describe('sequence — operator performance (C5)', () => {
+  it('divides run time by the performance factor on the assigned resource (setup untouched)', () => {
+    const base = [item('a', 'A', 60, 2)] // 120m run, no setup
+    const slow = sequence(base, undefined, undefined, undefined, () => 0.5).placements[0]! // 50% → ×2
+    const fast = sequence(base, undefined, undefined, undefined, () => 2).placements[0]! // 200% → ÷2
+    const std = sequence(base).placements[0]!
+    expect(std.plannedEndMs - std.plannedStartMs).toBe(2 * HOUR)
+    expect(slow.plannedEndMs - slow.plannedStartMs).toBe(4 * HOUR) // baseCycle / 0.5
+    expect(fast.plannedEndMs - fast.plannedStartMs).toBe(1 * HOUR) // baseCycle / 2
+    expect(slow.cycleTime).toBe(120) // 60 / 0.5 — effective run recorded on the placement
+  })
+
+  it('only affects the resource its operator is pinned to; factor 1.0 / undefined are no-ops', () => {
+    const r2 = { ...item('b', 'B', 60, 2), eligibleResourceIds: ['R2'] }
+    const items = [item('a', 'A', 60, 2), r2]
+    const resolve = (resourceId: string) => (resourceId === 'R1' ? 0.5 : 1)
+    const withFactor = sequence(items, undefined, undefined, undefined, resolve).placements
+    const plain = sequence(items).placements
+    const a1 = withFactor.find((p) => p.demandLineId === 'a')!
+    const b1 = withFactor.find((p) => p.demandLineId === 'b')!
+    const b0 = plain.find((p) => p.demandLineId === 'b')!
+    expect(a1.plannedEndMs - a1.plannedStartMs).toBe(4 * HOUR) // R1 slowed
+    expect(b1.plannedEndMs - b1.plannedStartMs).toBe(b0.plannedEndMs - b0.plannedStartMs) // R2 untouched
+  })
+
+  it('is deterministic with a resolver — identical inputs reproduce identical placements', () => {
+    const items = [item('a', 'A', 60, 3), item('b', 'B', 90, 4)]
+    const resolve = () => 0.85
+    expect(sequence(items, undefined, undefined, undefined, resolve)).toEqual(
+      sequence(items, undefined, undefined, undefined, resolve),
+    )
+  })
+})

@@ -1,9 +1,11 @@
 import { Body, Controller, Param, Patch, Post, UseGuards } from '@nestjs/common'
 import {
   setMaterialAvailabilitySchema,
+  setResourceOperatorAssignmentSchema,
   simulateActualsSchema,
   updateDemandQtySchema,
   type SetMaterialAvailabilityRequest,
+  type SetResourceOperatorAssignmentRequest,
   type SimulateActualsRequest,
   type UpdateDemandQtyRequest,
 } from '@perduraflow/contracts'
@@ -51,5 +53,22 @@ export class DevController {
     @Body(new ZodValidationPipe(setMaterialAvailabilitySchema)) dto: SetMaterialAvailabilityRequest,
   ) {
     return this.simulator.setMaterialAvailability(user.tenantId, dto.plantId, componentPartId, new Date(dto.availableAt))
+  }
+
+  /** `PATCH /dev/scheduling/operator-assignment/:resourceId` — pin/swap a line's operator (launcher, C5). */
+  @Patch('operator-assignment/:resourceId')
+  setOperatorAssignment(
+    @CurrentUser() user: JwtPayload,
+    @Param('resourceId') resourceId: string,
+    @Body(new ZodValidationPipe(setResourceOperatorAssignmentSchema)) dto: SetResourceOperatorAssignmentRequest,
+  ) {
+    return this.simulator.setResourceOperatorAssignment(
+      user.tenantId,
+      dto.plantId,
+      resourceId,
+      dto.operatorId,
+      dto.effectiveFrom ? new Date(dto.effectiveFrom) : null,
+      dto.effectiveTo ? new Date(dto.effectiveTo) : null,
+    )
   }
 }

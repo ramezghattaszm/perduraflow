@@ -11,6 +11,7 @@ import {
   type MasterDataReadContract,
   type MaterialAvailabilityDto,
   type MaterialConditionDto,
+  type ResourceOperatorAssignmentDto,
   type OeeDto,
   type OperatorDto,
   type OrgPriority,
@@ -39,7 +40,7 @@ import {
 } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
 import type { DemandInput } from './schema'
-import { sequence, type EffectiveTimes, type ResolveEffective, type SequencerItem } from './sequencer'
+import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperatorFactor, type SequencerItem } from './sequencer'
 import { buildWorkingCalendar, type WorkingCalendar } from './working-calendar'
 
 /** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
@@ -52,6 +53,8 @@ export interface BaseContext {
   partNoById: Map<string, string>
   /** Per-resource operating calendar (working windows / closures / OT) for the sequencer. */
   resourceCalendars: Map<string, WorkingCalendar>
+  /** Operator performance (C5, §4.8): factor for the operator pinned to a resource at op start. */
+  resolveOperatorFactor: ResolveOperatorFactor
 }
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
@@ -190,6 +193,22 @@ export class SchedulingService {
     }))
   }
 
+  /** The plant's pinned resource↔operator assignments (§4.8 performance input) — launcher view. */
+  async listResourceOperatorAssignments(tenantId: string, plantId: string): Promise<ResourceOperatorAssignmentDto[]> {
+    const md = await this.resolveMasterData(tenantId)
+    const resourceName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+    const operators = new Map((await md.listOperators(tenantId)).map((o) => [o.id, o]))
+    return (await this.repo.listResourceOperatorAssignments(tenantId, plantId)).map((a) => ({
+      resourceId: a.resourceId,
+      resourceName: resourceName.get(a.resourceId) ?? a.resourceId,
+      operatorId: a.operatorId,
+      operatorName: operators.get(a.operatorId)?.name ?? a.operatorId,
+      performanceFactor: operators.get(a.operatorId)?.performanceFactor ?? 1,
+      effectiveFrom: a.effectiveFrom?.toISOString() ?? null,
+      effectiveTo: a.effectiveTo?.toISOString() ?? null,
+    }))
+  }
+
   /**
    * Detected material conditions (D36) for the board: a component whose availability gates
    * committed consuming ops (ops planned to start before the material arrives). Plan-relative,
@@ -299,7 +318,7 @@ export class SchedulingService {
     const items = ctx.items
     const demand = ctx.demand
     const resolveEffective = await this.buildLearnedOverlay(tenantId, items)
-    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars)
+    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor)
     const run = await this.repo.createRun({
       tenantId,
       plantId,
@@ -463,7 +482,32 @@ export class SchedulingService {
       if (infeasibleReason) break
     }
     const resourceCalendars = await this.resolveResourceCalendars(tenantId, resources)
-    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars }
+
+    // Operator performance (C5, §4.8): the operator pinned to a resource scales the op's run time
+    // when scheduled. Consumed input — the scheduler reads the assignment + the operator's factor,
+    // never assigns. Per resource: the assignments covering the op's start, picked deterministically
+    // (latest effectiveFrom, then operatorId); the factor lives on the operator. No covering
+    // assignment → 1.0 (standard), exactly like a component with no material row = on-hand.
+    const factorByOperator = new Map((await md.listOperators(tenantId)).map((o) => [o.id, o.performanceFactor]))
+    const assignmentsByResource = new Map<string, { operatorId: string; from: number; to: number }[]>()
+    for (const a of await this.repo.listResourceOperatorAssignments(tenantId, plantId)) {
+      const arr = assignmentsByResource.get(a.resourceId) ?? []
+      arr.push({
+        operatorId: a.operatorId,
+        from: a.effectiveFrom?.getTime() ?? Number.NEGATIVE_INFINITY,
+        to: a.effectiveTo?.getTime() ?? Number.POSITIVE_INFINITY,
+      })
+      assignmentsByResource.set(a.resourceId, arr)
+    }
+    const resolveOperatorFactor: ResolveOperatorFactor = (resourceId, atMs) => {
+      const candidates = (assignmentsByResource.get(resourceId) ?? []).filter((a) => atMs >= a.from && atMs < a.to)
+      if (candidates.length === 0) return 1
+      // deterministic pick when windows overlap: latest start, then lowest operatorId
+      candidates.sort((x, y) => y.from - x.from || (x.operatorId < y.operatorId ? -1 : 1))
+      return factorByOperator.get(candidates[0]!.operatorId) ?? 1
+    }
+
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, resolveOperatorFactor }
   }
 
   /**

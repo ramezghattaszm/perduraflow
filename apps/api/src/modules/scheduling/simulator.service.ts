@@ -59,6 +59,24 @@ export class SimulatorService {
   }
 
   /**
+   * Dev scenario launcher — pin (or swap) the operator running a line (the §4.8 performance
+   * input, C5). Mutates `resource_operator_assignment` only (no solve); a re-solve then reflects
+   * the new operator's `performanceFactor` on that line's run time. The factor itself is set via
+   * the master-data operator update (it lives on the operator, not the assignment).
+   */
+  async setResourceOperatorAssignment(
+    tenantId: string,
+    plantId: string,
+    resourceId: string,
+    operatorId: string,
+    effectiveFrom: Date | null,
+    effectiveTo: Date | null,
+  ) {
+    const row = await this.repo.setResourceOperatorAssignment(tenantId, plantId, resourceId, operatorId, effectiveFrom, effectiveTo)
+    return { resourceId, operatorId: row?.operatorId ?? operatorId }
+  }
+
+  /**
    * Emit `cyclesPerOp` deterministic actuals for every op of a committed version.
    * @throws AppException SCHEDULE_VERSION_NOT_FOUND / SCHEDULE_VERSION_NOT_COMMITTED
    */

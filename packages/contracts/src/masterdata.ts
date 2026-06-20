@@ -139,6 +139,12 @@ export interface OperatorDto {
   homePlantId: string
   /** Optional labor rate behind the D57 labor-cost KPI (MD15). */
   laborRate: number | null
+  /**
+   * Performance / efficiency rating (C5) — "percent of standard": 1.0 = standard, >1.0 faster,
+   * <1.0 slower. Stored as a ratio (0.5), shown as a percent (50%). The scheduler divides RUN
+   * time by it (effectiveCycle = baseCycle / performanceFactor). Higher = better; do NOT invert.
+   */
+  performanceFactor: number
   /** Present next shift (workforce coverage; `false` = OUT). Seeded/D35 (1.2). */
   available: boolean
   /** Certifications this operator holds (operator_qualification join, MD15). */
@@ -284,6 +290,8 @@ export const createOperatorSchema = z
     name: z.string().min(1).max(160),
     homePlantId: z.string().min(1),
     laborRate: z.number().nonnegative().nullable().default(null),
+    // Efficiency rating (C5); 1.0 = standard, higher = faster. Run-time divisor — never invert.
+    performanceFactor: z.number().positive().default(1),
   })
   .strict()
 export type CreateOperatorRequest = z.infer<typeof createOperatorSchema>

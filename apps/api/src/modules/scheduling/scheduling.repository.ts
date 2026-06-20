@@ -9,6 +9,7 @@ import {
   historicalOutcome,
   materialAvailability,
   materialRequirement,
+  resourceOperatorAssignment,
   optimizerRun,
   scheduledOperation,
   scheduleVersion,
@@ -20,6 +21,7 @@ import {
   type HistoricalOutcome,
   type MaterialAvailability,
   type MaterialRequirement,
+  type ResourceOperatorAssignment,
   type NewConversation,
   type NewConversationTurn,
   type NewHistoricalOutcome,
@@ -99,6 +101,49 @@ export class SchedulingRepository {
       return row
     }
     const [row] = await this.db.insert(materialAvailability).values({ tenantId, plantId, componentPartId, availableAt }).returning()
+    return row
+  }
+
+  // --- operator performance (§4.8 input, C5) ---------------------------------
+  /** Pinned resource↔operator assignments for the plant (consumed performance input). */
+  listResourceOperatorAssignments(tenantId: string, plantId: string): Promise<ResourceOperatorAssignment[]> {
+    return this.db
+      .select()
+      .from(resourceOperatorAssignment)
+      .where(and(eq(resourceOperatorAssignment.tenantId, tenantId), eq(resourceOperatorAssignment.plantId, plantId)))
+  }
+
+  /**
+   * Pin (or re-pin) the operator on a resource (scenario launcher) — upsert by (tenant, plant,
+   * resource), so swapping the assigned operator for a line is one call. Window optional.
+   */
+  async setResourceOperatorAssignment(
+    tenantId: string,
+    plantId: string,
+    resourceId: string,
+    operatorId: string,
+    effectiveFrom: Date | null = null,
+    effectiveTo: Date | null = null,
+  ): Promise<ResourceOperatorAssignment | undefined> {
+    const existing = await this.db.query.resourceOperatorAssignment.findFirst({
+      where: and(
+        eq(resourceOperatorAssignment.tenantId, tenantId),
+        eq(resourceOperatorAssignment.plantId, plantId),
+        eq(resourceOperatorAssignment.resourceId, resourceId),
+      ),
+    })
+    if (existing) {
+      const [row] = await this.db
+        .update(resourceOperatorAssignment)
+        .set({ operatorId, effectiveFrom, effectiveTo })
+        .where(eq(resourceOperatorAssignment.id, existing.id))
+        .returning()
+      return row
+    }
+    const [row] = await this.db
+      .insert(resourceOperatorAssignment)
+      .values({ tenantId, plantId, resourceId, operatorId, effectiveFrom, effectiveTo })
+      .returning()
     return row
   }
 

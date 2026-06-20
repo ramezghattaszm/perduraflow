@@ -38,9 +38,13 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * `wi-4` = calendar-aware placement (shift windows / Sundays / holidays / line-down
  * time-boxed as closures + OT) — supersedes all 24/7-era cached results;
  * `wi-5` = material gate (D36) — earliest-start floor on the consuming op from component
- * availability — changes placement, so re-narrate/re-evaluate.
+ * availability — changes placement, so re-narrate/re-evaluate;
+ * `wi-6` = inspection station (C3) — finite resource + linear intra-routing precedence
+ * (successor floors on predecessor end) — changes placement;
+ * `wi-7` = operator performance (C5) — consumed pinned assignment divides run time by the
+ * assigned operator's performanceFactor (setup untouched) — changes placement.
  */
-export const ENGINE_VERSION = 'wi-5'
+export const ENGINE_VERSION = 'wi-7'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000

@@ -19,7 +19,7 @@ import {
   routingOperation,
 } from '../modules/master-data/schema'
 import { contractBinding } from '../modules/binding/schema'
-import { demandInput, historicalOutcome, materialAvailability, materialRequirement } from '../modules/scheduling/schema'
+import { demandInput, historicalOutcome, materialAvailability, materialRequirement, resourceOperatorAssignment } from '../modules/scheduling/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48). Idempotent. Aggregates every
@@ -158,23 +158,34 @@ export async function seed(): Promise<void> {
     const [pressB] = await db.insert(resource).values({ tenantId, name: 'Press Line B', resourceType: 'line', plantId: saltillo!.id, calendarId: calSaltillo!.id, rate: 11, rateUom: 'strokes/min', runCostPerHour: 140, setupCost: 125, overheadPerUnit: 0.6 }).returning()
     const [weld1] = await db.insert(resource).values({ tenantId, name: 'Weld Cell 1', resourceType: 'cell', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 98, setupCost: 75, overheadPerUnit: 0.48 }).returning()
     const [weld2] = await db.insert(resource).values({ tenantId, name: 'Weld Cell 2', resourceType: 'cell', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 95, setupCost: 70, overheadPerUnit: 0.45 }).returning()
+    // Collision-3 (inspection capacity, C3): a single finite leak-test station at Ramos that
+    // every welded part must pass through after welding (a routing op → this group). One
+    // station = the hard capacity; welds finishing close together queue for it → later ones
+    // at-risk. The LEAK certification (Workforce view) composes as "who staffs it"; the
+    // station is the hard gate (deviates from the D29/D54 cert-skill-pool model for demo
+    // visibility — deferred reconciliation).
+    const [leakStation] = await db.insert(resource).values({ tenantId, name: 'Leak-Test Station', resourceType: 'work_center', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 60, setupCost: 20, overheadPerUnit: 0.1 }).returning()
     // Resource-type shift config (D-shift): presses run non-interruptible setups
     // (non-splittable); weld cells may pause across shifts (splittable). Both may run up
     // to 4h/day overtime past shift-end (an extended shift) — the ceiling the what-if
     // "overtime" option spends; a normal solve uses none. 4h is enough that, against a
     // moderate disruption on a realistically-full line, OT genuinely competes with reroute
     // (finish on the same line late-but-OT vs move work elsewhere) instead of collapsing.
+    // The leak-test work-centre runs in-shift (non-splittable, no OT) — a clean queue.
     await db.insert(resourceTypeConfig).values([
       { tenantId, resourceType: 'line', splittable: false, otCapMinutes: 240 },
       { tenantId, resourceType: 'cell', splittable: true, otCapMinutes: 240 },
+      { tenantId, resourceType: 'work_center', splittable: false, otCapMinutes: 0 },
     ])
     const [pressGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Saltillo stamping presses', plantId: saltillo!.id }).returning()
     const [weldGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Ramos weld cells', plantId: ramos!.id }).returning()
+    const [leakGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Ramos leak-test', plantId: ramos!.id }).returning()
     await db.insert(resourceGroupMember).values([
       { tenantId, resourceGroupId: pressGrp!.id, resourceId: pressA!.id },
       { tenantId, resourceGroupId: pressGrp!.id, resourceId: pressB!.id },
       { tenantId, resourceGroupId: weldGrp!.id, resourceId: weld1!.id },
       { tenantId, resourceGroupId: weldGrp!.id, resourceId: weld2!.id },
+      { tenantId, resourceGroupId: leakGrp!.id, resourceId: leakStation!.id },
     ])
 
     // parts (specific automotive components — informed guess; physical attrs drive changeover)
@@ -192,15 +203,24 @@ export async function seed(): Promise<void> {
 
     // routings (1 primary op each; std times = the `standard` baseline, D7).
     // Stamped FGs → presses (changeover on colour); welded FGs → weld cells (on material).
-    const mkRouting = async (partId: string, name: string, groupId: string, setup: number, cycle: number, key: ChangeoverKey): Promise<void> => {
+    const mkRouting = async (partId: string, name: string, groupId: string, setup: number, cycle: number, key: ChangeoverKey): Promise<string> => {
       const [rt] = await db.insert(routing).values({ tenantId, partId, name, isPrimary: true }).returning()
       await db.insert(routingOperation).values({ tenantId, routingId: rt!.id, opSeq: 10, resourceGroupId: groupId, stdSetupTime: setup, stdCycleTime: cycle, changeoverAttributeKey: key })
+      return rt!.id
     }
     await mkRouting(fg2001, 'FG-2001 primary', pressGrp!.id, 30, 0.3, 'colour')
     await mkRouting(fg2002, 'FG-2002 primary', pressGrp!.id, 30, 0.3, 'colour')
     await mkRouting(fg2004, 'FG-2004 primary', pressGrp!.id, 28, 0.32, 'colour')
-    await mkRouting(fg3001, 'FG-3001 primary', weldGrp!.id, 22, 1.4, 'material')
-    await mkRouting(fg3002, 'FG-3002 primary', weldGrp!.id, 20, 1.45, 'material')
+    const rt3001 = await mkRouting(fg3001, 'FG-3001 primary', weldGrp!.id, 22, 1.4, 'material')
+    const rt3002 = await mkRouting(fg3002, 'FG-3002 primary', weldGrp!.id, 20, 1.45, 'material')
+    // C3: welded parts pass a leak test (opSeq 20) on the single Leak-Test Station after
+    // welding — the linear-precedence successor (floored on the weld's end) that contends
+    // for the one station. Modest per-unit inspection time so the station is a real bottleneck.
+    const mkInspection = async (routingId: string): Promise<void> => {
+      await db.insert(routingOperation).values({ tenantId, routingId, opSeq: 20, resourceGroupId: leakGrp!.id, stdSetupTime: 10, stdCycleTime: 0.4, changeoverAttributeKey: null })
+    }
+    await mkInspection(rt3001)
+    await mkInspection(rt3002)
 
     // certifications (MD15)
     const mkCert = async (code: string, name: string, description: string): Promise<string> =>
@@ -215,15 +235,18 @@ export async function seed(): Promise<void> {
     // Luis Cruz (the regular) is OUT → the gap; Jorge Morales (a DIFFERENT leak-cert
     // operator, off-shift, cheaper OT) is the call-in fill. The other certs are
     // covered by present staff → a single clean leak gap.
-    const mkOp = async (name: string, plantId: string, available: boolean, laborRate: number): Promise<string> =>
-      (await db.insert(operator).values({ tenantId, name, homePlantId: plantId, available, laborRate }).returning())[0]!.id
+    // performanceFactor (C5) = efficiency rating ("percent of standard"): 1.0 standard, higher
+    // faster. Most operators run at standard; Ana and Sofía are pointed (slow / fast) so the
+    // pinned-assignment effect is visible on the two Saltillo press lines (see assignments below).
+    const mkOp = async (name: string, plantId: string, available: boolean, laborRate: number, performanceFactor = 1.0): Promise<string> =>
+      (await db.insert(operator).values({ tenantId, name, homePlantId: plantId, available, laborRate, performanceFactor }).returning())[0]!.id
     const luis = await mkOp('Luis Cruz', ramos!.id, false, 28.0)
     const jorge = await mkOp('Jorge Morales', ramos!.id, false, 26.5)
     const diego = await mkOp('Diego Hernández', ramos!.id, true, 27.0)
     const maria = await mkOp('María Fuentes', ramos!.id, true, 27.5)
     const brunoG = await mkOp('Bruno García', ramos!.id, true, 24.5)
-    const ana = await mkOp('Ana Reyes', saltillo!.id, true, 26.0)
-    const sofia = await mkOp('Sofía Ramírez', saltillo!.id, true, 25.5)
+    const ana = await mkOp('Ana Reyes', saltillo!.id, true, 26.0, 0.85) // 85% — slower, lengthens Press Line A
+    const sofia = await mkOp('Sofía Ramírez', saltillo!.id, true, 25.5, 1.1) // 110% — faster, shortens Press Line B
     await db.insert(operatorQualification).values([
       { tenantId, operatorId: luis, certificationId: leak },
       { tenantId, operatorId: luis, certificationId: torque },
@@ -235,6 +258,15 @@ export async function seed(): Promise<void> {
       { tenantId, operatorId: brunoG, certificationId: cmm },
       { tenantId, operatorId: ana, certificationId: torque },
       { tenantId, operatorId: sofia, certificationId: torque },
+    ])
+
+    // Operator performance assignments (C5, §4.8) — a couple of POINTED pins (not a full roster):
+    // Ana (85%) runs Press Line A → its ops run longer; Sofía (110%) runs Press Line B → shorter.
+    // Open windows (null from/to) = always in effect. The scheduler consumes these to divide run
+    // time by the operator's performanceFactor; production fills this table from a real roster.
+    await db.insert(resourceOperatorAssignment).values([
+      { tenantId, plantId: saltillo!.id, resourceId: pressA!.id, operatorId: ana, effectiveFrom: null, effectiveTo: null },
+      { tenantId, plantId: saltillo!.id, resourceId: pressB!.id, operatorId: sofia, effectiveFrom: null, effectiveTo: null },
     ])
 
     // binding: masterdata.read → platform_module (the per-tenant counterpart)
@@ -359,7 +391,7 @@ export async function seed(): Promise<void> {
       ho(ramos!.id, null, w1s, w1e, 0.89, 6.3, 0.9, 0.83, 0.976, 1, 5150),
     ])
 
-    console.log('  ✓ Magna de México scenario: 3 plants, 4 customers, 4 resources, 6 parts, 4 certs, 7 operators, 14 demand lines')
+    console.log('  ✓ Magna de México scenario: 3 plants, 4 customers, 5 resources, 6 parts, 4 certs, 7 operators, 14 demand lines')
     console.log('  ✓ historical outcomes: 9 rows (Saltillo + Press Line A + Ramos); Monterrey/Press Line B = none (empty-state)')
   }
 

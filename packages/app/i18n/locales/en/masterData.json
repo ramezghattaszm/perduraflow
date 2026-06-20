@@ -65,7 +65,7 @@
   "operators": {
     "title": "Operators",
     "subtitle": "Operators (externally sourced). Edit qualifications on the Qualifications screen.",
-    "fields": { "name": "Name", "homePlantId": "Home plant", "laborRate": "Labor rate", "status": "Status" }
+    "fields": { "name": "Name", "homePlantId": "Home plant", "laborRate": "Labor rate", "performance": "Performance (% of standard)", "status": "Status" }
   },
   "qualifications": {
     "title": "Qualifications",

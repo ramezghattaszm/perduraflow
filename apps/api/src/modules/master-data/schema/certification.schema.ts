@@ -38,6 +38,12 @@ export const operator = masterDataSchema.table(
     name: text('name').notNull(),
     homePlantId: text('home_plant_id').notNull(),
     laborRate: doublePrecision('labor_rate'),
+    // Performance / efficiency rating (C5) — "percent of standard" (IE/time-study convention):
+    // 1.0 = standard, >1.0 faster, <1.0 slower. Stored as a ratio (0.5), displayed as a percent
+    // (50%). The scheduler applies it to RUN time only: effectiveCycle = baseCycle / performanceFactor.
+    // It DELIBERATELY DIVIDES (the inverse of a cycle multiplier) so "higher = better" holds —
+    // 0.9 → cycle/0.9 (slower), 1.1 → faster. Do NOT introduce an inversion. Setup is not divided.
+    performanceFactor: doublePrecision('performance_factor').notNull().default(1.0),
     // Next-shift presence for the workforce coverage view (seeded/D35; phase 3).
     // `false` = OUT this shift (distinct from `is_active` soft-delete).
     available: boolean('available').notNull().default(true),

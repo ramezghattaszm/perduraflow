@@ -14,14 +14,23 @@ import {
 import { useTranslation } from '../../../i18n'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
-import { useMaterialAvailability, useScheduleDemand, useScheduleResources, useScheduleVersions, useSetMaterialAvailability, useUpdateDemandQty } from '../../../hooks/useScheduling'
-import { useResourceMutations } from '../../../hooks/useMasterData'
+import {
+  useMaterialAvailability,
+  useResourceOperatorAssignments,
+  useScheduleDemand,
+  useScheduleResources,
+  useScheduleVersions,
+  useSetMaterialAvailability,
+  useSetResourceOperatorAssignment,
+  useUpdateDemandQty,
+} from '../../../hooks/useScheduling'
+import { useOperators, useOperatorMutations, useResourceMutations } from '../../../hooks/useMasterData'
 import { useSimulateActuals } from '../../../hooks/useLearning'
 import { queryClient } from '../../../lib/query-client'
 import { QUERY_KEYS } from '../../../lib/query-keys'
 import { AdminShell } from '../../shell/admin-shell'
 
-type Scenario = 'wear' | 'demand' | 'lineDown' | 'material'
+type Scenario = 'wear' | 'demand' | 'lineDown' | 'material' | 'operator'
 
 const MS_PER_DAY = 86_400_000
 /** Build an ISO datetime for `HH:MM` on today's UTC day (the schedule day). */
@@ -66,11 +75,19 @@ export function SimulatorContent() {
   const { data: materials = [] } = useMaterialAvailability(plantId ?? undefined)
   const [matComponent, setMatComponent] = useState<string | null>(null)
   const [matTime, setMatTime] = useState('16:00')
+  // Operator-performance controls
+  const { data: allOperators = [] } = useOperators()
+  const { data: assignments = [] } = useResourceOperatorAssignments(plantId ?? undefined)
+  const [perfOperator, setPerfOperator] = useState<string | null>(null)
+  const [perfPct, setPerfPct] = useState('100')
+  const [pinLine, setPinLine] = useState<string | null>(null)
 
   const simulate = useSimulateActuals()
   const updateDemandQty = useUpdateDemandQty()
   const setMaterial = useSetMaterialAvailability(plantId ?? undefined)
   const { update: updateResource } = useResourceMutations()
+  const { update: updateOperator } = useOperatorMutations()
+  const setAssignment = useSetResourceOperatorAssignment(plantId ?? undefined)
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState<string | null>(null)
 
@@ -90,6 +107,15 @@ export function SimulatorContent() {
     const m = materials.find((x) => x.componentPartId === matComponent)
     if (m) setMatTime(hhmmOf(m.availableAt))
   }, [matComponent, materials])
+  // Default the operator to the first at this plant; prefill the percent from its current factor.
+  const plantOperators = allOperators.filter((o) => o.isActive && o.homePlantId === plantId)
+  useEffect(() => {
+    if (!perfOperator && plantOperators.length > 0) setPerfOperator(plantOperators[0]!.id)
+  }, [plantOperators, perfOperator])
+  useEffect(() => {
+    const o = allOperators.find((x) => x.id === perfOperator)
+    if (o) setPerfPct(String(Math.round(o.performanceFactor * 100)))
+  }, [perfOperator, allOperators])
 
   const versionOptions = committed.map((v) => ({ value: v.id, label: `committed · ${new Date(v.createdAt).toLocaleString()}` }))
   const resourceOptions = resources.map((r) => ({ value: r.id, label: r.name }))
@@ -100,7 +126,9 @@ export function SimulatorContent() {
     { value: 'demand', label: t('simulator.scenarioDemand') },
     { value: 'lineDown', label: t('simulator.scenarioLineDown') },
     { value: 'material', label: t('simulator.scenarioMaterial') },
+    { value: 'operator', label: t('simulator.scenarioOperator') },
   ]
+  const operatorOptions = plantOperators.map((o) => ({ value: o.id, label: `${o.name} · ${Math.round(o.performanceFactor * 100)}%` }))
 
   const runWear = () => {
     if (!versionId) return
@@ -137,6 +165,33 @@ export function SimulatorContent() {
       // condition without a manual refresh.
       await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.resources(plantId) })
       setApplied(status === 'inactive' ? t('simulator.conditionDown') : t('simulator.conditionUp'))
+    } finally {
+      setApplying(false)
+    }
+  }
+  // Set an operator's performance factor (the factor lives on the operator, master-data). A
+  // re-solve on the board then reflects it on whichever line the operator is pinned to.
+  const setPerformance = async () => {
+    if (!perfOperator) return
+    setApplying(true)
+    setApplied(null)
+    try {
+      const factor = Math.max(0.1, (Number(perfPct) || 100) / 100)
+      await updateOperator.mutateAsync({ id: perfOperator, body: { performanceFactor: factor } })
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.operatorAssignments(plantId ?? '') })
+      setApplied(t('simulator.conditionOperator'))
+    } finally {
+      setApplying(false)
+    }
+  }
+  // Pin (swap) the operator running a line (the §4.8 assignment, scheduling-owned).
+  const pinOperatorToLine = async () => {
+    if (!pinLine || !perfOperator) return
+    setApplying(true)
+    setApplied(null)
+    try {
+      await setAssignment.mutateAsync({ resourceId: pinLine, operatorId: perfOperator })
+      setApplied(t('simulator.conditionAssignment'))
     } finally {
       setApplying(false)
     }
@@ -261,6 +316,45 @@ export function SimulatorContent() {
               </AppButton>
               <AppButton variant="ghost" size="$3" loading={applying} onPress={() => setMaterialCondition('06:00', true)}>
                 {t('simulator.materialOnHand')}
+              </AppButton>
+            </XStack>
+          </>
+        ) : null}
+
+        {scenario === 'operator' ? (
+          <>
+            <P size={4} color="$textSecondary">
+              {t('simulator.operatorHint')}
+            </P>
+            {assignments.length > 0 ? (
+              <YStack gap="$1" backgroundColor="$backgroundHover" borderRadius="$4" padding="$3">
+                <P size={4} weight="m" color="$textSecondary">
+                  {t('simulator.currentAssignments')}
+                </P>
+                {assignments.map((a) => (
+                  <P key={a.resourceId} size={4} color="$textSecondary">
+                    {a.resourceName} → {a.operatorName} · {Math.round(a.performanceFactor * 100)}%
+                  </P>
+                ))}
+              </YStack>
+            ) : null}
+            <FormField label={t('simulator.operator')}>
+              <AppSelect options={operatorOptions} value={perfOperator} onChange={setPerfOperator} placeholder={t('simulator.needOperator')} />
+            </FormField>
+            <FormField label={t('simulator.performancePct')}>
+              <AppInput value={perfPct} onChangeText={setPerfPct} keyboardType="numeric" placeholder="100" />
+            </FormField>
+            <XStack>
+              <AppButton variant="primary" size="$3" loading={applying} onPress={setPerformance}>
+                {t('simulator.setPerformance')}
+              </AppButton>
+            </XStack>
+            <FormField label={t('simulator.pinLine')}>
+              <AppSelect options={resourceOptions} value={pinLine} onChange={setPinLine} placeholder={t('simulator.needLine')} />
+            </FormField>
+            <XStack>
+              <AppButton variant="ghost" size="$3" loading={applying} onPress={pinOperatorToLine}>
+                {t('simulator.pinOperator')}
               </AppButton>
             </XStack>
           </>

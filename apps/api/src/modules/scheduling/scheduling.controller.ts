@@ -62,6 +62,12 @@ export class SchedulingController {
     return this.scheduling.listMaterialAvailability(user.tenantId, plantId)
   }
 
+  /** `GET /scheduling/operator-assignments?plantId=` — pinned resource↔operator assignments (§4.8; launcher, C5). */
+  @Get('operator-assignments')
+  operatorAssignments(@CurrentUser() user: JwtPayload, @Query('plantId') plantId: string) {
+    return this.scheduling.listResourceOperatorAssignments(user.tenantId, plantId)
+  }
+
   /** `GET /scheduling/material-conditions?plantId=&versionId=` — components gating committed ops (D36). */
   @Get('material-conditions')
   materialConditions(

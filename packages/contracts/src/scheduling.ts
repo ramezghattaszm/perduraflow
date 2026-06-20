@@ -277,6 +277,21 @@ export interface MaterialConditionDto {
   gatedDemandLineIds: string[]
 }
 
+/**
+ * A pinned resource↔operator assignment (the §4.8 performance input, C5) — for the launcher.
+ * The operator's `performanceFactor` (master-data) modifies the line's run time when scheduled.
+ */
+export interface ResourceOperatorAssignmentDto {
+  resourceId: string
+  resourceName: string
+  operatorId: string
+  operatorName: string
+  /** Operator efficiency rating, ratio (1.0 = standard); applied as a run-time divisor. */
+  performanceFactor: number
+  effectiveFrom: string | null
+  effectiveTo: string | null
+}
+
 // --- request schemas ---------------------------------------------------------
 
 /** `POST /admin/scheduling/solve` — run the deterministic sequencer for a plant. */
@@ -288,6 +303,17 @@ export const setMaterialAvailabilitySchema = z
   .object({ plantId: z.string().min(1), availableAt: z.string().min(1) })
   .strict()
 export type SetMaterialAvailabilityRequest = z.infer<typeof setMaterialAvailabilitySchema>
+
+/** `PATCH /dev/scheduling/operator-assignment/:resourceId` — pin/swap a line's operator (launcher). */
+export const setResourceOperatorAssignmentSchema = z
+  .object({
+    plantId: z.string().min(1),
+    operatorId: z.string().min(1),
+    effectiveFrom: z.string().nullable().default(null),
+    effectiveTo: z.string().nullable().default(null),
+  })
+  .strict()
+export type SetResourceOperatorAssignmentRequest = z.infer<typeof setResourceOperatorAssignmentSchema>
 
 // =============================================================================
 // Phase 5 — what-if (D55) + plan-comparison/baselines (D57) + narration (A19)

@@ -29,6 +29,7 @@ export const QUERY_KEYS = {
     resources: (plantId: string) => ['scheduling', 'resources', plantId] as const,
     materialAvailability: (plantId: string) => ['scheduling', 'material-availability', plantId] as const,
     materialConditions: (plantId: string, versionId: string) => ['scheduling', 'material-conditions', plantId, versionId] as const,
+    operatorAssignments: (plantId: string) => ['scheduling', 'operator-assignments', plantId] as const,
     variance: (versionId: string) => ['scheduling', 'variance', versionId] as const,
     scorecard: (plantId: string, versionId: string) => ['scheduling', 'scorecard', plantId, versionId] as const,
     whatIf: (id: string) => ['scheduling', 'whatif', id] as const,

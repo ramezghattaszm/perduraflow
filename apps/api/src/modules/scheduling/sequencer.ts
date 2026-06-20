@@ -79,6 +79,16 @@ export interface EffectiveTimes {
  */
 export type ResolveEffective = (routingOperationId: string, resourceId: string, stdSetup: number, stdCycle: number) => EffectiveTimes
 
+/**
+ * Resolve the **operator performance factor** for the operator pinned to `resourceId` at the op's
+ * start (`atMs`) — the C5 consumed labor input. Returns the assigned operator's `performanceFactor`
+ * ("percent of standard": 1.0 = standard, >1.0 faster, <1.0 slower), or 1.0 when no operator covers
+ * the op's start. The sequencer applies it to **run time only**: `effectiveCycle = baseCycle / factor`
+ * — a DELIBERATE DIVIDE (higher factor = faster). Setup is untouched. **Pure** (built by the service
+ * from the §4.8 assignment table + operator factors) so the sequencer stays deterministic.
+ */
+export type ResolveOperatorFactor = (resourceId: string, atMs: number) => number
+
 /** A placed operation (epoch-ms times; the service maps to rows). */
 export interface Placement {
   demandLineId: string
@@ -155,6 +165,7 @@ export function sequence(
   resolveEffective?: ResolveEffective,
   policy?: SequencePolicy,
   resourceCalendars?: Map<string, WorkingCalendar>,
+  resolveOperatorFactor?: ResolveOperatorFactor,
 ): SequencerResult {
   // A resource's operating calendar (working windows / closures / OT). Resources without
   // one fall back to ALWAYS_ON (24/7) so existing callers and tests are unaffected.
@@ -201,13 +212,40 @@ export function sequence(
   const placements: Placement[] = []
   let horizonEndMs = origin
 
+  // Linear intra-routing precedence (single-level, C3): within a demand line, an op follows
+  // the prior opSeq. An op is a placement candidate only once its predecessor is placed, and
+  // its start is floored by the predecessor's end — reusing the cursor-floor like the material
+  // gate. Single-op routings have no predecessor → ready immediately, unchanged.
+  const opSeqsByLine = new Map<string, number[]>()
+  for (const it of items) {
+    const arr = opSeqsByLine.get(it.demandLineId) ?? []
+    if (!arr.includes(it.opSeq)) arr.push(it.opSeq)
+    opSeqsByLine.set(it.demandLineId, arr)
+  }
+  for (const arr of opSeqsByLine.values()) arr.sort((a, b) => a - b)
+  const predKey = (it: SequencerItem): string | null => {
+    const arr = opSeqsByLine.get(it.demandLineId)!
+    const idx = arr.indexOf(it.opSeq)
+    return idx > 0 ? `${it.demandLineId}:${arr[idx - 1]}` : null
+  }
+  const endByLineOp = new Map<string, number>()
+  const predecessorEnd = (it: SequencerItem): number => {
+    const k = predKey(it)
+    return k ? (endByLineOp.get(k) ?? 0) : 0
+  }
+  const isReady = (it: SequencerItem): boolean => {
+    const k = predKey(it)
+    return k === null || endByLineOp.has(k)
+  }
+
   while (remaining.length > 0) {
-    let bestIdx = 0
+    let bestIdx = -1
     let bestRank = Number.POSITIVE_INFINITY
-    let bestItem = remaining[0]!
-    let bestRes = assignResource(bestItem)
+    let bestItem: SequencerItem | null = null
+    let bestRes = ''
     for (let i = 0; i < remaining.length; i++) {
       const item = remaining[i]!
+      if (!isReady(item)) continue // precedence: predecessor not placed yet → not a candidate
       const res = assignResource(item)
       const st = stateFor(res)
       const sameAttr =
@@ -219,7 +257,7 @@ export function sequence(
       // ready (ungated) work takes the early slots — fills the pre-arrival gap (re-sequence-around).
       const notReady = policy?.readyFirst === true && (item.earliestStartMs ?? 0) > st.freeMs ? READY_DEFER_HOURS : 0
       const rank = (item.requiredDate - origin) / MS_PER_HOUR - bonus - expedite + notReady
-      if (rank < bestRank || (rank === bestRank && tieBreakLess(item, bestItem))) {
+      if (bestItem === null || rank < bestRank || (rank === bestRank && tieBreakLess(item, bestItem))) {
         bestRank = rank
         bestIdx = i
         bestItem = item
@@ -227,21 +265,28 @@ export function sequence(
       }
     }
 
-    const item = bestItem
+    const item = bestItem! // at least one item is always ready (the lowest unplaced opSeq per line)
     const st = stateFor(bestRes)
     const eff = effectiveFor(item, bestRes)
     const cal = calFor(bestRes)
-    const durMs = (eff.setupTime + eff.cycleTime * item.qty) * MS_PER_MINUTE
     // The op can't start before its consumed buy-components are available (the D36 material
     // gate, resolved upstream into earliestStartMs) — a third floor on the cursor, alongside
     // the resource's free time and the schedule origin. placeJob then walks that floor into
     // working time exactly as it does the others; the gate adds no placement machinery.
     const earliest = item.earliestStartMs ?? 0
+    const predEnd = predecessorEnd(item) // C3 precedence: can't start before the prior op ends
     const prevFree = st.freeMs
-    const floor = Math.max(prevFree, origin, earliest)
+    const floor = Math.max(prevFree, origin, earliest, predEnd)
+    // Operator performance (C5): the operator pinned to this resource at op start scales RUN time.
+    // effectiveCycle = baseCycle / performanceFactor — a DELIBERATE DIVIDE (higher factor = faster);
+    // setup is untouched. Point-resolved at the cursor floor (the op's start), like the material
+    // gate — one factor per placement, no intra-op split. No assignment → factor 1.0 (no-op).
+    const perf = resolveOperatorFactor?.(bestRes, floor) ?? 1
+    const effCycle = perf > 0 ? eff.cycleTime / perf : eff.cycleTime
+    const durMs = (eff.setupTime + effCycle * item.qty) * MS_PER_MINUTE
     // The material gate is the binding constraint when it set the floor (later than the
-    // resource's free time and the origin) — names the cause for the board/narration (D36).
-    const materialBound = earliest > 0 && earliest >= prevFree && earliest >= origin
+    // resource's free time, the origin, and any precedence end) — names the cause (D36).
+    const materialBound = earliest > 0 && earliest >= prevFree && earliest >= origin && earliest >= predEnd
     // Calendar-aware placement: advance the cursor through working time only (skipping
     // nights / Sundays / holidays / maintenance / down). A null result means the op cannot
     // fit (non-split op longer than any working segment, no OT) — the service feasibility
@@ -250,6 +295,7 @@ export function sequence(
     const startMs = placed?.startMs ?? floor
     const endMs = placed?.endMs ?? startMs + durMs
     st.freeMs = endMs
+    endByLineOp.set(`${item.demandLineId}:${item.opSeq}`, endMs) // precedence: successor floors on this
     st.currentAttr = item.changeoverValue
     st.seq += 1
     const atRisk = endMs > item.requiredDate || placed === null
@@ -264,7 +310,7 @@ export function sequence(
       plannedEndMs: endMs,
       qty: item.qty,
       setupTime: eff.setupTime,
-      cycleTime: eff.cycleTime,
+      cycleTime: effCycle, // operator-adjusted run time (std → ml → ÷ performanceFactor); what actually ran
       setupSource: eff.setupSource,
       cycleSource: eff.cycleSource,
       setupConfidence: eff.setupConfidence,

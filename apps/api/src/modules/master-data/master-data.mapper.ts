@@ -99,6 +99,7 @@ export const toOperatorDto = (o: Operator, certificationIds: string[]): Operator
   name: o.name,
   homePlantId: o.homePlantId,
   laborRate: o.laborRate,
+  performanceFactor: o.performanceFactor,
   available: o.available,
   certificationIds,
   isActive: o.isActive,
