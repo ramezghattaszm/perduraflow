@@ -37,7 +37,7 @@ export class PlanComparisonService {
     const overlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
     const cals = ctx.resourceCalendars
     /** Plan-based live (what the live engine PRODUCES) — the right basis for the engine-lift arm. */
-    const livePlan = scorePlan(sequence(liveItems, overlay, undefined, cals, ctx.resolveOperatorFactor).placements, { rateByResource, basePlacements: [], overtimeHours: 0 }).kpis
+    const livePlan = scorePlan(sequence(liveItems, overlay, undefined, cals, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements, { rateByResource, basePlacements: [], overtimeHours: 0 }).kpis
 
     if (source === 'frozen_engine_snapshot') {
       // ENGINE LIFT = plan vs plan: the live engine's plan vs the same engine with its
@@ -47,7 +47,7 @@ export class PlanComparisonService {
       // structurally absent on both — the UI hides any all-"—" row. The naive arm runs the same
       // operator-performance input too (like the calendars) so the gap isolates intelligence.
       const naiveItems = stripChangeover(liveItems)
-      const baseline = scorePlan(sequence(naiveItems, undefined, undefined, cals, ctx.resolveOperatorFactor).placements, { rateByResource, basePlacements: [], overtimeHours: 0 }).kpis
+      const baseline = scorePlan(sequence(naiveItems, undefined, undefined, cals, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements, { rateByResource, basePlacements: [], overtimeHours: 0 }).kpis
       return { source, emptyState: false, plantId, scheduleVersionId: versionId, live: livePlan, baseline, labelKey: labelFor(source) }
     }
 

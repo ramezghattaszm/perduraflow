@@ -89,3 +89,31 @@ describe('sequence — operator performance (C5)', () => {
     )
   })
 })
+
+describe('sequence — minimum batch floor (C4)', () => {
+  it('runs to the minimum batch when demand is below it (run qty + duration floored)', () => {
+    const below = [item('a', 'A', 1, 10)] // demand 10 < min 100 → runs 100
+    const minBatch = new Map([['R1', 100]])
+    const floored = sequence(below, undefined, undefined, undefined, undefined, minBatch).placements[0]!
+    const naive = sequence(below).placements[0]!
+    expect(naive.qty).toBe(10)
+    expect(floored.qty).toBe(100) // run-to-minimum
+    expect(floored.plannedEndMs - floored.plannedStartMs).toBe(100 * 60_000) // 1 min/unit × 100
+  })
+
+  it('does not bind when demand is at or above the minimum (no surplus)', () => {
+    const at = [item('a', 'A', 1, 250)] // 250 > min 100 → unchanged
+    const minBatch = new Map([['R1', 100]])
+    const p = sequence(at, undefined, undefined, undefined, undefined, minBatch).placements[0]!
+    expect(p.qty).toBe(250)
+  })
+
+  it('floor is per resource type (only the mapped resource); 0 / no entry is a no-op', () => {
+    const r2 = { ...item('b', 'B', 1, 10), eligibleResourceIds: ['R2'] }
+    const items = [item('a', 'A', 1, 10), r2]
+    const minBatch = new Map([['R1', 100]]) // R2 absent → no floor
+    const out = sequence(items, undefined, undefined, undefined, undefined, minBatch).placements
+    expect(out.find((p) => p.demandLineId === 'a')!.qty).toBe(100)
+    expect(out.find((p) => p.demandLineId === 'b')!.qty).toBe(10)
+  })
+})

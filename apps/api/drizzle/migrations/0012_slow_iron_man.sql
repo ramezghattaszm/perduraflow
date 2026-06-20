@@ -1,0 +1,1 @@
+ALTER TABLE "master_data"."resource_type_config" ADD COLUMN "min_batch_qty" integer DEFAULT 0 NOT NULL;

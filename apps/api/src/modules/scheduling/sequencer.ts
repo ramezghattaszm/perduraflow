@@ -166,6 +166,7 @@ export function sequence(
   policy?: SequencePolicy,
   resourceCalendars?: Map<string, WorkingCalendar>,
   resolveOperatorFactor?: ResolveOperatorFactor,
+  minBatchByResource?: Map<string, number>,
 ): SequencerResult {
   // A resource's operating calendar (working windows / closures / OT). Resources without
   // one fall back to ALWAYS_ON (24/7) so existing callers and tests are unaffected.
@@ -283,7 +284,14 @@ export function sequence(
     // gate — one factor per placement, no intra-op split. No assignment → factor 1.0 (no-op).
     const perf = resolveOperatorFactor?.(bestRes, floor) ?? 1
     const effCycle = perf > 0 ? eff.cycleTime / perf : eff.cycleTime
-    const durMs = (eff.setupTime + effCycle * item.qty) * MS_PER_MINUTE
+    // Minimum batch floor (C4): an op won't run below its resource type's minimum batch — a die
+    // setup isn't worth a 3-part run. effectiveRunQty = max(demandQty, minBatch); when it binds it
+    // RUNS TO MINIMUM (the realistic production behavior). A pure per-op floor, no batch merging.
+    // 0 / no entry → no floor (effRunQty = demandQty). Drives both duration and run qty. Where the
+    // surplus (effRunQty − demandQty) goes (inventory/netting) is a documented future refinement —
+    // the seed keeps demand ≥ minBatch so it never binds by default, so no disposition is needed.
+    const effRunQty = Math.max(item.qty, minBatchByResource?.get(bestRes) ?? 0)
+    const durMs = (eff.setupTime + effCycle * effRunQty) * MS_PER_MINUTE
     // The material gate is the binding constraint when it set the floor (later than the
     // resource's free time, the origin, and any precedence end) — names the cause (D36).
     const materialBound = earliest > 0 && earliest >= prevFree && earliest >= origin && earliest >= predEnd
@@ -308,7 +316,7 @@ export function sequence(
       sequencePosition: st.seq,
       plannedStartMs: startMs,
       plannedEndMs: endMs,
-      qty: item.qty,
+      qty: effRunQty, // C4: the actual run quantity (≥ demand when the minimum-batch floor binds)
       setupTime: eff.setupTime,
       cycleTime: effCycle, // operator-adjusted run time (std → ml → ÷ performanceFactor); what actually ran
       setupSource: eff.setupSource,

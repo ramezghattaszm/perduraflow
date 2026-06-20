@@ -88,6 +88,8 @@ export interface ResourceTypeConfigDto {
   resourceType: ResourceType
   splittable: boolean
   otCapMinutes: number
+  /** Minimum batch / run-length floor (C4): the sequencer won't run an op below this qty. 0 = no floor. */
+  minBatchQty: number
 }
 
 export interface ResourceGroupDto {

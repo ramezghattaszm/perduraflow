@@ -55,6 +55,8 @@ export interface BaseContext {
   resourceCalendars: Map<string, WorkingCalendar>
   /** Operator performance (C5, §4.8): factor for the operator pinned to a resource at op start. */
   resolveOperatorFactor: ResolveOperatorFactor
+  /** Minimum-batch floor (C4) per resource — run-quantity floor from the resource-type config. */
+  minBatchByResource: Map<string, number>
 }
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
@@ -318,7 +320,7 @@ export class SchedulingService {
     const items = ctx.items
     const demand = ctx.demand
     const resolveEffective = await this.buildLearnedOverlay(tenantId, items)
-    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor)
+    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource)
     const run = await this.repo.createRun({
       tenantId,
       plantId,
@@ -507,7 +509,12 @@ export class SchedulingService {
       return factorByOperator.get(candidates[0]!.operatorId) ?? 1
     }
 
-    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, resolveOperatorFactor }
+    // Minimum batch (C4): each resource's run-quantity floor from its resource-type config
+    // (minBatchQty; 0 = no floor). The sequencer floors effRunQty = max(demandQty, minBatch).
+    const minBatchByType = new Map((await md.listResourceTypeConfigs(tenantId)).map((c) => [c.resourceType, c.minBatchQty]))
+    const minBatchByResource = new Map(resources.map((r) => [r.id, minBatchByType.get(r.resourceType) ?? 0]))
+
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, resolveOperatorFactor, minBatchByResource }
   }
 
   /**

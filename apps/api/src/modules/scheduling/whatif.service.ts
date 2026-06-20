@@ -79,7 +79,7 @@ export class WhatIfService {
     // The live (current) plan — the comparison anchor + displacement reference. Uses the
     // plain (pre-disruption) calendars; the option world adds any line-down closures.
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements
 
     // Apply the change-set to the items (feasibility-honest).
     const changed = this.applyChangeSet(ctx.items, changeSet)
@@ -89,7 +89,7 @@ export class WhatIfService {
 
     const specs = this.optionSpecs(changeSet, predicted)
     const evaluated = specs.map((spec) =>
-      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor),
+      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource),
     )
 
     const feasible = evaluated.filter((e) => e.feasible)
@@ -178,7 +178,7 @@ export class WhatIfService {
     const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
     if (ctx.infeasibleReason) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements
     const changed = this.applyChangeSet(ctx.items, changeSet)
     const rateByResource = this.rates(ctx.resourceById)
     const predicted = await this.predictedCycles(tenantId, changeSet)
@@ -186,7 +186,7 @@ export class WhatIfService {
 
     const spec = this.optionSpecs(changeSet, predicted).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
-    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor)
+    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource)
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
@@ -377,6 +377,7 @@ export class WhatIfService {
     rateByResource: Map<string, ResourceRate>,
     resourceCalendars: Map<string, WorkingCalendar>,
     resolveOperatorFactor: ResolveOperatorFactor,
+    minBatchByResource: Map<string, number>,
   ): { spec: OptionSpec; feasible: boolean; infeasibleReasonKey: string | null; scored: ScoredPlan | null; placements: Placement[] } {
     const items = spec.itemTransform(changed)
     const starved = items.find((i) => i.eligibleResourceIds.length === 0)
@@ -391,7 +392,7 @@ export class WhatIfService {
       spec.overtimeHours > 0
         ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.min(spec.overtimeHours * 60, c.otCeilingMinutes) }]))
         : resourceCalendars
-    const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor).placements
+    const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor, minBatchByResource).placements
     const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: spec.overtimeHours })
     return { spec, feasible: true, infeasibleReasonKey: null, scored, placements }
   }

@@ -172,10 +172,13 @@ export async function seed(): Promise<void> {
     // moderate disruption on a realistically-full line, OT genuinely competes with reroute
     // (finish on the same line late-but-OT vs move work elsewhere) instead of collapsing.
     // The leak-test work-centre runs in-shift (non-splittable, no OT) — a clean queue.
+    // minBatchQty (C4): minimum run-length floor per type, set comfortably BELOW every seeded
+    // demand qty (smallest is 200) so it never binds by default — the constraint is real and
+    // configurable, the proof is config-driven (drop a demand below 100 via the launcher → it binds).
     await db.insert(resourceTypeConfig).values([
-      { tenantId, resourceType: 'line', splittable: false, otCapMinutes: 240 },
-      { tenantId, resourceType: 'cell', splittable: true, otCapMinutes: 240 },
-      { tenantId, resourceType: 'work_center', splittable: false, otCapMinutes: 0 },
+      { tenantId, resourceType: 'line', splittable: false, otCapMinutes: 240, minBatchQty: 100 },
+      { tenantId, resourceType: 'cell', splittable: true, otCapMinutes: 240, minBatchQty: 100 },
+      { tenantId, resourceType: 'work_center', splittable: false, otCapMinutes: 0, minBatchQty: 100 },
     ])
     const [pressGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Saltillo stamping presses', plantId: saltillo!.id }).returning()
     const [weldGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Ramos weld cells', plantId: ramos!.id }).returning()

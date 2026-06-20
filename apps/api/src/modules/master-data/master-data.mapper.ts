@@ -53,6 +53,7 @@ export const toResourceTypeConfigDto = (c: ResourceTypeConfig): ResourceTypeConf
   resourceType: c.resourceType,
   splittable: c.splittable,
   otCapMinutes: c.otCapMinutes,
+  minBatchQty: c.minBatchQty,
 })
 
 /** Map a resource-group row (+ member ids) to its DTO. */

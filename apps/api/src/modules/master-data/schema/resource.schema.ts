@@ -86,6 +86,10 @@ export const resourceTypeConfig = masterDataSchema.table(
     resourceType: text('resource_type').$type<ResourceType>().notNull(),
     splittable: boolean('splittable').notNull().default(false),
     otCapMinutes: integer('ot_cap_minutes').notNull().default(0),
+    // Minimum batch / run-length floor (C4) — the sequencer won't run an op on this resource type
+    // below this quantity ("won't set a die for 3 parts"): effectiveRunQty = max(demandQty, minBatchQty).
+    // A pure per-op floor (run-to-minimum), NOT same-part batch merging. 0 = no floor (default).
+    minBatchQty: integer('min_batch_qty').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

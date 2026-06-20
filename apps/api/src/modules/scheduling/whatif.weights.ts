@@ -42,9 +42,11 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * `wi-6` = inspection station (C3) — finite resource + linear intra-routing precedence
  * (successor floors on predecessor end) — changes placement;
  * `wi-7` = operator performance (C5) — consumed pinned assignment divides run time by the
- * assigned operator's performanceFactor (setup untouched) — changes placement.
+ * assigned operator's performanceFactor (setup untouched) — changes placement;
+ * `wi-8` = minimum batch (C4) — run-quantity floor per resource type (effRunQty = max(demandQty,
+ * minBatchQty)); run-to-minimum extends duration when it binds — changes placement.
  */
-export const ENGINE_VERSION = 'wi-7'
+export const ENGINE_VERSION = 'wi-8'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000
