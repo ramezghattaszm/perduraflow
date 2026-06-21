@@ -473,6 +473,23 @@ export interface WhatIfResultDto {
   /** Hash of (base inputs + change-set + overlay + weights) — same → same result. */
   determinismKey: string
   createdAt: string
+  /**
+   * The never-silently-drop ledger (conversation Pass A): every requested change + whether the
+   * engine honored it. Populated richly at evaluation time (drives the structure-derived echo
+   * the conversation prepends to a Type-2 answer); the persisted read returns a basic form.
+   */
+  requestedChanges: RequestedChange[]
+}
+
+/** One requested change in a change-set + whether the engine honored it (Pass A ledger). */
+export interface RequestedChange {
+  kind: Change['kind']
+  /** Human one-liner, e.g. "add 4h overtime on Press Line A" or "move GP-1142 due date to 2026-06-27". */
+  summary: string
+  /** `applied` (honored as asked), `partial` (honored but adjusted — e.g. OT clamped to ceiling), `unapplied` (could not be honored). */
+  status: 'applied' | 'partial' | 'unapplied'
+  /** Why it was partial/unapplied (planner-readable); null when fully applied. */
+  note: string | null
 }
 
 // --- plan-comparison / baselines (D57) ---------------------------------------

@@ -4,6 +4,7 @@ import {
   type ConversationDetailDto,
   type ConversationDto,
   type ConversationTurnDto,
+  type RequestedChange,
   type WhatIfOption,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
@@ -22,26 +23,38 @@ const RETRIEVE_TOOL: LlmTool = {
     'Return the stored, already-computed what-if analysis for this conversation (options with factors+contributions, constraints, comparatives, costed KPIs). Use for ANY question about the existing analysis. No new computation.',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
 }
+/**
+ * One change, as a **discriminated union by `kind`** (conversation Pass A, #3). Each branch
+ * enforces exactly its required fields (`additionalProperties:false`), so the model fills the
+ * right shape per kind instead of free-forming — mis-shapes (e.g. `orderId` vs `demandLineId`,
+ * a missing `downFrom/downTo`) drop out, which cuts validation-retry loop turns and makes
+ * COMPOUND change-sets shape correctly item-by-item. The Zod `changeSetSchema` remains the hard
+ * server-side enforcer; this schema is the strong model-facing hint (tolerated as nested `oneOf`
+ * by the anthropic/openai adapters; the default `recorded` provider never reaches this tool).
+ */
+const CHANGE_ITEM_SCHEMA = {
+  oneOf: [
+    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['demand_qty'] }, demandLineId: { type: 'string' }, to: { type: 'integer', description: 'new required quantity' } }, required: ['kind', 'demandLineId', 'to'] },
+    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['demand_date'] }, demandLineId: { type: 'string' }, to: { type: 'string', description: 'new required date, ISO 8601' } }, required: ['kind', 'demandLineId', 'to'] },
+    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['resource_window'] }, resourceId: { type: 'string' }, downFrom: { type: 'string', description: 'ISO 8601' }, downTo: { type: 'string', description: 'ISO 8601' } }, required: ['kind', 'resourceId', 'downFrom', 'downTo'] },
+    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['overtime'] }, resourceId: { type: 'string' }, hours: { type: 'number', description: 'overtime hours to add on this resource' } }, required: ['kind', 'resourceId', 'hours'] },
+    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['wear_remediation'] }, resourceId: { type: 'string' }, action: { type: 'string', enum: ['service', 'defer', 'ot'] } }, required: ['kind', 'resourceId', 'action'] },
+  ],
+}
 const EVALUATE_TOOL: LlmTool = {
   name: 'evaluate_what_if',
   description:
-    'Run the deterministic scheduling engine on a NEW scenario expressed as a change-set. Use when the question asks about a change not in the stored analysis (delay an order, add overtime, take a line down, change a quantity). Compound changes allowed.',
+    'Run the deterministic scheduling engine on a NEW scenario expressed as a change-set. Use when the question asks about a change not in the stored analysis (delay an order, add overtime, take a line down, change a quantity). Compound changes allowed — include one item per change; every requested change is reported back as applied / partial / unapplied.',
   parameters: {
     type: 'object',
+    additionalProperties: false,
     properties: {
       changeSet: {
         type: 'object',
+        additionalProperties: false,
         properties: {
-          origin: { type: 'object', properties: { type: { type: 'string', enum: ['demand', 'prediction', 'collision', 'manual'] }, ref: { type: 'string' } }, required: ['type'] },
-          changes: {
-            type: 'array',
-            minItems: 1,
-            items: {
-              type: 'object',
-              description:
-                "One change. kind ∈ demand_qty{demandLineId,to:int} | demand_date{demandLineId,to:ISO} | resource_window{resourceId,downFrom:ISO,downTo:ISO} | overtime{resourceId,hours} | wear_remediation{resourceId,action:'service'|'defer'|'ot'}",
-            },
-          },
+          origin: { type: 'object', additionalProperties: false, properties: { type: { type: 'string', enum: ['demand', 'prediction', 'collision', 'manual'] }, ref: { type: 'string' } }, required: ['type'] },
+          changes: { type: 'array', minItems: 1, items: CHANGE_ITEM_SCHEMA },
         },
         required: ['origin', 'changes'],
       },
@@ -50,8 +63,36 @@ const EVALUATE_TOOL: LlmTool = {
   },
 }
 
+/**
+ * Order lookup + disambiguation (conversation Pass A, #2). The inline catalog is a near-horizon
+ * SLICE (token + accuracy cost of inlining the whole order book grows with the plant); this tool
+ * resolves any order outside the slice — or confirms which order an ambiguous reference means —
+ * over the FULL set. The dispatch returns the match count so the model can ask rather than guess.
+ */
+const FIND_ORDERS_TOOL: LlmTool = {
+  name: 'find_orders',
+  description:
+    'Look up demand orders by any reference — order id (demandLineId), release reference, customer, or part — when the order is not in the inline ORDERS list, or to confirm which order an ambiguous reference means. Returns matching orders with their ids and the match count. If more than one matches, ASK the planner which one; never guess.',
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { query: { type: 'string', description: 'order id, release reference, customer, or part — case-insensitive' } },
+    required: ['query'],
+  },
+}
+/**
+ * Inline only the nearest-due slice of orders in the prompt; the rest resolve via find_orders.
+ * Sized so the demo's full near-term order spine sits inline (no unexpected lookup in the scripted
+ * flow) while still capping prompt growth as the order book extends past the near horizon.
+ */
+const ORDER_SLICE_CAP = 24
+const FIND_ORDERS_LIMIT = 12
+
 /** Scheduling keywords/figures that mark a turn as making a *scheduling claim*. */
 const CLAIM_RX = /\d|otif|oee|changeover|displacement|overtime|cost\/unit|late order|option|reroute|defer/i
+
+/** A demand order in the entity catalog (the conversation's resolution surface). */
+type CatalogOrder = { demandLineId: string; releaseReference: string | null; customer: string; part: string; qty: number; firmness: string; due: string }
 
 /**
  * Conversational layer (phase 6) — language + orchestration over phase-5's engine,
@@ -117,8 +158,15 @@ export class ConversationService {
       [...prior].reverse().find((t) => t.resultId)?.resultId ?? (plantId ? (await this.repo.findLatestWhatIfResult(tenantId, plantId))?.id : undefined) ?? null
 
     const catalog = plantId ? await this.scheduling.entityCatalog(tenantId, plantId) : { orders: [], resources: [] }
-    const system = buildSystemPrompt(catalog)
+    // Inline only the nearest-due slice (catalog is already due-sorted); find_orders covers the rest.
+    const orderSlice = catalog.orders.slice(0, ORDER_SLICE_CAP)
+    const system = buildSystemPrompt(orderSlice, catalog.resources, catalog.orders.length)
     const messages = prior.map((t) => ({ role: t.role, content: t.content }))
+
+    // The structure-derived change-set echo for a Type-2 turn — captured from the engine's ledger
+    // (never LLM free-text) and prepended to the answer so the planner always sees exactly what
+    // was applied / not applied (the never-silently-drop guarantee, conversation Pass A).
+    let lastLedger: RequestedChange[] | null = null
 
     const dispatch: ToolDispatch = async (call: LlmToolCall) => {
       if (call.name === 'retrieve_what_if') {
@@ -132,17 +180,37 @@ export class ConversationService {
         try {
           const res = await this.whatIf.evaluate(tenantId, plantId, parsed.data, undefined, userId)
           activeResultId = res.id
-          return { content: JSON.stringify(compactArtifact(res.id, res.recommendedOptionId, res.baseKpis, res.options)), groundedRefs: [res.id], resultId: res.id }
+          lastLedger = res.requestedChanges
+          return { content: JSON.stringify(compactArtifact(res.id, res.recommendedOptionId, res.baseKpis, res.options, res.requestedChanges)), groundedRefs: [res.id], resultId: res.id }
         } catch (e) {
           const code = e instanceof AppException ? e.code : 'error'
           return { content: `The engine could not evaluate that change (${code}). Ask the planner to clarify or decline.`, isError: true }
         }
       }
+      if (call.name === 'find_orders') {
+        const q = String((call.input as { query?: unknown }).query ?? '').toLowerCase().trim()
+        const matches = q
+          ? catalog.orders.filter(
+              (o: CatalogOrder) =>
+                o.demandLineId.toLowerCase().includes(q) ||
+                (o.releaseReference ?? '').toLowerCase().includes(q) ||
+                o.customer.toLowerCase().includes(q) ||
+                o.part.toLowerCase().includes(q),
+            )
+          : []
+        const note =
+          matches.length === 0
+            ? 'No order matches — ask the planner to clarify; do not guess or evaluate.'
+            : matches.length === 1
+              ? 'Exactly one match — safe to use its demandLineId.'
+              : 'Multiple orders match — ASK the planner which one (name the customer/part/due); never guess.'
+        return { content: JSON.stringify({ matchCount: matches.length, orders: matches.slice(0, FIND_ORDERS_LIMIT), note }), groundedRefs: [] }
+      }
       return { content: 'Unknown tool.', isError: true }
     }
 
     try {
-      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL] }, dispatch)
+      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, FIND_ORDERS_TOOL] }, dispatch)
       let content = loop.text || 'I could not produce a response.'
       let status: 'ok' | 'degraded' = 'ok'
       // Detectable non-fabrication violation: a scheduling claim with no grounding/tool call.
@@ -150,6 +218,12 @@ export class ConversationService {
         this.logger.warn(`grounding violation in conversation ${conv.id}: scheduling claim without groundedRefs`)
         content = 'I can only answer from the computed analysis and I do not have a grounded result for that — ask about the current options, or describe a scenario to evaluate.'
         status = 'degraded'
+      }
+      // Never silently drop: a Type-2 turn always leads with the structure-derived echo of what
+      // the engine actually applied (and what it couldn't), independent of the model's prose.
+      if (lastLedger) {
+        const echo = renderChangeEcho(lastLedger)
+        if (echo) content = `${echo}\n\n${content}`
       }
       const turn = await this.repo.createTurn({
         tenantId,
@@ -201,11 +275,14 @@ const CONSTRAINT_LABEL: Record<string, string> = {
  * labels, never internal ids/keys (`protect_delivery`, `displacement`, `firm_delivery`),
  * so the model's prose reads naturally and can't leak an identifier.
  */
-function compactArtifact(id: string, recommendedOptionId: string | null, baseKpis: unknown, options: WhatIfOption[]) {
+function compactArtifact(id: string, recommendedOptionId: string | null, baseKpis: unknown, options: WhatIfOption[], requestedChanges?: RequestedChange[]) {
   const labelOf = (optId: string) => optionLabelEn(options.find((o) => o.id === optId)?.labelKey ?? optId)
   return {
     resultId: id,
     recommendedOption: recommendedOptionId ? labelOf(recommendedOptionId) : null,
+    // What the engine actually did with each requested change (Type-2 only) — so the model's prose
+    // can speak to anything not fully applied. The planner-facing echo is rendered separately.
+    requestedChanges: requestedChanges?.map((c) => ({ change: c.summary, status: c.status, note: c.note })),
     baseKpis,
     options: options.map((o) => ({
       option: optionLabelEn(o.labelKey),
@@ -225,14 +302,15 @@ function compactArtifact(id: string, recommendedOptionId: string | null, baseKpi
   }
 }
 
-/** The ground-never-fabricate + routing system prompt, with the plant entity catalog inlined. */
-function buildSystemPrompt(catalog: { orders: unknown[]; resources: unknown[] }): string {
+/** The ground-never-fabricate + routing system prompt, with a near-horizon entity slice inlined. */
+function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown[], totalOrders: number): string {
   return [
     'You are a scheduling copilot for a production planner. You answer ONLY using tools; you NEVER state a scheduling number or result from your own reasoning.',
     '',
     'Tools:',
     '- retrieve_what_if: the stored, already-computed analysis. Use it for ANY question about the existing options/factors/constraints/costs. No new computation.',
     '- evaluate_what_if: runs the deterministic engine on a NEW scenario you express as a change-set. Use it for a change not in the stored analysis.',
+    '- find_orders: look up a demand order (by id, release reference, customer, or part) not in the inline list below, or to confirm which order an ambiguous reference means.',
     '',
     'Routing:',
     '- A question about the existing analysis → call retrieve_what_if, then answer from what it returns.',
@@ -240,14 +318,34 @@ function buildSystemPrompt(catalog: { orders: unknown[]; resources: unknown[] })
     '- If retrieve_what_if returns nothing relevant → construct a what-if or say you do not have that. NEVER estimate.',
     '- Off-domain or unanswerable (not this plant’s scheduling) → say you cannot help. Do NOT call a tool. Do NOT fabricate.',
     '',
-    'Change-set construction — map names to ids using ONLY these plant entities:',
-    `ORDERS: ${JSON.stringify(catalog.orders)}`,
-    `LINES: ${JSON.stringify(catalog.resources)}`,
-    'A change-set is { origin:{type}, changes:[ … ] }. If a request cannot map to the change kinds, say you cannot evaluate it. Ask one clarifying question only if genuinely ambiguous.',
+    'Change-set construction — map names to ids using these plant entities. Each order has a demandLineId (internal id), a releaseReference (the id the planner reads off the board, e.g. GM-830-1142), customer, part, qty, and due date.',
+    `ORDERS (nearest ${orderSlice.length} of ${totalOrders} by due date): ${JSON.stringify(orderSlice)}`,
+    `LINES: ${JSON.stringify(resources)}`,
+    'Resolution: match a reference to an order by demandLineId OR releaseReference OR customer/part. If the order is NOT in the list above, call find_orders. DISAMBIGUATION: if a reference matches more than one order (in the list or via find_orders), ASK the planner which one — name the distinguishing customer/part/due. Never guess an id, and never call evaluate_what_if on a guessed order.',
+    'A change-set is { origin:{type}, changes:[ … ] }. If a request cannot map to the change kinds, say you cannot evaluate it.',
     '',
+    'Faithfulness: evaluate_what_if returns `requestedChanges` — what the engine did with EACH change you asked for (applied / partial / unapplied, with a note). A plain-language summary of these is shown to the planner automatically, so do NOT repeat the list verbatim. But you MUST NOT imply a change took effect if its status is partial or unapplied — explain the consequence (e.g. "the overtime could not be added because that resource has no overtime allowance"). Never present a half-applied scenario as fully done.',
     'Grounding: every scheduling fact must come from a tool result; keep numbers exactly as returned. Be concise, like a planner’s note. You explain and construct — you never apply or commit.',
     'Language: write natural prose. Refer to options, factors, and constraints by their human labels exactly as given in the tool result (e.g. "Protect delivery", "displacement", "firm delivery") — NEVER print a raw identifier, snake_case key, or code token, and never add a "(see …)" reference.',
   ].join('\n')
+}
+
+/**
+ * Render the structure-derived change-set echo (conversation Pass A) from the engine's ledger —
+ * deterministic, never LLM prose. Leads a Type-2 answer so the planner sees exactly what was
+ * applied (with any clamp) and what could not be, making a dropped/limited clause impossible to
+ * miss. `partial` rows show the adjustment note inline; `unapplied` rows are called out separately.
+ */
+export function renderChangeEcho(ledger: RequestedChange[]): string {
+  if (ledger.length === 0) return ''
+  const applied = ledger
+    .filter((c) => c.status === 'applied' || c.status === 'partial')
+    .map((c) => (c.note ? `${c.summary} (${c.note})` : c.summary))
+  const unapplied = ledger.filter((c) => c.status === 'unapplied')
+  const lines: string[] = []
+  if (applied.length > 0) lines.push(`**Applied:** ${applied.join('; ')}.`)
+  if (unapplied.length > 0) lines.push(`**Not applied:** ${unapplied.map((c) => `${c.summary} — ${c.note}`).join('; ')}.`)
+  return lines.join('\n')
 }
 
 /** Conversation name from the first message — trimmed, recorded-safe, user-editable. */

@@ -6,6 +6,7 @@ import {
   type LearningReadContract,
   type OptionComparative,
   type RationaleFactor,
+  type RequestedChange,
   type ScheduleVersionDto,
   type StructuredRationale,
   type WhatIfOption,
@@ -86,10 +87,12 @@ export class WhatIfService {
     const rateByResource = this.rates(ctx.resourceById)
     const predicted = await this.predictedCycles(tenantId, changeSet)
     const optionCalendars = await this.optionCalendars(tenantId, ctx, changeSet)
+    const givenOt = this.givenOvertimeHours(ctx, changeSet)
+    const requestedChanges = this.buildLedger(ctx, changeSet)
 
     const specs = this.optionSpecs(changeSet, predicted)
     const evaluated = specs.map((spec) =>
-      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource),
+      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, givenOt),
     )
 
     const feasible = evaluated.filter((e) => e.feasible)
@@ -134,7 +137,7 @@ export class WhatIfService {
 
     const prior = await this.repo.findWhatIfByDeterminismKey(tenantId, determinismKey)
     if (prior) {
-      return this.toDto(prior.id, plantId, committed, changeSet, prior.baseKpis, prior.options as WhatIfOption[], prior.recommendedOptionId, determinismKey, prior.createdAt)
+      return this.toDto(prior.id, plantId, committed, changeSet, prior.baseKpis, prior.options as WhatIfOption[], prior.recommendedOptionId, determinismKey, prior.createdAt, requestedChanges)
     }
 
     const row = await this.repo.createWhatIfResult({
@@ -148,7 +151,7 @@ export class WhatIfService {
       determinismKey,
       createdBy: userId,
     })
-    return this.toDto(row.id, plantId, committed, changeSet, baseKpis, options, recommendedOptionId, determinismKey, row.createdAt)
+    return this.toDto(row.id, plantId, committed, changeSet, baseKpis, options, recommendedOptionId, determinismKey, row.createdAt, requestedChanges)
   }
 
   /**
@@ -159,7 +162,10 @@ export class WhatIfService {
   async get(tenantId: string, id: string): Promise<WhatIfResultDto> {
     const row = await this.repo.findWhatIfResult(tenantId, id)
     if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'What-if result not found', ERROR_CODES.WHATIF_RESULT_NOT_FOUND)
-    return this.toDto(row.id, row.plantId, row.baseVersionId, row.changeSet as ChangeSet, row.baseKpis as WhatIfResultDto['baseKpis'], row.options as WhatIfOption[], row.recommendedOptionId, row.determinismKey, row.createdAt)
+    // The persisted read returns a basic ledger (raw summaries) — the rich applied/clamped ledger
+    // is computed and surfaced at evaluation time (the conversation echo); no consumer needs to
+    // re-derive it on read, so this avoids rebuilding the full base context per what-if GET.
+    return this.toDto(row.id, row.plantId, row.baseVersionId, row.changeSet as ChangeSet, row.baseKpis as WhatIfResultDto['baseKpis'], row.options as WhatIfOption[], row.recommendedOptionId, row.determinismKey, row.createdAt, basicLedger(row.changeSet as ChangeSet))
   }
 
   /**
@@ -186,7 +192,7 @@ export class WhatIfService {
 
     const spec = this.optionSpecs(changeSet, predicted).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
-    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource)
+    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet))
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
@@ -280,71 +286,54 @@ export class WhatIfService {
     const wearChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'wear_remediation' }> => c.kind === 'wear_remediation')
     const windowChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'resource_window' }> => c.kind === 'resource_window')
     const materialChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'material_arrival' }> => c.kind === 'material_arrival')
+    const demandChanges = changeSet.changes.filter((c) => c.kind === 'demand_qty' || c.kind === 'demand_date')
     const isWear = changeSet.origin.type === 'prediction' || wearChanges.length > 0
+    const downResources = [...wearChanges, ...windowChanges].map((c) => c.resourceId)
+    const rid = downResources[0] ?? ''
 
-    // Material gate (D36): the component-availability floor is already in the data, so both
-    // options re-solve against it — wait (accept the gated plan; the cell idles until the
-    // component arrives) vs re-sequence-around (run ungated work into the pre-arrival gap).
-    // NO "expedite material" (deferred). Honest to the trigger, like wear→service/defer.
+    // ADDITIVE (conversation Pass A): a compound change-set composes the option families of
+    // EVERY trigger it spans instead of collapsing to one. The change EFFECTS are GIVENS applied
+    // to every option — demand mutations (applyChangeSet), window closures + explicit overtime
+    // (optionCalendars) — and the remediation MENU below is the de-duplicated UNION of the
+    // families the present triggers imply, each evaluated against that full given-world. (Identical
+    // plans collapse downstream by placement signature, so a redundant union member self-prunes.)
+    const specs: OptionSpec[] = []
+    const seen = new Set<string>()
+    const add = (s: OptionSpec): void => {
+      if (!seen.has(s.id)) {
+        seen.add(s.id)
+        specs.push(s)
+      }
+    }
+
+    // Material gate (D36): wait (accept the gated plan) vs re-sequence-around (fill the gap).
+    // NO "expedite material" (deferred). Honest to the trigger.
     if (materialChanges.length > 0) {
-      return [
-        { id: 'wait', labelKey: 'whatif.option.wait', overtimeHours: 0, itemTransform: (i) => i },
-        { id: 'resequence', labelKey: 'whatif.option.resequence', overtimeHours: 0, itemTransform: (i) => i, policy: { readyFirst: true } },
-      ]
+      add({ id: 'wait', labelKey: 'whatif.option.wait', overtimeHours: 0, itemTransform: (i) => i })
+      add({ id: 'resequence', labelKey: 'whatif.option.resequence', overtimeHours: 0, itemTransform: (i) => i, policy: { readyFirst: true } })
     }
-
-    // Wear / prediction remediation set: service / defer / overtime.
+    // Wear / prediction remediation: service / defer / overtime.
     if (isWear) {
-      const downResources = [...wearChanges, ...windowChanges].map((c) => c.resourceId)
-      const rid = downResources[0] ?? ''
-      return [
-        {
-          id: 'service',
-          labelKey: 'whatif.option.service',
-          overtimeHours: 0,
-          // Take every worn/windowed resource offline → re-solve; infeasible (honestly)
-          // if that starves an operation with no other eligible resource.
-          itemTransform: (items) => downResources.reduce((acc, r) => dropResource(acc, r), items),
-        },
-        {
-          id: 'defer',
-          labelKey: 'whatif.option.defer',
-          overtimeHours: 0,
-          itemTransform: (items) => items,
-          overlayWrap: (base) => inflateCycle(base, rid, predicted),
-        },
-        { id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items },
-      ]
+      // Take every worn/windowed resource offline → re-solve; honestly infeasible if that
+      // starves an op with no other eligible resource.
+      add({ id: 'service', labelKey: 'whatif.option.service', overtimeHours: 0, itemTransform: (items) => downResources.reduce((acc, r) => dropResource(acc, r), items) })
+      add({ id: 'defer', labelKey: 'whatif.option.defer', overtimeHours: 0, itemTransform: (items) => items, overlayWrap: (base) => inflateCycle(base, rid, predicted) })
+      add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
+    } else if (windowChanges.length > 0) {
+      // Line down (bare resource_window): reroute / overtime — no defer (the line is down). The
+      // window is a time-boxed closure (optionCalendars), so the sequencer flows around it.
+      add({ id: 'reroute', labelKey: 'whatif.option.reroute', overtimeHours: 0, itemTransform: (items) => items })
+      add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
     }
-
-    // Line-down set (a bare resource_window, no wear): reroute / overtime — no defer.
-    // The down window is a **time-boxed closure** on the resource's calendar (applied to
-    // every option via optionCalendars), so the sequencer reroutes to other eligible lines
-    // or flows work around the window — honestly infeasible only if an op is fully starved.
-    if (windowChanges.length > 0) {
-      return [
-        { id: 'reroute', labelKey: 'whatif.option.reroute', overtimeHours: 0, itemTransform: (items) => items },
-        { id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items },
-      ]
+    // Base trade-off family: a demand change — or NO disruption at all — yields the sequencing
+    // trade-off set. In a compound (e.g. "delay X and take line Y down") this composes WITH the
+    // disruption menu above so neither the delay's rebalance nor the line-down coping is dropped.
+    if (demandChanges.length > 0 || (materialChanges.length === 0 && !isWear && windowChanges.length === 0)) {
+      add({ id: 'balanced', labelKey: 'whatif.option.balanced', overtimeHours: 0, itemTransform: (i) => i })
+      add({ id: 'protect_delivery', labelKey: 'whatif.option.protectDelivery', overtimeHours: 0, itemTransform: (i) => i, policy: { expediteDemandLineIds: new Set(firmLineIds(changeSet)) } })
+      add({ id: 'minimize_changeover', labelKey: 'whatif.option.minimizeChangeover', overtimeHours: 0, itemTransform: (i) => i, policy: { changeoverBonusAllFirmness: true } })
     }
-
-    return [
-      { id: 'balanced', labelKey: 'whatif.option.balanced', overtimeHours: 0, itemTransform: (i) => i },
-      {
-        id: 'protect_delivery',
-        labelKey: 'whatif.option.protectDelivery',
-        overtimeHours: 0,
-        itemTransform: (i) => i,
-        policy: { expediteDemandLineIds: new Set(firmLineIds(changeSet)) },
-      },
-      {
-        id: 'minimize_changeover',
-        labelKey: 'whatif.option.minimizeChangeover',
-        overtimeHours: 0,
-        itemTransform: (i) => i,
-        policy: { changeoverBonusAllFirmness: true },
-      },
-    ]
+    return specs
   }
 
   // --- running + scoring one option ------------------------------------------
@@ -355,7 +344,10 @@ export class WhatIfService {
    */
   private async optionCalendars(tenantId: string, ctx: BaseContext, changeSet: ChangeSet): Promise<Map<string, WorkingCalendar>> {
     const windows = changeSet.changes.filter((c): c is Extract<Change, { kind: 'resource_window' }> => c.kind === 'resource_window')
-    if (windows.length === 0) return ctx.resourceCalendars
+    const overtimes = changeSet.changes.filter((c): c is Extract<Change, { kind: 'overtime' }> => c.kind === 'overtime')
+    if (windows.length === 0 && overtimes.length === 0) return ctx.resourceCalendars
+
+    // Window closures (line-down): time-boxed closed intervals on the resource's calendar.
     const extra = new Map<string, Array<[number, number]>>()
     for (const w of windows) {
       const from = Date.parse(w.downFrom)
@@ -366,7 +358,75 @@ export class WhatIfService {
         extra.set(w.resourceId, arr)
       }
     }
-    return this.scheduling.resolveResourceCalendars(tenantId, [...ctx.resourceById.values()], extra)
+    const cals =
+      windows.length > 0
+        ? await this.scheduling.resolveResourceCalendars(tenantId, [...ctx.resourceById.values()], extra)
+        : new Map(ctx.resourceCalendars)
+
+    // Explicit overtime is a GIVEN (conversation Pass A): grant the named resource its requested
+    // OT budget — honored hours clamped to the resource's policy ceiling (otCeilingMinutes) — in
+    // EVERY option, so a compounded "add Nh OT on R" is actually spendable by placement, not
+    // silently dropped. (A resource with a 0 ceiling can't be granted any — surfaced in the ledger.)
+    const otByResource = new Map<string, number>()
+    for (const o of overtimes) otByResource.set(o.resourceId, Math.max(otByResource.get(o.resourceId) ?? 0, o.hours))
+    for (const [resourceId, hours] of otByResource) {
+      const c = cals.get(resourceId)
+      if (!c) continue
+      cals.set(resourceId, { ...c, otCapMinutes: Math.min(hours * 60, c.otCeilingMinutes) })
+    }
+    return cals
+  }
+
+  /**
+   * Total honored explicit-overtime hours — each `overtime` change's hours clamped to its
+   * resource's policy ceiling. This is the OT a compound STIPULATES and the engine actually
+   * grants; used as the OT magnitude for scoring (factor + cost) so stipulated OT is costed,
+   * not free. Separate from an option's own proposed OT (`spec.overtimeHours`).
+   */
+  private givenOvertimeHours(ctx: BaseContext, changeSet: ChangeSet): number {
+    let total = 0
+    for (const c of changeSet.changes) {
+      if (c.kind !== 'overtime') continue
+      const ceilingHours = (ctx.resourceCalendars.get(c.resourceId)?.otCeilingMinutes ?? 0) / 60
+      total += Math.min(c.hours, ceilingHours)
+    }
+    return total
+  }
+
+  /**
+   * The never-silently-drop ledger (conversation Pass A): for each requested change, a human
+   * summary + whether the engine honored it. With additive specs + overtime-as-given every
+   * well-formed change is `applied`; the residual honest cases are an overtime change `clamped`
+   * to the resource ceiling (`partial`) or a resource with no OT allowance (`unapplied`). The
+   * conversation renders a structure-derived echo from this — faithfulness the engine can prove.
+   */
+  private buildLedger(ctx: BaseContext, changeSet: ChangeSet): RequestedChange[] {
+    const resName = (id: string): string => ctx.resourceById.get(id)?.name ?? id
+    const orderRef = (lineId: string): string => {
+      const d = ctx.demand.find((x) => x.demandLineId === lineId)
+      return d?.releaseReference ? `${lineId} (${d.releaseReference})` : lineId
+    }
+    return changeSet.changes.map((c): RequestedChange => {
+      switch (c.kind) {
+        case 'demand_qty':
+          return { kind: c.kind, summary: `set ${orderRef(c.demandLineId)} quantity to ${c.to}`, status: 'applied', note: null }
+        case 'demand_date':
+          return { kind: c.kind, summary: `move ${orderRef(c.demandLineId)} due date to ${shortDate(c.to)}`, status: 'applied', note: null }
+        case 'resource_window':
+          return { kind: c.kind, summary: `take ${resName(c.resourceId)} down ${shortDate(c.downFrom)}–${shortDate(c.downTo)}`, status: 'applied', note: null }
+        case 'wear_remediation':
+          return { kind: c.kind, summary: `${c.action} on ${resName(c.resourceId)}`, status: 'applied', note: null }
+        case 'material_arrival':
+          return { kind: c.kind, summary: `${c.componentPartId} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
+        case 'overtime': {
+          const ceilingHours = (ctx.resourceCalendars.get(c.resourceId)?.otCeilingMinutes ?? 0) / 60
+          const summary = `add ${c.hours}h overtime on ${resName(c.resourceId)}`
+          if (ceilingHours <= 0) return { kind: c.kind, summary, status: 'unapplied', note: `${resName(c.resourceId)} has no overtime allowance` }
+          if (c.hours > ceilingHours) return { kind: c.kind, summary, status: 'partial', note: `clamped to ${ceilingHours}h — ${resName(c.resourceId)} overtime ceiling` }
+          return { kind: c.kind, summary, status: 'applied', note: null }
+        }
+      }
+    })
   }
 
   private runOption(
@@ -378,6 +438,7 @@ export class WhatIfService {
     resourceCalendars: Map<string, WorkingCalendar>,
     resolveOperatorFactor: ResolveOperatorFactor,
     minBatchByResource: Map<string, number>,
+    givenOvertimeHours: number,
   ): { spec: OptionSpec; feasible: boolean; infeasibleReasonKey: string | null; scored: ScoredPlan | null; placements: Placement[] } {
     const items = spec.itemTransform(changed)
     const starved = items.find((i) => i.eligibleResourceIds.length === 0)
@@ -388,12 +449,15 @@ export class WhatIfService {
     // The overtime option grants the day's OT budget so placement may run past shift-end
     // into closed time — the requested hours, clamped to each resource's policy ceiling
     // (otCeilingMinutes). A normal solve spends none; this is the lever that opts in (D-shift).
+    // `resourceCalendars` already carries any explicit-overtime givens (optionCalendars).
     const cals =
       spec.overtimeHours > 0
         ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.min(spec.overtimeHours * 60, c.otCeilingMinutes) }]))
         : resourceCalendars
     const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor, minBatchByResource).placements
-    const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: spec.overtimeHours })
+    // OT magnitude for scoring = the larger of this option's proposed OT and the compound's
+    // stipulated (given) OT, so stipulated overtime is costed in the factor + cost, never free.
+    const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: Math.max(spec.overtimeHours, givenOvertimeHours) })
     return { spec, feasible: true, infeasibleReasonKey: null, scored, placements }
   }
 
@@ -521,9 +585,36 @@ export class WhatIfService {
     recommendedOptionId: string | null,
     determinismKey: string,
     createdAt: Date,
+    requestedChanges: RequestedChange[],
   ): WhatIfResultDto {
-    return { id, plantId, baseVersionId, changeSet, baseKpis, options, recommendedOptionId, determinismKey, createdAt: createdAt.toISOString() }
+    return { id, plantId, baseVersionId, changeSet, baseKpis, options, recommendedOptionId, determinismKey, createdAt: createdAt.toISOString(), requestedChanges }
   }
+}
+
+/** A YYYY-MM-DD label from an ISO date (ledger summaries; deterministic, no locale). */
+function shortDate(iso: string): string {
+  const t = Date.parse(iso)
+  return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : iso
+}
+
+/** A raw ledger (no entity-name/ceiling resolution) for the persisted read path — see {@link WhatIfService.get}. */
+function basicLedger(changeSet: ChangeSet): RequestedChange[] {
+  return changeSet.changes.map((c): RequestedChange => {
+    switch (c.kind) {
+      case 'demand_qty':
+        return { kind: c.kind, summary: `set ${c.demandLineId} quantity to ${c.to}`, status: 'applied', note: null }
+      case 'demand_date':
+        return { kind: c.kind, summary: `move ${c.demandLineId} due date to ${shortDate(c.to)}`, status: 'applied', note: null }
+      case 'resource_window':
+        return { kind: c.kind, summary: `take ${c.resourceId} down ${shortDate(c.downFrom)}–${shortDate(c.downTo)}`, status: 'applied', note: null }
+      case 'overtime':
+        return { kind: c.kind, summary: `add ${c.hours}h overtime on ${c.resourceId}`, status: 'applied', note: null }
+      case 'wear_remediation':
+        return { kind: c.kind, summary: `${c.action} on ${c.resourceId}`, status: 'applied', note: null }
+      case 'material_arrival':
+        return { kind: c.kind, summary: `${c.componentPartId} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
+    }
+  })
 }
 
 // --- pure item/overlay transforms --------------------------------------------

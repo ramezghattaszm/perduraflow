@@ -58,9 +58,12 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * `wi-8` = minimum batch (C4) — run-quantity floor per resource type (effRunQty = max(demandQty,
  * minBatchQty)); run-to-minimum extends duration when it binds — changes placement;
  * `wi-9` = cost factor (C6) — costPerUnit added to the objective (aps-w2); scoring changed, so
- * cached results must be invalidated even though placement is unchanged.
+ * cached results must be invalidated even though placement is unchanged;
+ * `wi-10` = additive option families + explicit overtime consumed as a per-resource given with
+ * honored hours (conversation Pass A) — compound change-sets now compose instead of collapsing,
+ * so option sets/placements differ for compound and overtime-bearing change-sets.
  */
-export const ENGINE_VERSION = 'wi-9'
+export const ENGINE_VERSION = 'wi-10'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000

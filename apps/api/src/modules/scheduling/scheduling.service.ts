@@ -261,7 +261,7 @@ export class SchedulingService {
    * real ids. Bounded by the plant's active demand + resources (a handful each).
    */
   async entityCatalog(tenantId: string, plantId: string): Promise<{
-    orders: { demandLineId: string; customer: string; part: string; qty: number; firmness: string; due: string }[]
+    orders: { demandLineId: string; releaseReference: string | null; customer: string; part: string; qty: number; firmness: string; due: string }[]
     resources: { id: string; name: string; status: string }[]
   }> {
     const md = await this.resolveMasterData(tenantId)
@@ -271,6 +271,9 @@ export class SchedulingService {
       .map((r) => ({ id: r.id, name: r.name, status: r.status }))
     const custCache = new Map<string, string>()
     const demand = (await this.repo.listDemand(tenantId, plantId)).filter((d) => d.isActive)
+    // Earliest-due first: the conversation inlines a near-horizon slice, so this ordering keeps
+    // the orders a planner is actively scheduling (and the demo's tight-due spine) in that slice.
+    demand.sort((a, b) => a.requiredDate.getTime() - b.requiredDate.getTime() || (a.demandLineId < b.demandLineId ? -1 : 1))
     const orders = []
     for (const d of demand) {
       let customer = custCache.get(d.customerId)
@@ -278,7 +281,9 @@ export class SchedulingService {
         customer = (await this.org.getCustomer(tenantId, d.customerId))?.name ?? d.customerId
         custCache.set(d.customerId, customer)
       }
-      orders.push({ demandLineId: d.demandLineId, customer, part: partNo.get(d.partId) ?? d.partId, qty: d.requiredQty, firmness: d.firmness, due: d.requiredDate.toISOString() })
+      // releaseReference is the human-facing order id the planner reads off the board (e.g.
+      // GM-830-1142) — exposed so "delay GM-830-1142" resolves, not just the internal demandLineId.
+      orders.push({ demandLineId: d.demandLineId, releaseReference: d.releaseReference, customer, part: partNo.get(d.partId) ?? d.partId, qty: d.requiredQty, firmness: d.firmness, due: d.requiredDate.toISOString() })
     }
     return { orders, resources }
   }
