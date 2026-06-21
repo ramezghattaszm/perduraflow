@@ -165,8 +165,9 @@ export async function seed(): Promise<void> {
     // station is the hard gate (deviates from the D29/D54 cert-skill-pool model for demo
     // visibility — deferred reconciliation).
     const [leakStation] = await db.insert(resource).values({ tenantId, name: 'Leak-Test Station', resourceType: 'work_center', plantId: ramos!.id, calendarId: calRamos!.id, runCostPerHour: 60, setupCost: 20, overheadPerUnit: 0.1 }).returning()
-    // Resource-type shift config (D-shift): presses run non-interruptible setups
-    // (non-splittable); weld cells may pause across shifts (splittable). Both may run up
+    // Resource-type shift config (D-shift): presses AND weld cells run non-interruptible
+    // (non-splittable) — a job must complete in one contiguous working window, so the optimizer
+    // schedules each whole rather than parking it across the 22:00 shift boundary. Both may run up
     // to 4h/day overtime past shift-end (an extended shift) — the ceiling the what-if
     // "overtime" option spends; a normal solve uses none. 4h is enough that, against a
     // moderate disruption on a realistically-full line, OT genuinely competes with reroute
@@ -177,7 +178,7 @@ export async function seed(): Promise<void> {
     // configurable, the proof is config-driven (drop a demand below 100 via the launcher → it binds).
     await db.insert(resourceTypeConfig).values([
       { tenantId, resourceType: 'line', splittable: false, otCapMinutes: 240, minBatchQty: 100 },
-      { tenantId, resourceType: 'cell', splittable: true, otCapMinutes: 240, minBatchQty: 100 },
+      { tenantId, resourceType: 'cell', splittable: false, otCapMinutes: 240, minBatchQty: 100 },
       { tenantId, resourceType: 'work_center', splittable: false, otCapMinutes: 0, minBatchQty: 100 },
     ])
     const [pressGrp] = await db.insert(resourceGroup).values({ tenantId, name: 'Saltillo stamping presses', plantId: saltillo!.id }).returning()
@@ -335,7 +336,10 @@ export async function seed(): Promise<void> {
     // date instead of cascading late) and due dates at END of the working day (22:00) — a
     // full day's run can't finish by noon, so a noon due would force structural lateness.
     const pressQtys = [1200, 1150, 1100, 1050] // ≈ 4500 units ≈ ~90% of a Saltillo press-day
-    const weldQtys = [520, 470] // ≈ 990 units ≈ ~85% of a Ramos weld-day (eased for the single inspection station)
+    // Weld is non-splittable: a ~750-min job (520 units) fills most of a 960-min day and a second
+    // won't fit before 22:00, wasting the evening. Keep weld batches small (~460 min) so TWO pack
+    // into a cell-day — restores throughput so non-splittable weld still completes by month-end.
+    const weldQtys = [330, 320, 310] // ≈ 960 units/day across 3 smaller, well-packing batches
     let mf = 101
     for (let d = 2; d <= monthEndOffset; d++) {
       if (new Date(baseDay + d * DAY_MS).getUTCDay() === 0) continue // Sunday — calendar-closed
