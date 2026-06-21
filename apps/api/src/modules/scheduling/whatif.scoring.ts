@@ -110,6 +110,11 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
     factor('overtime', 'h', r2(otHours), WEIGHTS.overtime, 'whatif.factor.overtime', { hours: r2(otHours) }),
     factor('inventory', 'h', r2(earlyHours), WEIGHTS.inventory, 'whatif.factor.inventory', { hours: r2(earlyHours) }),
     factor('displacement', '', displaced, WEIGHTS.displacement, 'whatif.factor.displacement', { count: displaced }),
+    // Cost (C6): per-unit economics in the objective. rawValue = costPerUnit, with a non-null
+    // guard — an uncosted plan (no rated resource → costPerUnit null) contributes 0 (cost-neutral),
+    // never NaN; the seed rates every resource, so this only fires on misconfigured data. Weight 4
+    // keeps cost a real discriminator while staying far below lateness (firm-lateness dominance).
+    factor('cost', '', costPerUnit ?? 0, WEIGHTS.cost, 'whatif.factor.cost', { cost: costPerUnit ?? 0 }),
   ]
   const score = r4(factors.reduce((s, f) => s + f.contribution, 0))
 

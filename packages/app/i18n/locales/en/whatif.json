@@ -25,14 +25,16 @@
     "changeover": "Changeovers",
     "overtime": "Overtime",
     "inventory": "Early/holding",
-    "displacement": "Displacement"
+    "displacement": "Displacement",
+    "cost": "Cost/unit"
   },
   "factor": {
     "lateness": "{{hours}}h firm-order lateness across {{orders}} order(s)",
     "changeover": "{{count}} changeover(s)",
     "overtime": "{{hours}}h overtime added",
     "inventory": "{{hours}}h finished ahead of need",
-    "displacement": "{{count}} operation(s) moved from the current plan"
+    "displacement": "{{count}} operation(s) moved from the current plan",
+    "cost": "cost/unit {{cost}}"
   },
   "option": {
     "balanced": "Re-sequence (balanced)",
