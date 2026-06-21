@@ -314,6 +314,49 @@ export async function seed(): Promise<void> {
       { line: 'DL-2003', ref: 'STL-862-2003', part: fg3001, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'forecast', qty: 250, due: at(3, 12) },
       { line: 'DL-2004', ref: 'STL-862-2004', part: fg3002, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'forecast', qty: 200, due: at(4, 12) },
     ]
+
+    // Month-fill (demo) — load each working day from +2 through the end of THIS month so the
+    // board shows scheduled work across the whole month, not just the first few days. The
+    // collision spine above (+0/+1) stays the near-term story; this extends the load behind it.
+    // Deterministic: one ~full day-load due each working offset (≈ one Saltillo press-day of
+    // ~4800 units + one Ramos weld-day of ~1100 units), Sundays skipped (calendar-closed). With
+    // ~8 day-loads over the ~8 remaining working days the engine front-loads them back-to-back
+    // out to month-end. Quantities stay ≥ the minimum batch (100). Re-anchors on every reset.
+    const monthEndOffset = Math.round(
+      (Date.UTC(new Date(baseDay).getUTCFullYear(), new Date(baseDay).getUTCMonth() + 1, 0) - baseDay) / DAY_MS,
+    )
+    const pressParts = [fg2001, fg2002, fg2004]
+    const pressCust: [string, string | null][] = [
+      [gm!.id, gmProgram!.id],
+      [nissan!.id, null],
+      [aftermarket!.id, null],
+    ]
+    // ~75% daily load (leaves slack so the front-loaded plan completes near each day's due
+    // date instead of cascading late) and due dates at END of the working day (22:00) — a
+    // full day's run can't finish by noon, so a noon due would force structural lateness.
+    const pressQtys = [1200, 1150, 1100, 1050] // ≈ 4500 units ≈ ~90% of a Saltillo press-day
+    const weldQtys = [520, 470] // ≈ 990 units ≈ ~85% of a Ramos weld-day (eased for the single inspection station)
+    let mf = 101
+    for (let d = 2; d <= monthEndOffset; d++) {
+      if (new Date(baseDay + d * DAY_MS).getUTCDay() === 0) continue // Sunday — calendar-closed
+      pressQtys.forEach((qty, i) => {
+        const idx = (d + i) % pressParts.length
+        const [cust, prog] = pressCust[idx]!
+        demand.push({
+          line: `MF-${mf}`, ref: `MF-${mf}`, part: pressParts[idx]!, plant: saltillo!.id, cust, prog,
+          firm: i === pressQtys.length - 1 ? 'forecast' : 'firm', qty, due: at(d, 22),
+        })
+        mf++
+      })
+      weldQtys.forEach((qty, i) => {
+        demand.push({
+          line: `MF-${mf}`, ref: `MF-${mf}`, part: (d + i) % 2 === 0 ? fg3001 : fg3002, plant: ramos!.id,
+          cust: stellantis!.id, prog: stelProgram!.id, firm: i === 1 ? 'forecast' : 'firm', qty, due: at(d, 22),
+        })
+        mf++
+      })
+    }
+
     await db.insert(demandInput).values(
       demand.map((r) => ({
         tenantId,
