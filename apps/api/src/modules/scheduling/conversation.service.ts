@@ -315,15 +315,24 @@ function compactArtifact(id: string, recommendedOptionId: string | null, baseKpi
  */
 export function renderScreenContext(sc: ScreenContext | undefined, catalog: { orders: CatalogOrder[]; resources: { id: string; name: string }[] }): string | null {
   if (!sc) return null
+  const orderRef = (id: string): string => {
+    const o = catalog.orders.find((x) => x.demandLineId === id)
+    return o?.releaseReference ? `${o.demandLineId} (${o.releaseReference})` : id
+  }
+  const resName = (id: string): string => catalog.resources.find((x) => x.id === id)?.name ?? id
+  // Per-screen natural phrasing of the deictic referent (Pass C).
+  if (sc.screen === 'scorecard') {
+    const arm = sc.view === 'measured_historical' ? 'measured-historical' : 'engine-lift'
+    const scope = sc.selectedResourceId ? `scope ${resName(sc.selectedResourceId)}` : 'scope the whole plant'
+    return `the scorecard — the ${arm} comparison, ${scope}`
+  }
+  if (sc.screen === 'exception') {
+    return sc.selectedOrderId ? `the exception queue — at-risk order ${orderRef(sc.selectedOrderId)} selected` : 'the exception queue (no order selected)'
+  }
+  // Board (and any other screen) — the generic selection rendering.
   const parts: string[] = [`screen ${sc.screen}${sc.view ? ` (${sc.view} view)` : ''}`]
-  if (sc.selectedOrderId) {
-    const o = catalog.orders.find((x) => x.demandLineId === sc.selectedOrderId)
-    parts.push(`selected order ${o?.releaseReference ? `${o.demandLineId} (${o.releaseReference})` : sc.selectedOrderId}`)
-  }
-  if (sc.selectedResourceId) {
-    const r = catalog.resources.find((x) => x.id === sc.selectedResourceId)
-    parts.push(`selected line ${r?.name ?? sc.selectedResourceId}`)
-  }
+  if (sc.selectedOrderId) parts.push(`selected order ${orderRef(sc.selectedOrderId)}`)
+  if (sc.selectedResourceId) parts.push(`selected line ${resName(sc.selectedResourceId)}`)
   if (sc.activeResultId) parts.push('a what-if analysis is open on screen')
   return parts.join(', ')
 }
@@ -337,6 +346,7 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
         'Use the current screen ONLY to resolve a DEICTIC or unspecified reference — "this", "it", "here", "this order", "this line", "the current option". Resolve such a reference to the matching on-screen selection (and "this option / why not X" to the analysis open on screen).',
         'A NAMED entity ALWAYS WINS: if the planner names an order or line (by id, release reference, customer, or part), resolve THAT via the inline list / find_orders and IGNORE the on-screen selection — even when a different order is selected. Screen context is a default for deictic references, never a filter on what you can reach.',
         'If a deictic reference has NO matching on-screen selection (e.g. "this order" but no order is selected), ASK which one — do NOT fall back to anything or guess.',
+        'Capability boundary: you can run what-if scenarios on ORDERS (evaluate_what_if) and read the stored what-if analysis. You do NOT yet have tools to retrieve baseline/comparison or workforce-coverage figures. If the planner asks to explain or act on those (e.g. "explain this lift", "this comparison", a coverage gap), resolve WHAT they refer to from the current screen, then say plainly you can work with orders and what-if scenarios but cannot pull baseline/coverage detail yet — never invent those numbers.',
       ]
     : []
   return [

@@ -15,6 +15,10 @@ export interface ExceptionRowProps {
   actions?: ReactNode
   /** Top divider (between rows). */
   divided?: boolean
+  /** Makes the row selectable (e.g. to set the deictic referent for the Copilot). */
+  onPress?: () => void
+  /** Selected state — a soft highlight; pairs with `onPress`. */
+  selected?: boolean
 }
 
 /**
@@ -24,7 +28,7 @@ export interface ExceptionRowProps {
  * shapes: **auto-handled** (no actions, quiet) and **needs-you** (Approve/Dismiss/
  * Sign-off). Presentational; the screen computes the strings + wires the actions.
  */
-export function ExceptionRow({ title, statement, badge, actions, divided }: ExceptionRowProps) {
+export function ExceptionRow({ title, statement, badge, actions, divided, onPress, selected }: ExceptionRowProps) {
   return (
     <XStack
       gap="$3"
@@ -34,6 +38,10 @@ export function ExceptionRow({ title, statement, badge, actions, divided }: Exce
       paddingHorizontal="$4"
       borderTopWidth={divided ? 1 : 0}
       borderTopColor="$borderColor"
+      backgroundColor={selected ? '$primarySoft' : undefined}
+      onPress={onPress}
+      cursor={onPress ? 'pointer' : undefined}
+      hoverStyle={onPress && !selected ? { backgroundColor: '$backgroundHover' } : undefined}
     >
       <YStack flex={1} gap="$1">
         <XStack gap="$2" alignItems="center" flexWrap="wrap">

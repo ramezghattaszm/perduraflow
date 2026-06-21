@@ -28,6 +28,22 @@ describe('renderScreenContext — Pass B screen snapshot', () => {
     const line = renderScreenContext({ screen: 'board' }, CATALOG)
     expect(line).toBe('screen board')
   })
+
+  it('phrases the scorecard referent (arm + scope) naturally (Pass C)', () => {
+    expect(renderScreenContext({ screen: 'scorecard', view: 'frozen_engine_snapshot', selectedResourceId: 'res-A' }, CATALOG)).toBe(
+      'the scorecard — the engine-lift comparison, scope Press Line A',
+    )
+    expect(renderScreenContext({ screen: 'scorecard', view: 'measured_historical' }, CATALOG)).toBe(
+      'the scorecard — the measured-historical comparison, scope the whole plant',
+    )
+  })
+
+  it('phrases the exception-queue referent (selected at-risk order) naturally (Pass C)', () => {
+    expect(renderScreenContext({ screen: 'exception', selectedOrderId: 'DL-2004' }, CATALOG)).toBe(
+      'the exception queue — at-risk order DL-2004 (STL-862-2004) selected',
+    )
+    expect(renderScreenContext({ screen: 'exception' }, CATALOG)).toBe('the exception queue (no order selected)')
+  })
 })
 
 describe('buildSystemPrompt — Pass B precedence (named wins / deictic→screen / no-selection→ask)', () => {
@@ -41,6 +57,9 @@ describe('buildSystemPrompt — Pass B precedence (named wins / deictic→screen
     expect(prompt).toMatch(/DEICTIC[\s\S]*on-screen selection/)
     // deictic with no selection → ask, never null-resolve/guess
     expect(prompt).toContain('ASK which one — do NOT fall back')
+    // resolution ≠ action: resolves the referent but is honest about missing baseline/coverage tools
+    expect(prompt).toContain('Capability boundary')
+    expect(prompt).toContain('cannot pull baseline/coverage detail yet')
   })
 
   it('omits the CURRENT SCREEN block when there is no context (Pass A regression)', () => {

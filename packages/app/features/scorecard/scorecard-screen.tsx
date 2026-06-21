@@ -20,6 +20,7 @@ import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources, useScheduleVersions } from '../../hooks/useScheduling'
 import { useScorecard } from '../../hooks/useLearning'
 import { useBaseline } from '../../hooks/useWhatIf'
+import { useSetScreenContext } from '../../stores/screenContext.store'
 import { AdminShell } from '../shell/admin-shell'
 
 const pct = (x: number) => `${Math.round(x * 100)}%`
@@ -40,6 +41,8 @@ export function ScorecardContent() {
   const { plantId, setPlant } = usePlantSelection(plants)
   const [versionId, setVersionId] = useState<string | null>(null)
   const [resourceId, setResourceId] = useState<string | null>(null) // null = plant-level
+  // Baseline arm lifted here (from BaselinePanel) so it's part of the screen-context referent.
+  const [source, setSource] = useState<BaselineSource>('frozen_engine_snapshot')
 
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
@@ -54,6 +57,16 @@ export function ScorecardContent() {
   }, [versions, versionId])
   // Reset the line scope when the plant changes (a line belongs to one plant).
   useEffect(() => setResourceId(null), [plantId])
+
+  // Pass C (publish-only): the scorecard's deictic referent — "this lift / comparison" = the
+  // active baseline arm + the scope (a line, or the whole plant). Published for the Copilot to
+  // resolve "this"; acting on it awaits a baseline-retrieve tool (content-grounding, deferred), so
+  // the Copilot resolves the referent but is honest it can't pull baseline figures yet.
+  const setScreenContext = useSetScreenContext()
+  useEffect(() => {
+    setScreenContext({ screen: 'scorecard', versionId: versionId ?? undefined, selectedResourceId: resourceId ?? undefined, view: source })
+    return () => setScreenContext(null)
+  }, [setScreenContext, versionId, resourceId, source])
 
   const { data: sc } = useScorecard(
     plantId ?? undefined,
@@ -249,7 +262,7 @@ export function ScorecardContent() {
 
           {/* Plan-comparison / baseline (D57) — both arms, honest empty-state. */}
           <Panel title={t('baseline:title', { defaultValue: 'Vs baseline' })}>
-            <BaselinePanel plantId={plantId ?? undefined} resourceId={resourceId ?? undefined} />
+            <BaselinePanel plantId={plantId ?? undefined} resourceId={resourceId ?? undefined} source={source} onSourceChange={setSource} />
           </Panel>
         </>
       )}
@@ -281,14 +294,14 @@ function baselineRows(live: CostedKpis, base: CostedKpis, t: (k: string) => stri
     .filter((r) => !(r.live === '—' && r.baseline === '—'))
 }
 
-/** Baseline comparison (D57) — frozen-engine / measured-historical arms + empty-state. */
-function BaselinePanel({ plantId, resourceId }: { plantId?: string; resourceId?: string }) {
+/** Baseline comparison (D57) — frozen-engine / measured-historical arms + empty-state. Controlled
+ *  arm (`source`/`onSourceChange`) so the screen can publish it as the deictic referent (Pass C). */
+function BaselinePanel({ plantId, resourceId, source, onSourceChange }: { plantId?: string; resourceId?: string; source: BaselineSource; onSourceChange: (s: BaselineSource) => void }) {
   const { t } = useTranslation(['baseline'])
-  const [source, setSource] = useState<BaselineSource>('frozen_engine_snapshot')
   const { data } = useBaseline(plantId, source, resourceId)
   const arms = [
-    { id: 'frozen_engine_snapshot', label: t('arm.frozen'), active: source === 'frozen_engine_snapshot', onPress: () => setSource('frozen_engine_snapshot') },
-    { id: 'measured_historical', label: t('arm.historical'), active: source === 'measured_historical', onPress: () => setSource('measured_historical') },
+    { id: 'frozen_engine_snapshot', label: t('arm.frozen'), active: source === 'frozen_engine_snapshot', onPress: () => onSourceChange('frozen_engine_snapshot') },
+    { id: 'measured_historical', label: t('arm.historical'), active: source === 'measured_historical', onPress: () => onSourceChange('measured_historical') },
   ]
   const empty = !data || data.emptyState || !data.live || !data.baseline
   return (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ParameterPredictionDto } from '@perduraflow/contracts'
 import {
   AppButton,
@@ -19,6 +19,7 @@ import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources } from '../../hooks/useScheduling'
 import { useApprovePrediction, useDismissPrediction, usePredictions, useScorecard } from '../../hooks/useLearning'
 import { useCanConfigure } from '../../stores/auth.store'
+import { useSetScreenContext } from '../../stores/screenContext.store'
 import { AdminShell } from '../shell/admin-shell'
 
 const fmtTime = (iso: string | null) => {
@@ -54,6 +55,17 @@ export function ExceptionsContent() {
   const queued = predictions.filter((p) => p.disposition === 'queued')
   const atRisk = sc?.atRisk ?? []
   const needYou = queued.length + atRisk.length
+
+  // Pass C: the selected at-risk row is the deictic referent ("this order / why is this at-risk").
+  // It resolves to selectedOrderId, which the Copilot's evaluate_what_if can act on. Published to
+  // the screen-context store (cleared on unmount, reset on plant change — no cross-screen leak).
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const setScreenContext = useSetScreenContext()
+  useEffect(() => setSelectedOrderId(null), [plantId])
+  useEffect(() => {
+    setScreenContext({ screen: 'exception', selectedOrderId: selectedOrderId ?? undefined })
+    return () => setScreenContext(null)
+  }, [setScreenContext, selectedOrderId])
 
   const title = (p: ParameterPredictionDto) => `${resName.get(p.resourceId) ?? p.resourceId.slice(-5)} · ${t(`param.${p.param}`)}`
   const statement = (p: ParameterPredictionDto) =>
@@ -113,6 +125,8 @@ export function ExceptionsContent() {
                 title={a.label}
                 statement={`${a.detail} · ${a.reason}`}
                 badge={{ label: t('tier.t3'), tone: 'danger' }}
+                selected={selectedOrderId === a.demandLineId}
+                onPress={() => setSelectedOrderId((cur) => (cur === a.demandLineId ? null : a.demandLineId))}
               />
             ))}
           </>
