@@ -39,6 +39,7 @@ import { useLearnedParameters, usePredictions, useVariance } from '../../../hook
 import { useWhatIf } from '../../../hooks/useWhatIf'
 import { useToast } from '../../../hooks/useToast'
 import { useSessionState } from '../../../hooks/useSessionState'
+import { useSetScreenContext } from '../../../stores/screenContext.store'
 import { AdminShell } from '../../shell/admin-shell'
 import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
 
@@ -277,6 +278,23 @@ export function BoardContent() {
 
   const selectedOp = selectedBarId ? opById.get(selectedBarId) : undefined
   const selectedLearned = selectedOp ? learnedCycleByKey.get(`${selectedOp.resourceId}:${selectedOp.routingOperationId}`) : undefined
+
+  // Publish the board's live selection so the Copilot can resolve deictic references ("this
+  // order", "this option") against what's on screen (Pass B). Cleared on unmount so a stale
+  // board selection never leaks onto another screen. Read imperatively at send time, so the
+  // turn always carries the current selection.
+  const setScreenContext = useSetScreenContext()
+  useEffect(() => {
+    setScreenContext({
+      screen: 'board',
+      view: horizonMode,
+      versionId: versionId ?? undefined,
+      selectedOrderId: selectedOp?.demandLineId ?? undefined,
+      selectedResourceId: selectedResourceId ?? undefined,
+      activeResultId: whatIfResult?.id ?? undefined,
+    })
+    return () => setScreenContext(null)
+  }, [setScreenContext, horizonMode, versionId, selectedOp?.demandLineId, selectedResourceId, whatIfResult?.id])
 
   const actionError = solve.error ?? commit.error
   const errorMsg = actionError ? translateError(getApiErrorCode(actionError)) : undefined

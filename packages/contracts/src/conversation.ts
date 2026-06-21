@@ -65,16 +65,39 @@ export interface ConversationDetailDto {
   turns: ConversationTurnDto[]
 }
 
+/**
+ * What the planner is looking at when they send a turn (Pass B). A per-turn snapshot used to
+ * resolve **deictic/unspecified** references ("this", "here", "the current option") against the
+ * on-screen selection — a DEFAULT, never a filter: a named entity always overrides it, and any
+ * order/resource stays reachable by name regardless of screen. Optional; absent → Pass A behavior.
+ */
+export const screenContextSchema = z
+  .object({
+    /** The screen the planner is on, e.g. 'board'. */
+    screen: z.string().min(1).max(40),
+    /** Screen sub-view, e.g. board 'day' | 'week'. */
+    view: z.string().max(40).optional(),
+    versionId: z.string().optional(),
+    /** Selected order (board: the selected bar's demand line) — the deictic default for "this order". */
+    selectedOrderId: z.string().optional(),
+    /** Selected resource/lane — the deictic default for "this line". */
+    selectedResourceId: z.string().optional(),
+    /** The what-if result on screen — binds "this option / why not X" to the displayed analysis. */
+    activeResultId: z.string().optional(),
+  })
+  .strict()
+export type ScreenContext = z.infer<typeof screenContextSchema>
+
 // --- request schemas ---------------------------------------------------------
 
 /** `POST /scheduling/conversations` — start a conversation with a first message. */
 export const createConversationSchema = z
-  .object({ plantId: z.string().min(1), message: z.string().min(1).max(2000) })
+  .object({ plantId: z.string().min(1), message: z.string().min(1).max(2000), screenContext: screenContextSchema.optional() })
   .strict()
 export type CreateConversationRequest = z.infer<typeof createConversationSchema>
 
 /** `POST /scheduling/conversations/:id/turns` — add a user turn (response streamed). */
-export const addTurnSchema = z.object({ message: z.string().min(1).max(2000) }).strict()
+export const addTurnSchema = z.object({ message: z.string().min(1).max(2000), screenContext: screenContextSchema.optional() }).strict()
 export type AddTurnRequest = z.infer<typeof addTurnSchema>
 
 /** `PATCH /scheduling/conversations/:id` — rename. */

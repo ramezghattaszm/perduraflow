@@ -3,6 +3,7 @@ import type {
   ConversationDetailDto,
   ConversationDto,
   ConversationTurnDto,
+  ScreenContext,
 } from '@perduraflow/contracts'
 import { apiClient } from '../lib/axios'
 import { queryClient } from '../lib/query-client'
@@ -32,7 +33,7 @@ export function useConversation(id: string | undefined) {
 /** Start a conversation with a first message (processes the first grounded turn). */
 export function useCreateConversation() {
   return useMutation({
-    mutationFn: (vars: { plantId: string; message: string }) =>
+    mutationFn: (vars: { plantId: string; message: string; screenContext?: ScreenContext }) =>
       post<ConversationDetailDto, typeof vars>('/scheduling/conversations', vars),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.conversations() }),
   })
@@ -41,8 +42,8 @@ export function useCreateConversation() {
 /** Add a user turn → grounded assistant reply; refreshes the conversation thread. */
 export function useAddTurn(conversationId: string | undefined) {
   return useMutation({
-    mutationFn: (message: string) =>
-      post<ConversationTurnDto, { message: string }>(`/scheduling/conversations/${conversationId}/turns`, { message }),
+    mutationFn: (vars: { message: string; screenContext?: ScreenContext }) =>
+      post<ConversationTurnDto, typeof vars>(`/scheduling/conversations/${conversationId}/turns`, vars),
     onSuccess: () => {
       if (conversationId) void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.conversation(conversationId) })
     },

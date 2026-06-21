@@ -28,7 +28,7 @@ export class ConversationController {
   /** `POST /scheduling/conversations` — start a conversation with a first message. */
   @Post()
   create(@CurrentUser() user: JwtPayload, @Body(new ZodValidationPipe(createConversationSchema)) dto: CreateConversationRequest) {
-    return this.conversations.create(user.tenantId, dto.plantId, dto.message, user.sub)
+    return this.conversations.create(user.tenantId, dto.plantId, dto.message, user.sub, dto.screenContext)
   }
 
   /** `GET /scheduling/conversations` — the tenant's conversations (newest first). */
@@ -50,7 +50,7 @@ export class ConversationController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(addTurnSchema)) dto: AddTurnRequest,
   ) {
-    return this.conversations.addTurn(user.tenantId, id, dto.message, user.sub)
+    return this.conversations.addTurn(user.tenantId, id, dto.message, user.sub, dto.screenContext)
   }
 
   /** `PATCH /scheduling/conversations/:id` — rename. */

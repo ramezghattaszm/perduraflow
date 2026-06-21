@@ -10,6 +10,7 @@ import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useAddTurn, useConversation, useConversations, useCreateConversation } from '../../hooks/useConversation'
 import { useWhatIfResult } from '../../hooks/useWhatIf'
 import { useCopilotConversationId, useSetCopilotConversation } from '../../stores/copilot.store'
+import { getScreenContext } from '../../stores/screenContext.store'
 import { WhatIfOptionSet } from '../whatif/whatif-option-set'
 
 /**
@@ -63,8 +64,11 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
     const message = input.trim()
     if (!message || !plantId || pending) return
     setInput('')
-    if (conversationId) addTurn.mutate(message)
-    else create.mutate({ plantId, message }, { onSuccess: (d) => setConversation(d.conversation.id) })
+    // Read the screen context imperatively HERE (send time) so the turn carries the current
+    // selection — not a value closed over at render (no stale-selection race).
+    const screenContext = getScreenContext() ?? undefined
+    if (conversationId) addTurn.mutate({ message, screenContext })
+    else create.mutate({ plantId, message, screenContext }, { onSuccess: (d) => setConversation(d.conversation.id) })
   }
 
   return (

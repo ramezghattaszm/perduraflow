@@ -5,6 +5,7 @@ import {
   type ConversationDto,
   type ConversationTurnDto,
   type RequestedChange,
+  type ScreenContext,
   type WhatIfOption,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
@@ -115,16 +116,16 @@ export class ConversationService {
   ) {}
 
   /** Start a conversation (auto-named) and process the first turn. */
-  async create(tenantId: string, plantId: string, message: string, userId: string | null): Promise<ConversationDetailDto> {
+  async create(tenantId: string, plantId: string, message: string, userId: string | null, screenContext?: ScreenContext): Promise<ConversationDetailDto> {
     const conv = await this.repo.createConversation({ tenantId, plantId, name: nameFrom(message), createdBy: userId })
-    await this.processTurn(tenantId, conv, message, userId)
+    await this.processTurn(tenantId, conv, message, userId, screenContext)
     return this.get(tenantId, conv.id)
   }
 
   /** Add a user turn to an existing conversation; returns the assistant turn. */
-  async addTurn(tenantId: string, conversationId: string, message: string, userId: string | null): Promise<ConversationTurnDto> {
+  async addTurn(tenantId: string, conversationId: string, message: string, userId: string | null, screenContext?: ScreenContext): Promise<ConversationTurnDto> {
     const conv = await this.requireConversation(tenantId, conversationId)
-    return this.processTurn(tenantId, conv, message, userId)
+    return this.processTurn(tenantId, conv, message, userId, screenContext)
   }
 
   /** The conversation + its ordered turns. @throws CONVERSATION_NOT_FOUND */
@@ -147,20 +148,25 @@ export class ConversationService {
   }
 
   // --- the turn engine -------------------------------------------------------
-  private async processTurn(tenantId: string, conv: Conversation, message: string, userId: string | null): Promise<ConversationTurnDto> {
+  private async processTurn(tenantId: string, conv: Conversation, message: string, userId: string | null, screenContext?: ScreenContext): Promise<ConversationTurnDto> {
     await this.repo.createTurn({ tenantId, conversationId: conv.id, role: 'user', content: message })
     const prior = await this.repo.listTurns(conv.id) // includes the user turn just added (history)
     const plantId = conv.plantId ?? ''
 
-    // The Type-1 context: the most recent result this conversation produced, else the
-    // plant's latest stored result. Mutated when a Type-2 evaluation produces a new one.
+    // The Type-1 context (Pass B precedence): the what-if result ON SCREEN wins, so "explain this
+    // option" binds to the displayed analysis; else the most recent result this conversation
+    // produced; else the plant's latest. Mutated when a Type-2 evaluation produces a new one.
     let activeResultId =
-      [...prior].reverse().find((t) => t.resultId)?.resultId ?? (plantId ? (await this.repo.findLatestWhatIfResult(tenantId, plantId))?.id : undefined) ?? null
+      screenContext?.activeResultId ??
+      [...prior].reverse().find((t) => t.resultId)?.resultId ??
+      (plantId ? (await this.repo.findLatestWhatIfResult(tenantId, plantId))?.id : undefined) ??
+      null
 
     const catalog = plantId ? await this.scheduling.entityCatalog(tenantId, plantId) : { orders: [], resources: [] }
     // Inline only the nearest-due slice (catalog is already due-sorted); find_orders covers the rest.
     const orderSlice = catalog.orders.slice(0, ORDER_SLICE_CAP)
-    const system = buildSystemPrompt(orderSlice, catalog.resources, catalog.orders.length)
+    const screenLine = renderScreenContext(screenContext, catalog)
+    const system = buildSystemPrompt(orderSlice, catalog.resources, catalog.orders.length, screenLine)
     const messages = prior.map((t) => ({ role: t.role, content: t.content }))
 
     // The structure-derived change-set echo for a Type-2 turn — captured from the engine's ledger
@@ -302,8 +308,37 @@ function compactArtifact(id: string, recommendedOptionId: string | null, baseKpi
   }
 }
 
+/**
+ * The CURRENT SCREEN line (Pass B) — a planner-readable snapshot of what's on screen, with the
+ * selected order rendered by its human release reference and the selected line by name. Returns
+ * null when there's no screen context (→ pure Pass A behavior). Used only to resolve deictic refs.
+ */
+export function renderScreenContext(sc: ScreenContext | undefined, catalog: { orders: CatalogOrder[]; resources: { id: string; name: string }[] }): string | null {
+  if (!sc) return null
+  const parts: string[] = [`screen ${sc.screen}${sc.view ? ` (${sc.view} view)` : ''}`]
+  if (sc.selectedOrderId) {
+    const o = catalog.orders.find((x) => x.demandLineId === sc.selectedOrderId)
+    parts.push(`selected order ${o?.releaseReference ? `${o.demandLineId} (${o.releaseReference})` : sc.selectedOrderId}`)
+  }
+  if (sc.selectedResourceId) {
+    const r = catalog.resources.find((x) => x.id === sc.selectedResourceId)
+    parts.push(`selected line ${r?.name ?? sc.selectedResourceId}`)
+  }
+  if (sc.activeResultId) parts.push('a what-if analysis is open on screen')
+  return parts.join(', ')
+}
+
 /** The ground-never-fabricate + routing system prompt, with a near-horizon entity slice inlined. */
-function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown[], totalOrders: number): string {
+export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown[], totalOrders: number, screenLine: string | null): string {
+  const screenBlock = screenLine
+    ? [
+        '',
+        `CURRENT SCREEN: the planner is viewing ${screenLine}.`,
+        'Use the current screen ONLY to resolve a DEICTIC or unspecified reference — "this", "it", "here", "this order", "this line", "the current option". Resolve such a reference to the matching on-screen selection (and "this option / why not X" to the analysis open on screen).',
+        'A NAMED entity ALWAYS WINS: if the planner names an order or line (by id, release reference, customer, or part), resolve THAT via the inline list / find_orders and IGNORE the on-screen selection — even when a different order is selected. Screen context is a default for deictic references, never a filter on what you can reach.',
+        'If a deictic reference has NO matching on-screen selection (e.g. "this order" but no order is selected), ASK which one — do NOT fall back to anything or guess.',
+      ]
+    : []
   return [
     'You are a scheduling copilot for a production planner. You answer ONLY using tools; you NEVER state a scheduling number or result from your own reasoning.',
     '',
@@ -322,6 +357,7 @@ function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown[], tot
     `ORDERS (nearest ${orderSlice.length} of ${totalOrders} by due date): ${JSON.stringify(orderSlice)}`,
     `LINES: ${JSON.stringify(resources)}`,
     'Resolution: match a reference to an order by demandLineId OR releaseReference OR customer/part. If the order is NOT in the list above, call find_orders. DISAMBIGUATION: if a reference matches more than one order (in the list or via find_orders), ASK the planner which one — name the distinguishing customer/part/due. Never guess an id, and never call evaluate_what_if on a guessed order.',
+    ...screenBlock,
     'A change-set is { origin:{type}, changes:[ … ] }. If a request cannot map to the change kinds, say you cannot evaluate it.',
     '',
     'Faithfulness: evaluate_what_if returns `requestedChanges` — what the engine did with EACH change you asked for (applied / partial / unapplied, with a note). A plain-language summary of these is shown to the planner automatically, so do NOT repeat the list verbatim. But you MUST NOT imply a change took effect if its status is partial or unapplied — explain the consequence (e.g. "the overtime could not be added because that resource has no overtime allowance"). Never present a half-applied scenario as fully done.',
