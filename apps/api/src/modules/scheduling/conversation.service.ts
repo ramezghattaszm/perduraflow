@@ -10,6 +10,7 @@ import {
   type RequestedChange,
   type ScreenContext,
   type WhatIfOption,
+  type WorkforceCoverageDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { LlmGateway, type ToolDispatch } from '../llm/llm.gateway'
@@ -99,8 +100,32 @@ const RETRIEVE_BASELINE_TOOL: LlmTool = {
     type: 'object',
     additionalProperties: false,
     properties: {
-      arm: { type: 'string', enum: ['engine_lift', 'historical'], description: "which baseline: 'engine_lift' (vs the engine with its intelligence off) or 'historical' (vs recorded outcomes)" },
-      scope: { type: 'string', description: 'a resource/line id to scope to; omit for the whole plant' },
+      // Nullable (some models emit explicit null for omitted optionals; the dispatch falls back).
+      arm: { type: ['string', 'null'], enum: ['engine_lift', 'historical', null], description: "which baseline: 'engine_lift' (vs the engine with its intelligence off) or 'historical' (vs recorded outcomes)" },
+      scope: { type: ['string', 'null'], description: 'a resource/line id to scope to; omit for the whole plant' },
+    },
+  },
+}
+
+/**
+ * Coverage retrieval (content-grounding, Pass D) — the workforce coverage the Workforce screen
+ * shows (calls SchedulingService.coverage, so the Copilot and screen can never disagree). Type-1:
+ * retrieve + translate. A gap is **advisory** (certs are soft — an observation that the plant is
+ * short a certified operator, NOT a schedule blocker). NO labor action: explain coverage; never
+ * assign operators or optimize staffing. `operator`/`station` default to the screen selection.
+ */
+const RETRIEVE_COVERAGE_TOOL: LlmTool = {
+  name: 'retrieve_coverage',
+  description:
+    "Return workforce coverage — the same grid the Workforce screen shows: who is qualified for each station, where the cert gaps are, next-shift readiness, and the screen's call-in proposal. Use for coverage / readiness / 'who can run X' / 'this gap / operator'. A gap is ADVISORY (an observation; certs are soft and do not block the schedule). Explain only — never assign operators or optimize labor. Omit operator/station to use what is on screen.",
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      // Nullable: some models emit explicit null for an omitted optional param; the dispatch treats
+      // null/undefined the same (falls back to the screen selection / whole plant).
+      operator: { type: ['string', 'null'], description: 'an operator name to focus on; omit for the whole plant or the on-screen selection' },
+      station: { type: ['string', 'null'], description: 'a station/certification name to focus on (e.g. leak-test)' },
     },
   },
 }
@@ -232,6 +257,16 @@ export class ConversationService {
           groundedRefs: dto.scheduleVersionId ? [dto.scheduleVersionId] : [],
         }
       }
+      if (call.name === 'retrieve_coverage') {
+        const input = call.input as { operator?: string; station?: string }
+        const cov = await this.scheduling.coverage(tenantId, plantId)
+        // Focus: named operator/station → screen-context selected operator (deictic) → whole plant.
+        const opByName = input.operator ? cov.operators.find((o) => o.label.toLowerCase().includes(input.operator!.toLowerCase())) : undefined
+        const opById = !input.operator && screenContext?.selectedOperatorId ? cov.operators.find((o) => o.id === screenContext.selectedOperatorId) : undefined
+        const station = input.station ? cov.stations.find((s) => s.label.toLowerCase().includes(input.station!.toLowerCase())) : undefined
+        const focus = opByName ?? opById ? { type: 'operator' as const, id: (opByName ?? opById)!.id, label: (opByName ?? opById)!.label } : station ? { type: 'station' as const, id: station.id, label: station.label } : null
+        return { content: JSON.stringify(compactCoverage(cov, focus)), groundedRefs: [plantId] }
+      }
       if (call.name === 'find_orders') {
         const q = String((call.input as { query?: unknown }).query ?? '').toLowerCase().trim()
         const matches = q
@@ -255,7 +290,7 @@ export class ConversationService {
     }
 
     try {
-      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL] }, dispatch)
+      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL] }, dispatch)
       let content = loop.text || 'I could not produce a response.'
       let status: 'ok' | 'degraded' = 'ok'
       // Detectable non-fabrication violation: a scheduling claim with no grounding/tool call.
@@ -396,6 +431,42 @@ export function compactBaseline(dto: PlanComparisonDto, scopeName: string | null
 }
 
 /**
+ * Compact, LLM-readable view of workforce coverage (Pass D) — the SAME grid the Workforce screen
+ * shows (from {@link SchedulingService.coverage}). Per-station qualified-present / qualified-out /
+ * gap, per-operator qualifications, readiness, and the screen's call-in proposals. A gap is framed
+ * **advisory** (`note`): certs are soft (C3) — being short a certified operator is an observation,
+ * not a schedule blocker. Explain-only; nothing here assigns labor.
+ */
+export function compactCoverage(cov: WorkforceCoverageDto, focus: { type: 'operator' | 'station'; id: string; label: string } | null) {
+  if (cov.stations.length === 0 || cov.operators.length === 0) {
+    return { focus: 'the whole plant', emptyState: true, note: 'No workforce coverage data for this plant — say so; do NOT invent operators or certifications.' }
+  }
+  const stations = cov.stations.map((s, j) => {
+    const qualified = cov.operators.filter((_, i) => cov.cells[i]?.[j] === 'qualified')
+    const present = qualified.filter((o) => !o.out).map((o) => o.label)
+    const out = qualified.filter((o) => o.out).map((o) => o.label)
+    return { station: s.label, covered: present.length > 0, gap: present.length === 0, qualifiedPresent: present, qualifiedOut: out }
+  })
+  const operators = cov.operators.map((o, i) => ({
+    operator: o.label,
+    available: !o.out,
+    qualifiedFor: cov.stations.filter((_, j) => cov.cells[i]?.[j] === 'qualified').map((s) => s.label),
+  }))
+  return {
+    focus: focus ? `${focus.type} ${focus.label}` : 'the whole plant',
+    emptyState: false,
+    readinessPct: round4(cov.readinessPct),
+    certGapCount: cov.certGapCount,
+    // A gap is ADVISORY — certs are soft (C3): the plant is short a certified operator for the
+    // station; it does NOT block or delay the schedule. Do not overstate what a gap does.
+    gapMeaning: 'advisory: short a certified operator for the station; certifications are soft and do NOT block the schedule',
+    stations,
+    operators,
+    proposals: cov.proposals.map((p) => ({ station: p.station, suggestedCallIn: p.operatorName, reason: p.reason })),
+  }
+}
+
+/**
  * The CURRENT SCREEN line (Pass B) — a planner-readable snapshot of what's on screen, with the
  * selected order rendered by its human release reference and the selected line by name. Returns
  * null when there's no screen context (→ pure Pass A behavior). Used only to resolve deictic refs.
@@ -416,6 +487,11 @@ export function renderScreenContext(sc: ScreenContext | undefined, catalog: { or
   if (sc.screen === 'exception') {
     return sc.selectedOrderId ? `the exception queue — at-risk order ${orderRef(sc.selectedOrderId)} selected` : 'the exception queue (no order selected)'
   }
+  if (sc.screen === 'workforce') {
+    // The operator name lives in the coverage data (resolved by retrieve_coverage), so the line
+    // just flags that a selection exists — "this operator / gap" → retrieve_coverage uses the id.
+    return sc.selectedOperatorId ? 'the workforce coverage view, an operator selected (its id is the deictic referent)' : 'the workforce coverage view (no operator selected)'
+  }
   // Board (and any other screen) — the generic selection rendering.
   const parts: string[] = [`screen ${sc.screen}${sc.view ? ` (${sc.view} view)` : ''}`]
   if (sc.selectedOrderId) parts.push(`selected order ${orderRef(sc.selectedOrderId)}`)
@@ -434,7 +510,8 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
         'A NAMED entity ALWAYS WINS: if the planner names an order or line (by id, release reference, customer, or part), resolve THAT via the inline list / find_orders and IGNORE the on-screen selection — even when a different order is selected. Screen context is a default for deictic references, never a filter on what you can reach.',
         'If a deictic reference has NO matching on-screen selection (e.g. "this order" but no order is selected), ASK which one — do NOT fall back to anything or guess.',
         'On the scorecard, "this lift / comparison / KPI delta" → call retrieve_baseline (it defaults to the arm + scope on screen); explain the returned numbers.',
-        'Capability boundary: you can read the stored what-if analysis, run what-if scenarios on ORDERS, and retrieve the baseline comparison (retrieve_baseline). You do NOT yet have a tool to retrieve workforce-coverage figures — if asked about a coverage gap or an operator, resolve what it refers to, then say plainly you can work with orders, what-if, and baseline but cannot pull coverage detail yet — never invent those numbers.',
+        'On the workforce view, "this operator / this gap / who can run X / where are we short" → call retrieve_coverage (it defaults to the selected operator on screen); explain the returned coverage. A cert gap is ADVISORY — the plant is short a certified operator for that station; certifications are soft and do NOT block or delay the schedule, so never say a gap stops production.',
+        'Labor boundary (permanent): you EXPLAIN coverage — who is qualified, where the gaps are, and the screen’s call-in proposal. You do NOT assign operators, optimize labor, choose who to staff, or recommend a roster. If asked to assign or staff, decline plainly (that is outside the system) and offer the coverage facts instead. Never assign.',
       ]
     : []
   return [
@@ -445,11 +522,13 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     '- evaluate_what_if: runs the deterministic engine on a NEW scenario you express as a change-set. Use it for a change not in the stored analysis.',
     '- find_orders: look up a demand order (by id, release reference, customer, or part) not in the inline list below, or to confirm which order an ambiguous reference means.',
     '- retrieve_baseline: the live plan vs a baseline arm (engine-lift / historical) — the same comparison the scorecard shows. Use for the baseline / "the lift" / "vs baseline" / a KPI delta. No computation.',
+    '- retrieve_coverage: workforce coverage — who is qualified per station, cert gaps, readiness, and the call-in proposal (the same grid the Workforce screen shows). Use for coverage / readiness / "who can run X" / a gap. Explain only — never assign labor.',
     '',
     'Routing:',
     '- A question about the existing analysis → call retrieve_what_if, then answer from what it returns.',
     '- A new scenario → construct a change-set and call evaluate_what_if, then explain the engine result.',
     '- A question about the baseline / the lift / vs-baseline / a KPI delta → call retrieve_baseline, then explain the returned numbers.',
+    '- A question about workforce coverage / readiness / qualifications / a cert gap → call retrieve_coverage, then explain it (a gap is advisory, not a schedule blocker).',
     '- If retrieve_what_if returns nothing relevant → construct a what-if or say you do not have that. NEVER estimate.',
     '- Off-domain or unanswerable (not this plant’s scheduling) → say you cannot help. Do NOT call a tool. Do NOT fabricate.',
     '',

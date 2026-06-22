@@ -38,6 +38,10 @@ export interface QualificationMatrixProps {
   /** Outer card border + radius (default true). Set false when wrapped in a `Panel`
    *  that already provides the chrome (full-bleed table). */
   bordered?: boolean
+  /** Makes the pinned operator (row) labels selectable — e.g. to set the deictic referent. */
+  onRowSelect?: (rowId: string) => void
+  /** Selected row id (soft highlight on the pinned label); pairs with `onRowSelect`. */
+  selectedRowId?: string | null
 }
 
 const ROW_LABEL_WIDTH = 200
@@ -64,6 +68,8 @@ export function QualificationMatrix({
   readOnly = false,
   cellState,
   bordered = true,
+  onRowSelect,
+  selectedRowId,
 }: QualificationMatrixProps) {
   if (rows.length === 0 || cols.length === 0) {
     return <EmptyState title={emptyText} />
@@ -160,6 +166,10 @@ export function QualificationMatrix({
             gap="$2"
             borderTopWidth={1}
             borderTopColor="$borderColor"
+            backgroundColor={selectedRowId === r.id ? '$primarySoft' : undefined}
+            onPress={onRowSelect ? () => onRowSelect(r.id) : undefined}
+            cursor={onRowSelect ? 'pointer' : undefined}
+            hoverStyle={onRowSelect && selectedRowId !== r.id ? { backgroundColor: '$backgroundHover' } : undefined}
           >
             <P size={3} weight="m" color={r.out ? '$textSecondary' : '$textPrimary'} numberOfLines={1}>
               {r.label}

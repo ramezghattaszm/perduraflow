@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ColorTokens, MatrixCell } from '@perduraflow/ui'
 import {
   ContextSelectors,
@@ -17,6 +17,7 @@ import { useTranslation } from '../../i18n'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useConfirmCoverageProposal, useCoverage } from '../../hooks/useLearning'
+import { useSetScreenContext } from '../../stores/screenContext.store'
 import { AdminShell } from '../shell/admin-shell'
 
 const CELL: Record<string, MatrixCell> = { qualified: 'on', not_qualified: 'off', gap: 'gap' }
@@ -35,6 +36,17 @@ export function WorkforceContent() {
   const { data: cov } = useCoverage(plantId ?? undefined)
   const confirmProposal = useConfirmCoverageProposal(plantId ?? undefined)
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
+
+  // Pass D (coverage): the selected operator is the deictic referent ("this operator / this
+  // gap") — it resolves to selectedOperatorId, which retrieve_coverage focuses on. Published to
+  // the screen-context store (cleared on unmount, reset on plant change — no cross-screen leak).
+  const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null)
+  const setScreenContext = useSetScreenContext()
+  useEffect(() => setSelectedOperatorId(null), [plantId])
+  useEffect(() => {
+    setScreenContext({ screen: 'workforce', selectedOperatorId: selectedOperatorId ?? undefined })
+    return () => setScreenContext(null)
+  }, [setScreenContext, selectedOperatorId])
 
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
   const opIndex = useMemo(() => new Map((cov?.operators ?? []).map((o, i) => [o.id, i])), [cov])
@@ -66,6 +78,8 @@ export function WorkforceContent() {
               cols={cov.stations.map((s) => ({ id: s.id, label: s.label, marked: s.certRequired }))}
               rowHeader={t('operator')}
               emptyText={t('empty')}
+              selectedRowId={selectedOperatorId}
+              onRowSelect={(id) => setSelectedOperatorId((cur) => (cur === id ? null : id))}
               isOn={() => false}
               onToggle={() => {}}
               cellState={(rowId, colId) => {

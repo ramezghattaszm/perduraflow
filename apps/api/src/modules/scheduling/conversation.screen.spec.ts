@@ -44,6 +44,11 @@ describe('renderScreenContext — Pass B screen snapshot', () => {
     )
     expect(renderScreenContext({ screen: 'exception' }, CATALOG)).toBe('the exception queue (no order selected)')
   })
+
+  it('phrases the workforce referent (operator selected vs not) (Pass D)', () => {
+    expect(renderScreenContext({ screen: 'workforce', selectedOperatorId: 'op-1' }, CATALOG)).toContain('an operator selected')
+    expect(renderScreenContext({ screen: 'workforce' }, CATALOG)).toBe('the workforce coverage view (no operator selected)')
+  })
 })
 
 describe('buildSystemPrompt — Pass B precedence (named wins / deictic→screen / no-selection→ask)', () => {
@@ -57,10 +62,11 @@ describe('buildSystemPrompt — Pass B precedence (named wins / deictic→screen
     expect(prompt).toMatch(/DEICTIC[\s\S]*on-screen selection/)
     // deictic with no selection → ask, never null-resolve/guess
     expect(prompt).toContain('ASK which one — do NOT fall back')
-    // resolution ≠ action: Pass D added baseline retrieval, so the boundary shrank to coverage only
-    expect(prompt).toContain('Capability boundary')
-    expect(prompt).toContain('retrieve the baseline comparison')
-    expect(prompt).toContain('cannot pull coverage detail yet')
+    // Pass D-coverage: the deferral line is gone (coverage now retrievable); the only boundary
+    // left is the PERMANENT labor boundary — explain coverage, never assign.
+    expect(prompt).not.toContain('cannot pull coverage detail yet')
+    expect(prompt).toContain('Labor boundary (permanent)')
+    expect(prompt).toContain('Never assign')
   })
 
   it('omits the CURRENT SCREEN block when there is no context (Pass A regression)', () => {

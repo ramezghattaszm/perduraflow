@@ -82,6 +82,8 @@ export const screenContextSchema = z
     selectedOrderId: z.string().optional(),
     /** Selected resource/lane — the deictic default for "this line". */
     selectedResourceId: z.string().optional(),
+    /** Selected operator (workforce) — the deictic default for "this operator / this gap". */
+    selectedOperatorId: z.string().optional(),
     /** The what-if result on screen — binds "this option / why not X" to the displayed analysis. */
     activeResultId: z.string().optional(),
   })
