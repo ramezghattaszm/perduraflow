@@ -223,8 +223,10 @@ export function ScorecardContent() {
                 </YStack>
               ) : (
                 sc.atRisk.map((a, i) => (
+                  // A demand line can carry more than one at-risk op (e.g. ST-8830's weld +
+                  // leak-test) — key by line + resource + detail, not demandLineId alone.
                   <XStack
-                    key={a.demandLineId}
+                    key={`${a.demandLineId}:${a.resourceId}:${a.detail}`}
                     gap="$3"
                     alignItems="center"
                     justifyContent="space-between"

@@ -119,8 +119,10 @@ export function ExceptionsContent() {
               />
             ))}
             {atRisk.map((a, i) => (
+              // A demand line can have more than one at-risk op (e.g. ST-8830's weld + leak-test),
+              // so key by line + the op's resource + detail, not demandLineId alone.
               <ExceptionRow
-                key={a.demandLineId}
+                key={`${a.demandLineId}:${a.resourceId}:${a.detail}`}
                 divided={queued.length > 0 || i > 0}
                 title={a.label}
                 statement={`${a.detail} · ${a.reason}`}
