@@ -246,8 +246,11 @@ export function BoardContent() {
   const varianceChips: VarianceChip[] = useMemo(() => {
     if (!variance) return []
     const chips: VarianceChip[] = []
+    // Only flag "behind plan" at the SAME threshold the lanes use (BEHIND_PCT) — below it, normal
+    // yield (~4%) is healthy and the green throughput chip says so; a red "behind" callout next to a
+    // green 96% chip is self-contradictory. Top strip and lanes now agree on what counts as behind.
     const behind = [...variance.resources].sort((a, b) => b.behindPlanPct - a.behindPlanPct)[0]
-    if (behind && behind.behindPlanPct > 0.005) {
+    if (behind && behind.behindPlanPct >= BEHIND_PCT) {
       chips.push({ label: behind.resourceName, value: t('variance.behindPlan', { pct: Math.round(behind.behindPlanPct * 100) }), tone: 'bad' })
     }
     if (variance.throughputAttainment != null) {

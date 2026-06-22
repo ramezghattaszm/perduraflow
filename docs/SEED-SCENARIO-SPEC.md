@@ -54,7 +54,7 @@ Calendar: Mon–Sat working, Sunday closed (`workingDays [1..6]`), so N working 
 
 Driven by the learning gate, not by looks. Adoption needs `MIN_SAMPLES = 5` and confidence ≥ `CONF_ADOPT 0.6`; confidence saturates at `N_TRUST = 8`; the trailing mean/dispersion uses `WINDOW = 8`; wear prediction needs `MIN_SAMPLES = 5` over the same window (`learning.rule.ts`, `learning.predictor.ts`). The wear-story parameter (Press Line A, one representative part) accrues **one actual per completed day**. So:
 - **8** is the hard floor — fills the trailing window, saturates confidence, gives a clean slope.
-- **10** is chosen — 8 in-window samples all post-wear-onset **plus 2 days of margin**, so the adopted value and predicted trend stay unambiguous as the window slides forward each reseed.
+- **10** is chosen — 8 in-window samples all post-wear-onset **plus 2 days of margin**, so the wear signal and predicted trend stay unambiguous as the window slides forward each reseed.
 - Reads as "a running system with a fortnight of completed production" — credible, not a token few days; not so long it bloats the dataset or the past-day nav.
 
 Lever, if a shorter calendar past is ever wanted: run the wear part 2×/day on Press Line A → 4–5 days clears the gate. Kept at 1×/day here for realism and a clean day↔sample mapping.
@@ -62,12 +62,12 @@ Lever, if a shorter calendar past is ever wanted: run the wear part 2×/day on P
 ### What the past actuals carry — and fuel
 "Seed past completed days" and "seed actuals" are the same task. Each past op's actuals — `actualStart`, `actualEnd`, `actualCycleTime`, `goodQty`, `scrapQty`, `downtimeMinutes` — are seeded **inputs**; everything downstream computes through the real path (no hardcoded outputs):
 - **(a) Credible history** — completed committed versions on the board's past days; the system has visibly been running.
-- **(b) Learning adoption** — ≥ 8 samples on Press Line A's representative part → its cycle steps std → `ml_adjusted` (divergence ≥ `STEP_BAND 0.05`), with confidence. Other (resource, part, op) parameters accrue actuals too but stay ≈ std (below the step band) → they remain `std`. Result: the board is *mostly std with Press Line A lit up* — the wear story, **learned not hardcoded**.
-- **(c) Wear prediction** — the same drifting series feeds the resource forecast on the board.
+- **(b) Live wear prediction (advisory, not adopted)** — Press Line A's cycle is worn with a convex/accelerating trend that leaves the trailing-window mean with **comfortable margin below** the `STEP_BAND 0.05` adopt threshold (≈ +1.8%), so it does **not** step to `ml_adjusted` — while the steeper recent slope projects a threshold-crossing **~2 days out** → a live, **queued (advisory)** wear prediction on the cycle param. The demo tenant is **advisory-first** (high Tier-1 auto-adopt threshold) so the prediction stays queued rather than auto-pre-adopting. Result: the board is **all `std` at reset** with a forward-looking "Press Line A wear will cross in ~2 days" signal — *predicting, not yet adopted*.
+- **(c) Adoption is the live-drift beat** — the actual std→`ml_adjusted` adoption is the payoff of the live-drift demo (collision 2): a **defined injected step** drives the actuals across the band and the rule adopts — reproducibly, because the crossing is an injected value, not a noise nudge.
 - **(d) Execution OEE (measured-historical arm)** — per-op actuals roll up to per-version execution OEE; the weekly `historicalOutcome` rows become **roll-ups of these same actuals** (recent weeks), optionally plus coarser older representative rows for a longer trend. Monterrey / Press Line B stay empty → honest "no history yet" state.
 
 ### The warm-start implication (run-of-show note)
-With past actuals seeded, a fresh `demo:reset` is **not a cold start** — Press Line A already shows an adopted learned value, a wear prediction, and execution variance. This is deliberate (the credibility + learning-fuel goals above). The "watch it learn live" beat, if still wanted, **layers on top**: the simulator adds *today's* incremental drift onto the established trend rather than learning from zero. A cold-start variant is the same seed with the past-window length set to 0.
+With past actuals seeded, a fresh `demo:reset` is **not a cold start** — Press Line A already shows a live (advisory) wear prediction and execution variance, and the board has completed history behind it. It is **not yet adopted** (the board stays `std`): adoption is the live-drift beat that layers on top — a defined injected step drives the actuals across the band and the rule adopts. A cold-start variant is the same seed with the past-window length set to 0.
 
 ### Determinism
 The drift curve and every per-op actual are generated deterministically from `baseDay` + a fixed per-day function (no `Math.random`), so each reseed reproduces identical learned values, prediction, and OEE — same window, same story, every rehearsal.
@@ -88,7 +88,7 @@ Each collision's data must reconcile across every view it appears in.
 - **Collision timing:** are all four seeded "ready to trigger," or staged in sequence for the run-of-show (staging concern — likely later).
 
 ## Done when
-- `demo:reset` restores this scenario deterministically as the rolling window (see *The rolling window*): the **future** horizon is all-`std`/projected, while the **past** window has already driven Press Line A to a learned value + prediction + variance (warm-start, by design). A cold-start variant is the same seed with past-window N = 0.
+- `demo:reset` restores this scenario deterministically as the rolling window (see *The rolling window*): the **future** horizon is all-`std`/projected, while the **past** window has driven Press Line A to a live, advisory wear **prediction** (~2 days out) + execution variance — **not yet adopted** (board stays `std`; the live-drift demo is where it crosses and adopts). Deterministic: the simulator's noise is seeded on stable keys, so every reseed is byte-identical. A cold-start variant is the same seed with past-window N = 0.
 - Every view draws from it and reconciles (same order/operator/line across Cockpit, Scorecard, Workforce, Exception Queue, Board).
 - All four collisions are seeded and trigger through the real mechanism on real seeded inputs.
 - Cost/OEE/variance all **compute** (no hardcoded outputs); a domain expert finds the numbers plausible.

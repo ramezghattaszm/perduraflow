@@ -521,6 +521,11 @@ export class SchedulingService {
       if (ms != null) earliestByPart.set(r.partId, Math.max(earliestByPart.get(r.partId) ?? 0, ms))
     }
 
+    // Order-release floor: PAST-dated demand sits on its own past day; today/future demand floors at
+    // today (so the rolling window's future still front-loads from today — unchanged when no past
+    // demand exists, since this then equals the schedule origin). Day-anchored to the planning "now".
+    const todayStartMs = startOfDayUtc(Date.now())
+
     const items: SequencerItem[] = []
     let infeasibleReason: string | null = null
     for (const line of demand) {
@@ -554,6 +559,7 @@ export class SchedulingService {
           priorityRank,
           eligibleResourceIds: eligible,
           earliestStartMs: earliestByPart.get(line.partId),
+          releaseFloorMs: Math.min(todayStartMs, startOfDayUtc(line.requiredDate.getTime())),
         })
       }
       if (infeasibleReason) break
@@ -697,14 +703,18 @@ export class SchedulingService {
     }
     const resources: ResourceVarianceDto[] = [...byResource.entries()]
       .map(([resourceId, list]) => {
-        const planned = list.reduce((s, o) => s + o.plannedQty, 0)
-        const good = list.reduce((s, o) => s + (actualByOp.get(o.id)?.goodQty ?? 0), 0)
+        // Attainment is EXECUTION performance: good output vs the planned qty of the ops that have
+        // actually RUN (have actuals). The denominator is scoped to executed ops, NOT the whole
+        // horizon — in the rolling window most ops are future/unexecuted, so dividing by all planned
+        // qty would read ~80% "behind" for every lane just because the future hasn't happened yet.
         const withActual = list.filter((o) => actualByOp.has(o.id))
+        const planned = withActual.reduce((s, o) => s + o.plannedQty, 0)
+        const good = withActual.reduce((s, o) => s + (actualByOp.get(o.id)?.goodQty ?? 0), 0)
         const onTime = withActual.filter((o) => {
           const a = actualByOp.get(o.id)!
           return Math.abs(new Date(a.actualStart).getTime() - o.plannedStart.getTime()) <= ADHERENCE_TOLERANCE_MIN * 60_000
         }).length
-        const attainment = planned > 0 && withActual.length > 0 ? good / planned : 1
+        const attainment = planned > 0 ? good / planned : 1
         return {
           resourceId,
           resourceName: nameById.get(resourceId) ?? resourceId,
@@ -716,8 +726,11 @@ export class SchedulingService {
       .sort((a, b) => a.resourceName.localeCompare(b.resourceName))
 
     const hasActuals = actuals.length > 0
-    const totalPlanned = ops.reduce((s, o) => s + o.plannedQty, 0)
-    const totalGood = ops.reduce((s, o) => s + (actualByOp.get(o.id)?.goodQty ?? 0), 0)
+    // Same scope as the per-resource attainment: executed ops only (good vs planned of what RAN),
+    // so the version-level throughput isn't diluted by the unexecuted future of the rolling window.
+    const executedOps = ops.filter((o) => actualByOp.has(o.id))
+    const totalPlanned = executedOps.reduce((s, o) => s + o.plannedQty, 0)
+    const totalGood = executedOps.reduce((s, o) => s + (actualByOp.get(o.id)?.goodQty ?? 0), 0)
     const learnedParamCount = ops.filter(
       (o) => o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted',
     ).length
@@ -818,6 +831,7 @@ export class SchedulingService {
         detail: `op ${o.opSeq} · ${resourceById.get(o.resourceId)?.name ?? o.resourceId}`,
         reason: o.atRiskReason ?? 'at risk',
         resourceId: o.resourceId,
+        chain: chains?.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
       }))
     return {
       otif,

@@ -20,6 +20,7 @@ import {
 } from '../modules/master-data/schema'
 import { contractBinding } from '../modules/binding/schema'
 import { demandInput, historicalOutcome, materialAvailability, materialRequirement, resourceOperatorAssignment } from '../modules/scheduling/schema'
+import { autonomyConfig } from '../modules/policy/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48). Idempotent. Aggregates every
@@ -308,8 +309,17 @@ export async function seed(): Promise<void> {
       { line: 'DL-1009', ref: 'AM-1009', part: fg2004, plant: saltillo!.id, cust: aftermarket!.id, prog: null, firm: 'forecast', qty: 400, due: at(5, 12) },
       { line: 'DL-1010', ref: 'GM-830-1010', part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty: 450, due: at(4, 12) },
       // Ramos Arizpe (weld) — ~1740 weld-minutes across 2 cells ≈ 90% of one shift each.
-      // Due dates clear the big weld runs (a 9h+ op can't meet a noon due), so Ramos's
-      // baseline is clean — Saltillo's DL-1006 is the only intended at-risk.
+      // Due dates clear the big weld runs (a 9h+ op can't meet a noon due), so Ramos's WELD-CELL
+      // baseline is clean. At-risk by design here is TWO orders, telling a two-collision story:
+      //  • DL-1006 (Saltillo) — the intended PRIMARY at-risk (due before today's shift opens → late).
+      //  • DL-2002 (Ramos) — a DELIBERATE second-order CASCADE: ST-8830 (FG-3001) is gated by the
+      //    PV-22 material availability (C2, below), which slips its weld onto +1 and lands its
+      //    leak-test on the SHARED, non-splittable Leak-Test Station (C3). ST-8830's inspection then
+      //    occupies the station and DL-2002's leak-test op queues behind it past its noon due → late.
+      //    DL-2002's own weld finishes a full day early; it is NOT its weld, material, or sequence —
+      //    it is the C2 (material) × C3 (inspection-station capacity) INTERACTION made visible. Do not
+      //    "fix" DL-2002 by nudging its due date: the cascade is the point. (Confirmed pre-existing;
+      //    independent of the warm-start rolling window — see SEED-SCENARIO-SPEC / git-stash test.)
       { line: 'ST-8830', ref: 'STL-862-8830', part: fg3001, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 380, due: at(0, 20) },
       { line: 'DL-2002', ref: 'STL-862-2002', part: fg3002, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: 340, due: at(1, 12) },
       { line: 'DL-2003', ref: 'STL-862-2003', part: fg3001, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'forecast', qty: 250, due: at(3, 12) },
@@ -361,6 +371,37 @@ export async function seed(): Promise<void> {
       })
     }
 
+    // Past-fill (rolling window) — N completed working days BEHIND today, so a fresh reset looks like
+    // a running system: real executed production on the board's view-only past-day nav, plus the fuel
+    // for learning (Press Line A wear), the wear prediction, and execution OEE. `demo:reset` executes
+    // these via the simulator (actuals backdated to each op's planned start, cut off at today); today
+    // and the future stay planned. The order-release floor (engine wi-11) pins each past order to its
+    // own past day; today/future still front-load from today. Anchored to today → the window rolls
+    // forward on every reset. N=10 working days ≈ the 8-sample learning window + margin. Past weld is
+    // FG-3002 only (FG-3001's PV-22 gate floors at today 14:00 — it would pull past welds forward).
+    const PAST_WORKING_DAYS = 10
+    let pf = 9001
+    let pastCollected = 0
+    for (let d = 1; pastCollected < PAST_WORKING_DAYS && d <= 30; d++) {
+      if (new Date(baseDay - d * DAY_MS).getUTCDay() === 0) continue // Sunday — calendar-closed
+      pastCollected++
+      // Two SMALLER FG-2001 press batches/day → the least-loaded rule splits them across Press A/B,
+      // so the wear line (Press A) accrues ~1 op/past-day on ONE routing op = a clean, single-series
+      // day-over-day cycle history for the learner. Batches are kept short on purpose: the predictor's
+      // cadence = the op's run time, so a shorter op keeps the projected wear-threshold crossing
+      // comfortably inside the forecast horizon (a week) → the live, days-out prediction fires. (Wear
+      // level is unchanged — sample count drives the trend, not batch size.)
+      ;[480, 440].forEach((qty) => {
+        demand.push({ line: `PF-${pf}`, ref: `PF-${pf}`, part: fg2001, plant: saltillo!.id, cust: gm!.id, prog: gmProgram!.id, firm: 'firm', qty, due: at(-d, 22) })
+        pf++
+      })
+      // One FG-3002 weld batch/day → Ramos execution history + OEE, kept LIGHT so the PAST load
+      // doesn't itself congest the cells (no material gate on FG-3002). The near-term DL-2002 lateness
+      // is the DESIGNED ST-8830 material→leak-test cascade (see the Ramos demand note), not past load.
+      demand.push({ line: `PF-${pf}`, ref: `PF-${pf}`, part: fg3002, plant: ramos!.id, cust: stellantis!.id, prog: stelProgram!.id, firm: 'firm', qty: weldQtys[0]!, due: at(-d, 22) })
+      pf++
+    }
+
     await db.insert(demandInput).values(
       demand.map((r) => ({
         tenantId,
@@ -381,6 +422,10 @@ export async function seed(): Promise<void> {
     // link, BOM-lite); PV-22 isn't available until 14:00 today (availability input). The weld
     // op can't start before then → ST-8830 (FG-3001, due today 20:00) is pushed past close and
     // computed material-at-risk; DL-2003 (FG-3001, due +3) is gated too but has the runway.
+    // DESIGNED CASCADE (C2 material × C3 inspection capacity): ST-8830's slipped weld lands its
+    // leak-test on the shared, non-splittable Leak-Test Station on +1, where it occupies the station
+    // ahead of DL-2002's inspection → DL-2002 tips late. Intended second-order effect; see the Ramos
+    // demand note for the full story. (Don't relieve it — the interaction is the demo point.)
     await db.insert(materialRequirement).values({ tenantId, plantId: ramos!.id, partId: fg3001, componentPartId: pv22!.id, qtyPerUnit: 1 })
     await db.insert(materialAvailability).values({ tenantId, plantId: ramos!.id, componentPartId: pv22!.id, availableAt: at(0, 14), qty: 100000 })
     // Historical outcomes (phase 5, D57 measured_historical) — representative seed:
@@ -440,6 +485,12 @@ export async function seed(): Promise<void> {
       ho(ramos!.id, null, w2s, w2e, 0.9, 6.2, 0.91, 0.83, 0.978, 1, 5300),
       ho(ramos!.id, null, w1s, w1e, 0.89, 6.3, 0.9, 0.83, 0.976, 1, 5150),
     ])
+
+    // Autonomy config — ADVISORY-FIRST for the demo: a high Tier-1 auto-adopt threshold so the
+    // warm-start's Press Line A wear PREDICTION stays QUEUED (advisory, "predicting — not yet
+    // adopted") instead of auto-pre-adopting (ml_predicted) at reset. Real wear still ADOPTS via the
+    // learning rule when actuals cross the band (the live-drift demo's payoff), independent of this gate.
+    await db.insert(autonomyConfig).values({ tenantId, tier1AutoThreshold: 0.97, tier2Mode: 'advisory' })
 
     console.log('  ✓ Magna de México scenario: 3 plants, 4 customers, 5 resources, 6 parts, 4 certs, 7 operators, 14 demand lines')
     console.log('  ✓ historical outcomes: 9 rows (Saltillo + Press Line A + Ramos); Monterrey/Press Line B = none (empty-state)')

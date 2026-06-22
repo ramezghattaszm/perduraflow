@@ -24,7 +24,9 @@ import { SchedulingRepository } from './scheduling.repository'
  */
 @Injectable()
 export class SimulatorService {
-  private readonly NOISE = 0.03 // ±3% near-standard variation
+  private readonly NOISE = 0.005 // ±0.5% near-standard variation — tight enough that a gentle, real wear
+  // trend reads cleanly above the noise floor (so a deterministic days-out prediction emerges), and
+  // pure-noise series on non-drifting params stay below the trend threshold (no spurious predictions).
   private readonly YIELD = 0.97 // baseline good-quantity fraction
 
   constructor(
@@ -108,20 +110,32 @@ export class SimulatorService {
 
     let seq = 0
     let emitted = 0
+    // Per-resource running cycle index → the drift ramp builds across the resource's cycles in
+    // emission (chronological) order, so wear accrues day-over-day across past ops — not reset
+    // inside each op. (Ops come back ordered by sequence position.)
+    const resCycleIdx = new Map<string, number>()
     for (const op of ops) {
+      // Rolling window: only COMPLETED (past) ops execute; today/future ops stay planned.
+      if (req.completedBeforeMs != null && op.plannedEnd.getTime() > req.completedBeforeMs) continue
       const std = await stdFor(op.partId, op.routingOperationId)
       const stdCycle = std?.stdCycleTime ?? op.cycleTime
       const stdSetup = std?.stdSetupTime ?? op.setupTime
       const drifting = req.drift && req.drift.resourceId === op.resourceId
+      // Seed the noise on STABLE keys (demand line + op seq + cycle), NOT the version/op ULIDs which
+      // are regenerated every reset — so a `demo:reset` is truly reproducible (same actuals, same
+      // learned values, same prediction every time). D2 determinism.
+      const noiseKey = `${op.demandLineId}:${op.opSeq}`
       for (let k = 0; k < req.cyclesPerOp; k++) {
-        const epsCycle = (seeded(`${version.id}:${op.id}:c:${k}`) - 0.5) * 2 * this.NOISE
-        const epsSetup = (seeded(`${version.id}:${op.id}:s:${k}`) - 0.5) * 2 * this.NOISE
-        const ramp = req.drift ? Math.min(1, k / req.drift.rampOverEvents) : 0
+        const ri = resCycleIdx.get(op.resourceId) ?? 0
+        resCycleIdx.set(op.resourceId, ri + 1)
+        const epsCycle = (seeded(`${noiseKey}:c:${k}`) - 0.5) * 2 * this.NOISE
+        const epsSetup = (seeded(`${noiseKey}:s:${k}`) - 0.5) * 2 * this.NOISE
+        const ramp = req.drift ? Math.pow(Math.min(1, ri / req.drift.rampOverEvents), req.drift.curve ?? 1) : 0
         const driftCycle = drifting && req.drift!.param === 'cycle' ? 1 + req.drift!.magnitude * ramp : 1
         const driftSetup = drifting && req.drift!.param === 'setup' ? 1 + req.drift!.magnitude * ramp : 1
         const actualCycle = stdCycle * (1 + epsCycle) * driftCycle
         const actualSetup = stdSetup * (1 + epsSetup) * driftSetup
-        const yieldFrac = this.YIELD + (seeded(`${version.id}:${op.id}:y:${k}`) - 0.5) * 0.04
+        const yieldFrac = this.YIELD + (seeded(`${noiseKey}:y:${k}`) - 0.5) * 0.04
         // A slower cycle produces fewer pieces in the same window → the drifted line
         // falls behind plan (the variance beat); throughput scales by std/actual cycle.
         const throughputFrac = actualCycle > 0 ? Math.min(1, stdCycle / actualCycle) : 1
@@ -143,7 +157,7 @@ export class SimulatorService {
           stdCycleTime: stdCycle,
           goodQty,
           scrapQty: Math.max(0, op.plannedQty - goodQty),
-          downtimeMinutes: Math.round(seeded(`${version.id}:${op.id}:d:${k}`) * 6),
+          downtimeMinutes: Math.round(seeded(`${noiseKey}:d:${k}`) * 6),
           downtimeReason: null,
           source: 'simulator',
           seq: seq++,

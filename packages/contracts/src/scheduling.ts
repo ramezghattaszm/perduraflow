@@ -162,11 +162,12 @@ export interface ScheduleVersionDetailDto {
 export interface ResourceVarianceDto {
   resourceId: string
   resourceName: string
-  /** Σ actual good_qty / Σ planned_qty over the version window. */
+  /** Σ actual good_qty / Σ planned_qty over the EXECUTED ops (those with actuals) — execution
+   * performance of what has actually run, not diluted by the rolling window's unexecuted future. */
   throughputAttainment: number
   /** 1 − attainment (the "Line A running N% behind" chip); 0 when on/ahead of plan. */
   behindPlanPct: number
-  /** Ops started within tolerance of planned_start / total ops. */
+  /** Ops started within tolerance of planned_start / executed ops. */
   scheduleAdherence: number
 }
 
@@ -631,6 +632,12 @@ export const simulateActualsSchema = z
     scheduleVersionId: z.string().min(1),
     /** Production cycles emitted per scheduled op (enough samples to let learning adopt). */
     cyclesPerOp: z.number().int().positive().max(50).default(12),
+    /**
+     * Only emit actuals for **completed** ops — those whose planned end is at/before this epoch ms.
+     * The rolling-window seed passes today's start so a single past→future committed version executes
+     * only its PAST days (today/future stay planned). Absent = emit for every op (the live-drift demo).
+     */
+    completedBeforeMs: z.number().int().nonnegative().optional(),
     drift: z
       .object({
         resourceId: z.string().min(1),
@@ -638,6 +645,14 @@ export const simulateActualsSchema = z
         /** Fractional ramp target, e.g. 0.08 = +8% (Collision-2 tool-wear). */
         magnitude: z.number(),
         rampOverEvents: z.number().int().positive().default(8),
+        /**
+         * Ramp shape exponent: 1 = linear (default; the live-drift demo). >1 = convex/accelerating
+         * (slow early, steep recent) — keeps the trailing-window MEAN below the adopt threshold while
+         * the recent slope still projects a near crossing, i.e. a live "predicting, not yet adopted"
+         * wear state. The warm-start seed uses 2 (realistic tool wear accelerates toward end-of-life).
+         * Omitted = linear (the service treats absent as 1).
+         */
+        curve: z.number().positive().optional(),
       })
       .strict()
       .optional(),

@@ -19,8 +19,14 @@ export const PREDICT = {
   MIN_SAMPLES: 5,
   /** Confidence saturates at this sample count (mirrors the learner). */
   N_TRUST: 8,
-  /** Max horizon forecast, minutes — beyond this we say "no crossing within horizon". */
-  H_MAX_MIN: 480,
+  /**
+   * Max horizon forecast, minutes — beyond this we say "no crossing within horizon". Tool/parameter
+   * wear is inherently MULTI-DAY, so the honest forecast horizon is days, not one shift: a week of
+   * clock time (10080 min). Keeps a far crossing legitimately low-confidence (horizon-decay) without
+   * rejecting it as "no crossing". (A shift-length 480 was too short — a gentle wear trend that
+   * crosses in a few days would be silently dropped.)
+   */
+  H_MAX_MIN: 10080,
   /** Confidence floor at the far horizon (never zero — a far forecast is weak, not absent). */
   CONF_FLOOR: 0.1,
   /** Minimum slope (value/event) to call a trend — below this the series is flat (no forecast). */
