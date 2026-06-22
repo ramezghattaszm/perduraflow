@@ -419,11 +419,22 @@ export function BoardContent() {
   // prediction itself lives on the resource panel, never the op panel).
   const opResourceHasPrediction = selectedOp ? predictions.some((p) => p.resourceId === selectedOp.resourceId) : false
 
+  const tl = (k: string, o?: Record<string, unknown>): string => t(k, o ?? {})
   const opPanel = selectedOp ? (
+    <YStack gap="$2.5">
     <LearnedParamPanel
       title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
       subtitle={`op ${selectedOp.opSeq}`}
-      status={selectedOp.atRisk ? { label: t('atRisk'), tone: 'danger' } : undefined}
+      status={
+        selectedOp.atRisk
+          ? {
+              label: selectedOp.atRiskReason
+                ? t('atRiskWithReason', { reason: t(`riskReason.${selectedOp.atRiskReason}`, { defaultValue: selectedOp.atRiskReason }) })
+                : t('atRisk'),
+              tone: 'danger',
+            }
+          : undefined
+      }
       scheduleRows={scheduleRows}
       metricLabel={opProvenance === 'measured' ? t('learned.cycle') : t('learned.cycleStd')}
       sourceText={opProvenance === 'measured' ? t('source.ml_adjusted') : t('source.standard')}
@@ -505,23 +516,38 @@ export function BoardContent() {
     />
   ) : null
 
+  // `lineWear` (a real learned value materially above std) means the wear has CROSSED and the plan
+  // already reflects it (adopted / pre-emptively adjusted) → "crossed — re-sequenced" copy. A
+  // prediction with no such learned value is still APPROACHING → advisory/forecast copy only.
+  const wearSignal = linePred || lineWear
+  const wearActed = !!lineWear
   const resourcePanel = selectedResourceId && !selectedDown ? (
     <ResourceWearPanel
       title={resName}
       subtitle={t('board.pred.lineSubtitle')}
-      status={linePred || lineWear ? { label: t('board.pred.wearPill'), tone: 'warning' } : undefined}
-      warning={linePred || lineWear ? { title: t('wear.trigger'), body: t('wear.triggerBody', { resource: resName }) } : undefined}
+      status={wearSignal ? { label: t(wearActed ? 'board.pred.wearPill' : 'board.pred.forecastPill'), tone: 'warning' } : undefined}
+      warning={
+        wearSignal
+          ? {
+              title: t(wearActed ? 'wear.trigger' : 'wear.forecast'),
+              body: t(wearActed ? 'wear.triggerBody' : 'wear.forecastBody', { resource: resName }),
+            }
+          : undefined
+      }
       prediction={wearPrediction}
       consequence={
-        linePred || lineWear
+        wearSignal
           ? {
               maintenance: t('board.pred.maintenance'),
-              downstream: lineOpsN > 0 ? t('board.pred.downstream', { count: lineOpsN, resource: resName }) : t('board.pred.downstreamNone'),
+              downstream:
+                lineOpsN > 0
+                  ? t(wearActed ? 'board.pred.downstream' : 'board.pred.downstreamForecast', { count: lineOpsN, resource: resName })
+                  : t('board.pred.downstreamNone'),
             }
           : undefined
       }
       action={
-        (linePred || lineWear) && !readOnly
+        wearSignal && !readOnly
           ? { label: t('whatif:trigger.seeOptions'), onPress: () => runWearWhatIf(selectedResourceId!), loading: whatIf.isPending }
           : undefined
       }

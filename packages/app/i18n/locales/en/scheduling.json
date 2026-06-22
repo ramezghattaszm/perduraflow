@@ -42,6 +42,7 @@
       "pointer": "{{resource}} predicted wear — see line",
       "lineSubtitle": "Tool wear & forecast",
       "wearPill": "Wear",
+      "forecastPill": "Wear forecast",
       "confidence": "Confidence",
       "horizon": "Predicted to cross the wear line in {{horizon}} (~{{time}})",
       "horizonNone": "Predicted to cross within the horizon",
@@ -49,6 +50,7 @@
       "basis": "Forecast from the trend over {{count}} actuals — not yet measured",
       "maintenance": "Maintenance recommended",
       "downstream": "Downstream: {{count}} op(s) on {{resource}} — kept fed by the pre-emptive adjustment",
+      "downstreamForecast": "Downstream: {{count}} op(s) on {{resource}} — at risk if the wear crosses (advisory)",
       "downstreamNone": "No downstream ops affected this horizon",
       "healthy": "No wear signal — running on standard."
     },
@@ -122,7 +124,9 @@
     "title": "Tool-wear flagged",
     "body": "{{resource}} — cycle drift {{pct}}% sustained past threshold.",
     "trigger": "Tool-wear signal",
-    "triggerBody": "Cycle drift on {{resource}} crossed threshold — flagged. Schedule re-sequenced to protect downstream from starvation."
+    "triggerBody": "Cycle drift on {{resource}} crossed threshold — flagged. Schedule re-sequenced to protect downstream from starvation.",
+    "forecast": "Tool-wear forecast",
+    "forecastBody": "Cycle drift on {{resource}} is approaching the wear line — advisory. Not yet crossed; the schedule still runs on standard."
   },
   "simulator": {
     "title": "Scenario launcher",
