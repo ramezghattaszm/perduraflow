@@ -69,6 +69,29 @@
   "status": { "draft": "Draft", "committed": "Committed", "superseded": "Superseded" },
   "runStatus": { "success": "Success", "infeasible": "Infeasible", "failed": "Failed" },
   "atRisk": "At risk",
+  "atRiskWithReason": "At risk: {{reason}}",
+  "riskReason": {
+    "material": "material",
+    "late": "late vs due",
+    "exceeds_working_window": "exceeds working window"
+  },
+  "lateness": {
+    "why": "Why late",
+    "heldBy": "{{order}} (op {{opSeq}})",
+    "concise": "{{cause}} · held by {{blocker}}",
+    "conciseSelf": "{{cause}}",
+    "rootMaterial": "{{component}} material",
+    "rootMaterialNoComp": "material gate",
+    "rootWorking_window": "won't fit the working window",
+    "rootCapacity": "resource at capacity",
+    "rootDue_before_start": "due before it could start",
+    "hopResource": "{{order}} op {{opSeq}} · {{resource}} — line occupied, held by",
+    "hopPredecessor": "{{order}} op {{opSeq}} · {{resource}} — waiting on its earlier op",
+    "hopRoot": "{{order}} op {{opSeq}} · {{resource}} — {{cause}}",
+    "expand": "Show chain",
+    "collapse": "Hide chain",
+    "truncated": "… chain truncated"
+  },
   "source": { "standard": "std", "ml_adjusted": "ml", "ml_predicted": "predicted" },
   "variance": {
     "behindPlan": "{{pct}}% behind plan",

@@ -9,6 +9,7 @@ import {
   BarDetailSheet,
   ContextSelectors,
   DateRangeNav,
+  LatenessChain,
   LearnedParamPanel,
   P,
   PageHeader,
@@ -23,6 +24,7 @@ import {
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
+import { latenessLines, latenessSummary } from '../../../utils/lateness'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts } from '../../../hooks/useMasterData'
@@ -440,6 +442,16 @@ export function BoardContent() {
           : undefined
       }
     />
+      {selectedOp.latenessChain ? (
+        <LatenessChain
+          title={t('lateness.why')}
+          summary={latenessSummary(selectedOp.latenessChain, tl)}
+          lines={latenessLines(selectedOp.latenessChain, tl)}
+          expandLabel={t('lateness.expand')}
+          collapseLabel={t('lateness.collapse')}
+        />
+      ) : null}
+    </YStack>
   ) : null
 
   // ===== Resource / line wear surface (click a lane) — RESOURCE-LEVEL ONLY =====

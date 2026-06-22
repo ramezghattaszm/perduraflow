@@ -6,6 +6,7 @@ import {
   type ConversationDetailDto,
   type ConversationDto,
   type ConversationTurnDto,
+  type LatenessChainDto,
   type PlanComparisonDto,
   type RequestedChange,
   type ScreenContext,
@@ -159,6 +160,23 @@ const GOAL_SEEK_TOOL: LlmTool = {
 }
 
 /**
+ * Explain-lateness (causal attribution, D-late) — return an order's computed lateness chain: the
+ * binding op at each hop down to a root (material / capacity / working_window / due_before_start).
+ * Every hop is a stored engine fact (the floor that set the start), so the Copilot narrates the chain
+ * and NEVER infers a link. Type-1: retrieve + translate. `demandLineId` defaults to the screen selection.
+ */
+const EXPLAIN_LATENESS_TOOL: LlmTool = {
+  name: 'explain_lateness',
+  description:
+    "Explain WHY an order is late — return its computed causal chain: the blocking op at each hop down to a root cause (material gate / resource capacity / working window / due-before-start). Use for 'why is X late / what's blocking X / why did X slip / what made it late'. Narrate the hops IN ORDER as the chain; each hop is a computed engine fact — NEVER infer or add a blocker that is not in the returned chain. Omit demandLineId to use the order selected on screen.",
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { demandLineId: { type: ['string', 'null'], description: 'the order id (demandLineId) to explain; omit to use the on-screen selection' } },
+  },
+}
+
+/**
  * Inline only the nearest-due slice of orders in the prompt; the rest resolve via find_orders.
  * Sized so the demo's full near-term order spine sits inline (no unexpected lookup in the scripted
  * flow) while still capping prompt growth as the order book extends past the near horizon.
@@ -307,6 +325,17 @@ export class ConversationService {
         if (gs.resultId) activeResultId = gs.resultId
         return { content: JSON.stringify(compactGoalSeek(gs)), groundedRefs: gs.resultId ? [gs.resultId] : [plantId], resultId: gs.resultId ?? undefined }
       }
+      if (call.name === 'explain_lateness') {
+        // Named order → screen-selected order (deictic "why is this late"). Resolve a ref via the catalog.
+        const raw = (call.input as { demandLineId?: string }).demandLineId ?? screenContext?.selectedOrderId
+        const match = raw
+          ? catalog.orders.find((o: CatalogOrder) => o.demandLineId.toLowerCase() === raw.toLowerCase() || (o.releaseReference ?? '').toLowerCase() === raw.toLowerCase())
+          : undefined
+        const demandLineId = match?.demandLineId ?? raw
+        if (!demandLineId) return { content: JSON.stringify({ needOrder: true, note: 'Ask the planner which order to explain.' }), groundedRefs: [] }
+        const chains = await this.scheduling.latenessForOrder(tenantId, plantId, demandLineId)
+        return { content: JSON.stringify(compactLateness(demandLineId, chains)), groundedRefs: [plantId] }
+      }
       if (call.name === 'retrieve_coverage') {
         const input = call.input as { operator?: string; station?: string }
         const cov = await this.scheduling.coverage(tenantId, plantId)
@@ -340,7 +369,7 @@ export class ConversationService {
     }
 
     try {
-      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, COMPARE_OPTIONS_TOOL, EVALUATE_TOOL, GOAL_SEEK_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL] }, dispatch)
+      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, COMPARE_OPTIONS_TOOL, EVALUATE_TOOL, GOAL_SEEK_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL, EXPLAIN_LATENESS_TOOL] }, dispatch)
       let content = loop.text || 'I could not produce a response.'
       let status: 'ok' | 'degraded' = 'ok'
       // Detectable non-fabrication violation: a scheduling claim with no grounding/tool call.
@@ -524,6 +553,28 @@ export function compactCoverage(cov: WorkforceCoverageDto, focus: { type: 'opera
 }
 
 /**
+ * Compact, LLM-readable view of an order's causal lateness chains (D-late) — from
+ * {@link SchedulingService.latenessForOrder}. Each hop is the engine's recorded binding (the floor
+ * that set an op's start); the model narrates the hops IN ORDER and must NOT add a link not listed.
+ * One entry per at-risk op of the order (an order can be late on more than one op).
+ */
+export function compactLateness(demandLineId: string, chains: LatenessChainDto[]) {
+  if (chains.length === 0) {
+    return { order: demandLineId, late: false, note: 'This order is not at-risk in the committed plan — say it is on track; do NOT invent a cause.' }
+  }
+  return {
+    order: demandLineId,
+    late: true,
+    chains: chains.map((c) => ({
+      root: c.root,
+      truncated: c.truncated,
+      hops: c.hops.map((h) => ({ order: h.demandLineId, op: h.opSeq, resource: h.resourceName, part: h.partNo, kind: h.kind, detail: h.detail })),
+    })),
+    note: 'Narrate the hops IN ORDER as the causal chain (op held by → its blocker → … → root). Every hop is a computed engine fact; NEVER add or infer a blocker not in this list. If truncated, say the chain was truncated.',
+  }
+}
+
+/**
  * The CURRENT SCREEN line (Pass B) — a planner-readable snapshot of what's on screen, with the
  * selected order rendered by its human release reference and the selected line by name. Returns
  * null when there's no screen context (→ pure Pass A behavior). Used only to resolve deictic refs.
@@ -604,6 +655,7 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     'Grounding: every scheduling fact must come from a tool result; keep numbers exactly as returned. Be concise, like a planner’s note. You explain and construct — you never apply or commit.',
     'NEVER suggest a scheduling value (overtime hours, a quantity, a date) from your own reasoning — that is fabrication even if it sounds plausible. To suggest a value, call goal_seek (the engine finds it) and report only the value it returns. If a value did not come from a tool result, do not state it.',
     'When you call compare_options, a side-by-side table of the options and their KPIs is rendered to the planner automatically. Do NOT retype those per-option figures in your prose — narrate the TRADE-OFF (what each option prioritises and gives up, which the table supports), the way a planner would summarise it.',
+    'For "why is X late", call explain_lateness and narrate the returned chain IN ORDER — each op, the op that held it, down to the root cause. Every hop is a computed engine fact; state ONLY the hops returned and NEVER infer, add, or guess a blocker or a cause that is not in the chain. If the order is not at-risk, say it is on track.',
     'Language: write natural prose. Refer to options, factors, and constraints by their human labels exactly as given in the tool result (e.g. "Protect delivery", "displacement", "firm delivery") — NEVER print a raw identifier, snake_case key, or code token, and never add a "(see …)" reference.',
   ].join('\n')
 }

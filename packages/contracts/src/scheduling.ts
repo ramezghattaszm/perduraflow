@@ -38,6 +38,15 @@ export type OptimizerTrigger = z.infer<typeof optimizerTriggerSchema>
 export const timeSourceSchema = z.enum(['standard', 'ml_adjusted', 'ml_predicted'])
 export type TimeSource = z.infer<typeof timeSourceSchema>
 
+/**
+ * The floor component that set an op's start — the engine's computed cause of its placement, the
+ * atom of causal-lateness attribution (D-late). `resource`/`predecessor` point at a blocking op
+ * (followed for the chain); the rest are roots: `material` (buy-component gate), `release`/`origin`
+ * (couldn't start before its day / the horizon), `working_window` (couldn't fit a working segment).
+ */
+export const bindingKindSchema = z.enum(['resource', 'predecessor', 'material', 'release', 'origin', 'working_window'])
+export type BindingKind = z.infer<typeof bindingKindSchema>
+
 // --- DTOs --------------------------------------------------------------------
 
 export interface DemandInputDto {
@@ -119,6 +128,8 @@ export interface ScheduledOperationDto {
   /** This version's execution actual for the op (planned-vs-actual on the board);
    *  `null` until the version has actuals. */
   actual?: OperationActualDto | null
+  /** The computed causal lateness chain for this op (D-late); populated only for at-risk ops, else null. */
+  latenessChain?: LatenessChainDto | null
 }
 
 /**
@@ -181,6 +192,40 @@ export interface OeeDto {
   oee: number
 }
 
+/** A root cause that terminates a lateness chain (D-late). */
+export const latenessRootSchema = z.enum(['material', 'working_window', 'capacity', 'due_before_start'])
+export type LatenessRoot = z.infer<typeof latenessRootSchema>
+
+/**
+ * One hop in a lateness chain — an op and the computed reason it was pushed. `predecessor`/`resource`
+ * point to the next (blocking) hop; a {@link LatenessRoot} value is terminal. Every hop is a stored
+ * engine fact (the binding floor), never inferred — the Copilot narrates these verbatim.
+ */
+export interface LatenessHop {
+  demandLineId: string
+  opSeq: number
+  resourceId: string
+  resourceName: string
+  partNo: string
+  /** Why THIS op was pushed (its binding). Terminal hop carries a LatenessRoot. */
+  kind: 'predecessor' | 'resource' | LatenessRoot
+  /** Root specifics, e.g. the gating component part no ("PV-22") on a `material` hop; else null. */
+  detail: string | null
+}
+
+/**
+ * The full computed causal chain for a late order: ordered hops from the late op through its blockers
+ * to a root. Deterministic (same schedule → same chain), grounded (each hop = a stored binding),
+ * guarded (max depth + visited-set → `truncated`). Read identically by the board, queue, and Copilot.
+ */
+export interface LatenessChainDto {
+  /** [the late op, …blockers…, the root op]. */
+  hops: LatenessHop[]
+  root: LatenessRoot
+  /** True if the walk hit the depth cap or a revisit (chain shown is partial, never silently dropped). */
+  truncated: boolean
+}
+
 /** At-risk order exposure row (Scorecard). */
 export interface AtRiskOrderDto {
   demandLineId: string
@@ -191,6 +236,8 @@ export interface AtRiskOrderDto {
   reason: string
   /** The op's resource — clicking the row drills the Scorecard to this line. */
   resourceId: string
+  /** The computed causal chain for this at-risk op (D-late); null if not derivable. */
+  chain: LatenessChainDto | null
 }
 
 /** A prior-version metric snapshot for version-over-version deltas (NOT the manual baseline). */

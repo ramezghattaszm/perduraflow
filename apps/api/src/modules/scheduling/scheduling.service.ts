@@ -6,6 +6,7 @@ import {
   type CoverageAxisDto,
   type CoverageCell,
   type CoverageProposalDto,
+  type LatenessChainDto,
   type LearnedParameterDto,
   type LearningReadContract,
   type MasterDataReadContract,
@@ -39,9 +40,10 @@ import {
   toScheduleVersionDto,
 } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
-import type { DemandInput } from './schema'
+import type { DemandInput, ScheduledOperation } from './schema'
+import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperatorFactor, type SequencerItem } from './sequencer'
-import { buildWorkingCalendar, type WorkingCalendar } from './working-calendar'
+import { buildWorkingCalendar, startOfDayUtc, type WorkingCalendar } from './working-calendar'
 
 /** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
 export interface BaseContext {
@@ -143,6 +145,67 @@ export class SchedulingService {
    * One version + its run + ordered operations (board payload).
    * @throws AppException SCHEDULE_VERSION_NOT_FOUND
    */
+  /**
+   * Build the causal lateness chains (D-late) for a version's at-risk ops — keyed by
+   * `demandLineId:opSeq`. Resolves the resource/part/material lookups the pure walk needs. ONE source
+   * shared by the board op panel, the Scorecard at-risk list, and the Copilot's explain_lateness tool.
+   */
+  private async latenessChainsFor(tenantId: string, plantId: string, ops: ScheduledOperation[]): Promise<Map<string, LatenessChainDto>> {
+    const md = await this.resolveMasterData(tenantId)
+    const resName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+    const partNo = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
+    // Per part, the binding gate component = the requirement whose component arrives latest (matches
+    // the sequencer's earliestStartMs = max availability). null = no material gate on that part.
+    const availAt = new Map<string, number>()
+    for (const a of await this.repo.listMaterialAvailability(tenantId, plantId)) {
+      availAt.set(a.componentPartId, Math.max(availAt.get(a.componentPartId) ?? 0, a.availableAt.getTime()))
+    }
+    const compByPart = new Map<string, string>()
+    const bestAt = new Map<string, number>()
+    for (const r of await this.repo.listMaterialRequirements(tenantId, plantId)) {
+      const at = availAt.get(r.componentPartId) ?? 0
+      if (at >= (bestAt.get(r.partId) ?? -1)) {
+        bestAt.set(r.partId, at)
+        compByPart.set(r.partId, partNo.get(r.componentPartId) ?? r.componentPartId)
+      }
+    }
+    const lk: LatenessLookups = {
+      resourceName: (rid) => resName.get(rid) ?? rid,
+      partNo: (pid) => partNo.get(pid) ?? pid,
+      materialComponent: (pid) => compByPart.get(pid) ?? null,
+    }
+    const latenessOps: LatenessOp[] = ops.map((o) => ({
+      demandLineId: o.demandLineId,
+      opSeq: o.opSeq,
+      resourceId: o.resourceId,
+      partId: o.partId,
+      atRisk: o.atRisk,
+      bindingKind: o.bindingKind ?? null,
+      bindingBlockerDemandLineId: o.bindingBlockerDemandLineId ?? null,
+      bindingBlockerOpSeq: o.bindingBlockerOpSeq ?? null,
+    }))
+    return buildLatenessChains(latenessOps, lk)
+  }
+
+  /**
+   * The causal lateness chains for one order on the plant's committed plan (D-late) — one per at-risk
+   * op of that order. Empty when the order isn't at-risk. Used by the Copilot's explain_lateness tool;
+   * the chain is computed (grounded), so the Copilot narrates it and never infers a blocker.
+   */
+  async latenessForOrder(tenantId: string, plantId: string, demandLineId: string): Promise<LatenessChainDto[]> {
+    const version = await this.repo.findCommittedVersion(tenantId, plantId)
+    if (!version) return []
+    const ops = await this.repo.operationsForVersion(version.id)
+    const chains = await this.latenessChainsFor(tenantId, version.plantId, ops)
+    return [...chains.values()].filter((c) => c.hops[0]?.demandLineId === demandLineId)
+  }
+
+  /**
+   * The board payload for a version: header + run + ordered operations, each enriched with this
+   * version's execution actual (planned-vs-actual) and, for at-risk ops, the computed causal lateness
+   * chain (D-late) — so the bar panel shows "held by … ← root" from the same chain the queue + Copilot read.
+   * @throws AppException SCHEDULE_VERSION_NOT_FOUND
+   */
   async versionDetail(tenantId: string, id: string): Promise<ScheduleVersionDetailDto> {
     const version = await this.repo.findVersion(tenantId, id)
     if (!version) {
@@ -158,6 +221,9 @@ export class SchedulingService {
     // calendars the sequencer placed against (D-shift), so the axis spans the working day.
     const plantResources = (await (await this.resolveMasterData(tenantId)).listResources(tenantId)).filter((r) => r.plantId === version.plantId)
     const workingWindow = workingWindowOf(await this.resolveResourceCalendars(tenantId, plantResources))
+    // Causal lateness chains for the at-risk ops (D-late) — attached to the board op so the bar panel
+    // can show "held by … ← root", same computed chain the queue + Copilot read.
+    const chains = await this.latenessChainsFor(tenantId, version.plantId, ops)
     return {
       version: toScheduleVersionDto(version),
       run: toOptimizerRunDto(run!),
@@ -175,6 +241,7 @@ export class SchedulingService {
                 scrapQty: a.scrapQty,
               }
             : null,
+          latenessChain: chains.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
         }
       }),
     }
@@ -364,6 +431,9 @@ export class SchedulingService {
         cycleConfidence: p.cycleConfidence,
         atRisk: p.atRisk,
         atRiskReason: p.atRiskReason,
+        bindingKind: p.bindingKind,
+        bindingBlockerDemandLineId: p.bindingBlockerDemandLineId,
+        bindingBlockerOpSeq: p.bindingBlockerOpSeq,
       })),
     )
     await this.events.publish(EVENTS.SCHEDULING_RUN_COMPLETED, { id: run.id, tenantId, name: plantId }, tenantId)
@@ -690,9 +760,12 @@ export class SchedulingService {
     resourceId: string | undefined,
     resourceById: Map<string, ResourceDto>,
     partNoById: Map<string, string>,
+    plantId: string,
+    withChains: boolean,
   ): Promise<{ otif: number; costPerUnit: number | null; oee: OeeDto | null; throughputAttainment: number | null; atRisk: AtRiskOrderDto[] }> {
-    let ops = await this.repo.operationsForVersion(versionId)
-    if (resourceId) ops = ops.filter((o) => o.resourceId === resourceId)
+    // Chains follow blockers across resources → built from the UNFILTERED ops even when drilled to one line.
+    const allOps = await this.repo.operationsForVersion(versionId)
+    const ops = resourceId ? allOps.filter((o) => o.resourceId === resourceId) : allOps
     if (ops.length === 0) return { otif: 1, costPerUnit: null, oee: null, throughputAttainment: null, atRisk: [] }
     let actuals = await this.learning.listActualsForVersion(tenantId, versionId)
     if (resourceId) actuals = actuals.filter((a) => a.resourceId === resourceId)
@@ -736,6 +809,7 @@ export class SchedulingService {
       const quality = good + scrap > 0 ? good / (good + scrap) : 0
       oee = { availability, performance, quality, oee: availability * performance * quality }
     }
+    const chains = withChains ? await this.latenessChainsFor(tenantId, plantId, allOps) : null
     const atRisk: AtRiskOrderDto[] = ops
       .filter((o) => o.atRisk)
       .map((o) => ({
@@ -778,13 +852,13 @@ export class SchedulingService {
     const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
 
-    const cur = await this.versionMetrics(tenantId, version.id, resourceId, resourceById, partNoById)
+    const cur = await this.versionMetrics(tenantId, version.id, resourceId, resourceById, partNoById, version.plantId, true)
     // Previous = the prior committed version this one supersedes (committed-to-committed).
     const prevVersion = version.supersedesVersionId
       ? await this.repo.findVersion(tenantId, version.supersedesVersionId)
       : null
     const previous = prevVersion
-      ? await this.versionMetrics(tenantId, prevVersion.id, resourceId, resourceById, partNoById).then((m) => ({
+      ? await this.versionMetrics(tenantId, prevVersion.id, resourceId, resourceById, partNoById, prevVersion.plantId, false).then((m) => ({
           otif: m.otif,
           costPerUnit: m.costPerUnit,
           oee: m.oee,

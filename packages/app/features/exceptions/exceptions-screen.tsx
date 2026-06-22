@@ -14,6 +14,7 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
+import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources } from '../../hooks/useScheduling'
@@ -125,7 +126,7 @@ export function ExceptionsContent() {
                 key={`${a.demandLineId}:${a.resourceId}:${a.detail}`}
                 divided={queued.length > 0 || i > 0}
                 title={a.label}
-                statement={`${a.detail} · ${a.reason}`}
+                statement={`${a.detail} · ${a.chain ? latenessSummary(a.chain, (k, o) => t(`scheduling:${k}`, o ?? {})) : t(`scheduling:riskReason.${a.reason}`, { defaultValue: a.reason })}`}
                 badge={{ label: t('tier.t3'), tone: 'danger' }}
                 selected={selectedOrderId === a.demandLineId}
                 onPress={() => setSelectedOrderId((cur) => (cur === a.demandLineId ? null : a.demandLineId))}

@@ -1,5 +1,6 @@
 import { boolean, doublePrecision, index, integer, text, timestamp } from 'drizzle-orm/pg-core'
 import type {
+  BindingKind,
   OptimizerRunStatus,
   OptimizerTrigger,
   ScheduleVersionStatus,
@@ -89,6 +90,12 @@ export const scheduledOperation = schedulingSchema.table(
     cycleConfidence: doublePrecision('cycle_confidence'),
     atRisk: boolean('at_risk').notNull().default(false),
     atRiskReason: text('at_risk_reason'),
+    // Causal-chain attribution (D-late): the floor component that set this op's start, and — when it
+    // was a blocking op (resource contention / routing precedence) — that blocker's (line, opSeq).
+    // Recorded by the deterministic sequencer so a late order traces to a root with zero re-derivation.
+    bindingKind: text('binding_kind').$type<BindingKind>(),
+    bindingBlockerDemandLineId: text('binding_blocker_demand_line_id'),
+    bindingBlockerOpSeq: integer('binding_blocker_op_seq'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ versionIdx: index('scheduled_operation_version_idx').on(t.scheduleVersionId) }),

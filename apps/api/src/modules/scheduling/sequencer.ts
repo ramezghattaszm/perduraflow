@@ -51,6 +51,15 @@ export interface SequencerItem {
    * material constraint. Resolved upstream from the §4.8 material-availability input.
    */
   earliestStartMs?: number
+  /**
+   * Order-**release** floor (epoch ms) — a planning floor distinct from the material gate: an order
+   * isn't worked before its release day. The solve sets it to `min(today, startOfDay(requiredDate))`,
+   * so PAST-dated demand sits on its own past day while today/future demand floors at today (the
+   * front-loading-from-today behaviour is unchanged when no past demand exists, since this equals the
+   * origin). Absent/0 = no floor. Unlike `earliestStartMs`, binding here does NOT mark the op
+   * material-bound — release lateness is plain lateness.
+   */
+  releaseFloorMs?: number
 }
 
 /**
@@ -89,6 +98,15 @@ export type ResolveEffective = (routingOperationId: string, resourceId: string, 
  */
 export type ResolveOperatorFactor = (resourceId: string, atMs: number) => number
 
+/**
+ * Which floor component set this op's start — the immediate, computed cause of its placement (D-late).
+ * `resource`/`predecessor` point at a blocking op (recurse for the causal chain); the rest are roots:
+ * `material` (a buy-component gate), `release`/`origin` (couldn't start before its day / the horizon),
+ * `working_window` (couldn't fit any working segment). Recorded for EVERY op so the chain can pass
+ * through on-time blockers; null only when there is no binder (degenerate empty schedule).
+ */
+export type BindingKind = 'resource' | 'predecessor' | 'material' | 'release' | 'origin' | 'working_window'
+
 /** A placed operation (epoch-ms times; the service maps to rows). */
 export interface Placement {
   demandLineId: string
@@ -108,6 +126,11 @@ export interface Placement {
   cycleConfidence: number | null
   atRisk: boolean
   atRiskReason: string | null
+  /** The floor component that set this op's start (causal-chain attribution). */
+  bindingKind: BindingKind
+  /** When `bindingKind` is `resource`/`predecessor`, the op that pushed this one (else null). */
+  bindingBlockerDemandLineId: string | null
+  bindingBlockerOpSeq: number | null
   /** Required date (epoch ms) — carried through for lateness/earliness scoring. */
   requiredDateMs: number
   firmness: 'firm' | 'forecast'
@@ -146,6 +169,8 @@ interface ResourceState {
   seq: number
   /** Per-day overtime ledger for this resource (only spent when its calendar allows OT). */
   ot: OvertimeState
+  /** The last op placed on this resource — the blocker when `prevFree` binds a later op (causal chain). */
+  lastOpKey: { demandLineId: string; opSeq: number } | null
 }
 
 const firmRank = (f: 'firm' | 'forecast') => (f === 'firm' ? 0 : 1)
@@ -189,7 +214,7 @@ export function sequence(
   const stateFor = (id: string): ResourceState => {
     let s = state.get(id)
     if (!s) {
-      s = { freeMs: origin, currentAttr: null, seq: 0, ot: newOvertimeState() }
+      s = { freeMs: origin, currentAttr: null, seq: 0, ot: newOvertimeState(), lastOpKey: null }
       state.set(id, s)
     }
     return s
@@ -275,9 +300,10 @@ export function sequence(
     // the resource's free time and the schedule origin. placeJob then walks that floor into
     // working time exactly as it does the others; the gate adds no placement machinery.
     const earliest = item.earliestStartMs ?? 0
+    const release = item.releaseFloorMs ?? 0 // order-release floor (past demand → its day; today/future → today)
     const predEnd = predecessorEnd(item) // C3 precedence: can't start before the prior op ends
     const prevFree = st.freeMs
-    const floor = Math.max(prevFree, origin, earliest, predEnd)
+    const floor = Math.max(prevFree, origin, earliest, predEnd, release)
     // Operator performance (C5): the operator pinned to this resource at op start scales RUN time.
     // effectiveCycle = baseCycle / performanceFactor — a DELIBERATE DIVIDE (higher factor = faster);
     // setup is untouched. Point-resolved at the cursor floor (the op's start), like the material
@@ -292,9 +318,6 @@ export function sequence(
     // the seed keeps demand ≥ minBatch so it never binds by default, so no disposition is needed.
     const effRunQty = Math.max(item.qty, minBatchByResource?.get(bestRes) ?? 0)
     const durMs = (eff.setupTime + effCycle * effRunQty) * MS_PER_MINUTE
-    // The material gate is the binding constraint when it set the floor (later than the
-    // resource's free time, the origin, and any precedence end) — names the cause (D36).
-    const materialBound = earliest > 0 && earliest >= prevFree && earliest >= origin && earliest >= predEnd
     // Calendar-aware placement: advance the cursor through working time only (skipping
     // nights / Sundays / holidays / maintenance / down). A null result means the op cannot
     // fit (non-split op longer than any working segment, no OT) — the service feasibility
@@ -302,11 +325,36 @@ export function sequence(
     const placed = placeJob(cal, floor, durMs, st.ot)
     const startMs = placed?.startMs ?? floor
     const endMs = placed?.endMs ?? startMs + durMs
+    const atRisk = endMs > item.requiredDate || placed === null
+    // Causal attribution (D-late): which floor component set the start — the immediate cause, recorded
+    // so a late order can be traced through its blockers to a root. placeJob may push the start past
+    // `floor` for the working calendar (→ working_window root). Tie priority favors the more specific
+    // cause: material > predecessor > resource > release > origin. `resource`/`predecessor` name the
+    // blocking op; the rest are roots. atRiskReason is derived from the SAME binder (one source).
+    const bindMs = Math.max(prevFree, origin, earliest, predEnd, release)
+    let bindingKind: BindingKind
+    let blocker: { demandLineId: string; opSeq: number } | null = null
+    if (placed === null) {
+      bindingKind = 'working_window'
+    } else if (earliest > 0 && earliest === bindMs) {
+      bindingKind = 'material'
+    } else if (predKey(item) !== null && predEnd === bindMs) {
+      bindingKind = 'predecessor'
+      const arr = opSeqsByLine.get(item.demandLineId)!
+      blocker = { demandLineId: item.demandLineId, opSeq: arr[arr.indexOf(item.opSeq) - 1]! }
+    } else if (st.lastOpKey !== null && prevFree === bindMs) {
+      bindingKind = 'resource'
+      blocker = st.lastOpKey
+    } else if (release === bindMs) {
+      bindingKind = 'release'
+    } else {
+      bindingKind = 'origin'
+    }
     st.freeMs = endMs
+    st.lastOpKey = { demandLineId: item.demandLineId, opSeq: item.opSeq }
     endByLineOp.set(`${item.demandLineId}:${item.opSeq}`, endMs) // precedence: successor floors on this
     st.currentAttr = item.changeoverValue
     st.seq += 1
-    const atRisk = endMs > item.requiredDate || placed === null
     placements.push({
       demandLineId: item.demandLineId,
       partId: item.partId,
@@ -324,7 +372,10 @@ export function sequence(
       setupConfidence: eff.setupConfidence,
       cycleConfidence: eff.cycleConfidence,
       atRisk,
-      atRiskReason: placed === null ? 'exceeds_working_window' : atRisk ? (materialBound ? 'material' : 'late') : null,
+      atRiskReason: !atRisk ? null : bindingKind === 'material' ? 'material' : bindingKind === 'working_window' ? 'exceeds_working_window' : 'late',
+      bindingKind,
+      bindingBlockerDemandLineId: blocker?.demandLineId ?? null,
+      bindingBlockerOpSeq: blocker?.opSeq ?? null,
       requiredDateMs: item.requiredDate,
       firmness: item.firmness,
       changeoverValue: item.changeoverValue,

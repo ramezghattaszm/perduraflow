@@ -15,6 +15,7 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { resolveKey, useTranslation } from '../../i18n'
+import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources, useScheduleVersions } from '../../hooks/useScheduling'
@@ -244,6 +245,11 @@ export function ScorecardContent() {
                       <P size={4} color="$textSecondary">
                         {a.detail}
                       </P>
+                      {a.chain ? (
+                        <P size={3} color="$textSecondary">
+                          {latenessSummary(a.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
+                        </P>
+                      ) : null}
                     </YStack>
                     <XStack
                       alignSelf="flex-start"
@@ -253,7 +259,7 @@ export function ScorecardContent() {
                       paddingVertical="$0.5"
                     >
                       <P size={5} weight="b" color="$danger">
-                        {a.reason}
+                        {t(`scheduling:riskReason.${a.reason}`, { defaultValue: a.reason })}
                       </P>
                     </XStack>
                   </XStack>
