@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from '@tamagui/lucide-icons'
 import type { ConversationTurnDto } from '@perduraflow/contracts'
-import { AppButton, AppInput, ChatRichText, H, IconButton, P, ScrollView, Spinner, XStack, YStack } from '@perduraflow/ui'
-import { useTranslation } from '../../i18n'
+import { AppButton, AppInput, ChatRichText, H, IconButton, P, ScrollView, Spinner, WhatIfComparison, XStack, YStack } from '@perduraflow/ui'
+import { resolveKey, useTranslation } from '../../i18n'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useAddTurn, useConversation, useConversations, useCreateConversation } from '../../hooks/useConversation'
@@ -134,6 +134,9 @@ function Turn({ turn, you, assistant, degradedLabel }: { turn: ConversationTurnD
   const degraded = turn.status === 'degraded'
   // A Type-2 evaluate OR a goal-seek both produce an appliable result → render its option-set inline.
   const generated = turn.resultId && turn.toolCalls.some((c) => c.name === 'evaluate_what_if' || c.name === 'goal_seek')
+  // A compare turn renders the structured side-by-side table (decide-support #2) for the active
+  // result — figures rendered from the artifact, never the LLM's prose (render-don't-retype).
+  const compared = turn.resultId && turn.toolCalls.some((c) => c.name === 'compare_options')
   return (
     <YStack gap="$2" alignSelf={isUser ? 'flex-end' : 'flex-start'} maxWidth="94%">
       <YStack
@@ -160,6 +163,18 @@ function Turn({ turn, you, assistant, degradedLabel }: { turn: ConversationTurnD
         ) : null}
       </YStack>
       {generated ? <TurnOptionSet resultId={turn.resultId!} /> : null}
+      {compared && !generated ? <TurnComparison resultId={turn.resultId!} /> : null}
+    </YStack>
+  )
+}
+
+/** The side-by-side comparison a compare turn renders (figures from the artifact, not the LLM). */
+function TurnComparison({ resultId }: { resultId: string }) {
+  const { data } = useWhatIfResult(resultId)
+  if (!data) return null
+  return (
+    <YStack borderWidth={1} borderColor="$borderColor" borderRadius="$5" padding="$2">
+      <WhatIfComparison result={data} optionLabel={(o) => resolveKey(o.labelKey)} />
     </YStack>
   )
 }

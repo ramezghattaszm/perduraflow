@@ -30,6 +30,17 @@ const RETRIEVE_TOOL: LlmTool = {
   parameters: { type: 'object', properties: {}, additionalProperties: false },
 }
 /**
+ * Side-by-side comparison (decide-support #2). Same data as retrieve_what_if, but its presence in
+ * the turn's toolCalls is the CLIENT SIGNAL to render a structured options × KPIs table (rendered
+ * from the artifact, never the model's figures — render-don't-retype). Narrate the trade-off only.
+ */
+const COMPARE_OPTIONS_TOOL: LlmTool = {
+  name: 'compare_options',
+  description:
+    "Show a SIDE-BY-SIDE comparison of the current what-if options (a structured options × KPIs table is rendered to the planner automatically). Use when asked to compare options / 'side by side' / which is better across the board. Then NARRATE the trade-off in words — do NOT retype the per-option figures (the table shows them).",
+  parameters: { type: 'object', properties: {}, additionalProperties: false },
+}
+/**
  * One change, as a **discriminated union by `kind`** (conversation Pass A, #3). Each branch
  * enforces exactly its required fields (`additionalProperties:false`), so the model fills the
  * right shape per kind instead of free-forming — mis-shapes (e.g. `orderId` vs `demandLineId`,
@@ -253,6 +264,13 @@ export class ConversationService {
         if (!r) return { content: 'No stored what-if analysis exists for this plant yet — describe a scenario to evaluate, or say you cannot answer.', groundedRefs: [] }
         return { content: JSON.stringify(compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])), groundedRefs: [r.id] }
       }
+      if (call.name === 'compare_options') {
+        const r = activeResultId ? await this.repo.findWhatIfResult(tenantId, activeResultId) : undefined
+        if (!r) return { content: 'No what-if analysis to compare yet — evaluate a scenario first, then compare.', groundedRefs: [] }
+        // Same artifact as retrieve; the structured side-by-side TABLE is rendered client-side from
+        // the result (the tool name is the render signal). The model narrates the trade-off only.
+        return { content: JSON.stringify(compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])), groundedRefs: [r.id] }
+      }
       if (call.name === 'evaluate_what_if') {
         const parsed = changeSetSchema.safeParse((call.input as { changeSet?: unknown }).changeSet)
         if (!parsed.success) return { content: `Invalid change-set: ${parsed.error.issues.map((i) => i.message).join('; ')}`, isError: true }
@@ -322,7 +340,7 @@ export class ConversationService {
     }
 
     try {
-      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, GOAL_SEEK_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL] }, dispatch)
+      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, COMPARE_OPTIONS_TOOL, EVALUATE_TOOL, GOAL_SEEK_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL] }, dispatch)
       let content = loop.text || 'I could not produce a response.'
       let status: 'ok' | 'degraded' = 'ok'
       // Detectable non-fabrication violation: a scheduling claim with no grounding/tool call.
@@ -558,6 +576,7 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     '',
     'Tools:',
     '- retrieve_what_if: the stored, already-computed analysis. Use it for ANY question about the existing options/factors/constraints/costs. No new computation.',
+    '- compare_options: render a SIDE-BY-SIDE table of the current options (options × KPIs). Use when asked to compare / "side by side". The table is shown automatically — narrate the trade-off, do NOT retype the figures.',
     '- evaluate_what_if: runs the deterministic engine on a NEW scenario you express as a change-set (a GIVEN value). Use it for a change not in the stored analysis.',
     '- goal_seek: finds the overtime hours that CLEAR the firm at-risk on a line — the ENGINE searches for the value. Use when asked HOW MUCH (overtime) is needed, not for a given amount.',
     '- find_orders: look up a demand order (by id, release reference, customer, or part) not in the inline list below, or to confirm which order an ambiguous reference means.',
@@ -566,6 +585,7 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     '',
     'Routing:',
     '- A question about the existing analysis → call retrieve_what_if, then answer from what it returns.',
+    '- "compare these options / side by side / which is best across the KPIs" → call compare_options (a table renders); then narrate the trade-off WITHOUT repeating the numbers.',
     '- A new scenario with a GIVEN value ("add 4h overtime", "set qty to 500") → evaluate_what_if.',
     '- A "how much / what value" question ("how much overtime to clear the at-risk", "add overtime until it clears") → goal_seek (the engine finds the value). NEVER pick the value yourself.',
     '- A question about the baseline / the lift / vs-baseline / a KPI delta → call retrieve_baseline, then explain the returned numbers.',
@@ -583,6 +603,7 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     'Faithfulness: evaluate_what_if returns `requestedChanges` — what the engine did with EACH change you asked for (applied / partial / unapplied, with a note). A plain-language summary of these is shown to the planner automatically, so do NOT repeat the list verbatim. But you MUST NOT imply a change took effect if its status is partial or unapplied — explain the consequence (e.g. "the overtime could not be added because that resource has no overtime allowance"). Never present a half-applied scenario as fully done.',
     'Grounding: every scheduling fact must come from a tool result; keep numbers exactly as returned. Be concise, like a planner’s note. You explain and construct — you never apply or commit.',
     'NEVER suggest a scheduling value (overtime hours, a quantity, a date) from your own reasoning — that is fabrication even if it sounds plausible. To suggest a value, call goal_seek (the engine finds it) and report only the value it returns. If a value did not come from a tool result, do not state it.',
+    'When you call compare_options, a side-by-side table of the options and their KPIs is rendered to the planner automatically. Do NOT retype those per-option figures in your prose — narrate the TRADE-OFF (what each option prioritises and gives up, which the table supports), the way a planner would summarise it.',
     'Language: write natural prose. Refer to options, factors, and constraints by their human labels exactly as given in the tool result (e.g. "Protect delivery", "displacement", "firm delivery") — NEVER print a raw identifier, snake_case key, or code token, and never add a "(see …)" reference.',
   ].join('\n')
 }
