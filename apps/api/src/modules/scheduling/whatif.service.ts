@@ -24,6 +24,30 @@ import { placementSignature } from './whatif.signature'
 import { scorePlan, type ResourceRate, type ScoredPlan } from './whatif.scoring'
 import { ENGINE_VERSION, RATIONALE_SCHEMA_VERSION, WEIGHT_SET_VERSION } from './whatif.weights'
 
+/**
+ * The result of a goal-seek (decide-support, resource-scoped). Overtime on a resource is judged
+ * against the firm at-risk of the work THAT RESOURCE carries — not plant-wide (a single-resource
+ * lever can't clear a material gate or a different line's bottleneck, so a plant-wide predicate
+ * wrongly returns "not achievable"). Outcomes:
+ *  - `achieved`    — `hours` = the minimal OT that clears R's firm at-risk; `resultId` is appliable.
+ *  - `already_clear` — nothing is firm-at-risk anywhere.
+ *  - `elsewhere`   — R carries no firm at-risk; the late firm work is on other resources (named) —
+ *                    OT on R can't change it. (More useful than a bare "not achievable".)
+ *  - `unachievable`— R carries firm at-risk that OT can't clear (capacity exhausted, or the cause
+ *                    is material/upstream, not capacity — `reason` says which).
+ * All fields engine-derived — never a model guess.
+ */
+export interface GoalSeekResult {
+  outcome: 'achieved' | 'already_clear' | 'elsewhere' | 'unachievable'
+  resourceName: string
+  hours: number | null
+  resultId: string | null
+  baseFirmLateOnResource: number
+  ceilingHours: number
+  elsewhereResources?: string[]
+  reason?: string
+}
+
 /** An option recipe: how to transform the base, what policy, and any OT. */
 interface OptionSpec {
   id: string
@@ -152,6 +176,69 @@ export class WhatIfService {
       createdBy: userId,
     })
     return this.toDto(row.id, plantId, committed, changeSet, baseKpis, options, recommendedOptionId, determinismKey, row.createdAt, requestedChanges)
+  }
+
+  /**
+   * Goal-seek (decide-support, grounded by construction): find the **minimal overtime hours** on a
+   * resource that **clears the firm at-risk** — the ENGINE searches, the caller never picks the
+   * value. A discrete ascending scan over the resource's OT range (config ceiling), each candidate
+   * run through the real `sequence()` and checked for firm-lateness; the first that clears is the
+   * minimum (the prior candidate, implicitly, does not — the two-sided minimality). When found, a
+   * real `evaluate()` at that value produces a persisted, **appliable** result. Bounded + honest:
+   * if no value within the OT ceiling clears it, returns `achieved:false` with the grounded reason —
+   * never a fabricated out-of-bounds value. Deterministic (D2): same plant+resource → same value.
+   * @throws WHATIF_INFEASIBLE the base plan can't be scheduled
+   */
+  async goalSeek(tenantId: string, plantId: string, resourceId: string, userId: string | null): Promise<GoalSeekResult> {
+    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
+    if (ctx.infeasibleReason) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
+    const resourceName = ctx.resourceById.get(resourceId)?.name ?? resourceId
+    const ceilingHours = (ctx.resourceCalendars.get(resourceId)?.otCeilingMinutes ?? 0) / 60
+    const overlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
+    // Firm-late placements (firm-lateness dominance, D13 — forecast lateness is acceptable). The
+    // predicate is RESOURCE-SCOPED: count only the firm-late work ON this resource, since adding R's
+    // overtime can only affect R's own work.
+    const firmLatePlacements = (cals: Map<string, WorkingCalendar>) =>
+      sequence(ctx.items, overlay, undefined, cals, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements.filter((p) => p.firmness === 'firm' && p.atRisk)
+    const onR = (p: Placement) => p.resourceId === resourceId
+
+    const baseFirmLate = firmLatePlacements(ctx.resourceCalendars)
+    const baseOnR = baseFirmLate.filter(onR)
+
+    // Nothing at risk anywhere → already clear.
+    if (baseFirmLate.length === 0) return { outcome: 'already_clear', resourceName, hours: 0, resultId: null, baseFirmLateOnResource: 0, ceilingHours }
+    // The at-risk is elsewhere — OT on R can't touch it. Name where the binding work is (more useful
+    // than a bare "not achievable").
+    if (baseOnR.length === 0) {
+      const elsewhereResources = [...new Set(baseFirmLate.map((p) => ctx.resourceById.get(p.resourceId)?.name ?? p.resourceId))]
+      return { outcome: 'elsewhere', resourceName, hours: null, resultId: null, baseFirmLateOnResource: 0, ceilingHours, elsewhereResources, reason: `no firm at-risk runs on ${resourceName}; the late firm work is on ${elsewhereResources.join(', ')}` }
+    }
+    if (ceilingHours <= 0) return { outcome: 'unachievable', resourceName, hours: null, resultId: null, baseFirmLateOnResource: baseOnR.length, ceilingHours, reason: `${resourceName} has no overtime allowance` }
+
+    const withOt = (h: number): Map<string, WorkingCalendar> =>
+      new Map([...ctx.resourceCalendars].map(([id, c]) => (id === resourceId ? [id, { ...c, otCapMinutes: Math.min(h * 60, c.otCeilingMinutes) }] : [id, c])))
+
+    // Discrete ascending scan over the OT range (1h steps + the fractional ceiling). Small range →
+    // a scan is correct and cheap; no monotonicity assumption (binary search would need one). The
+    // first achieving value is the minimum (the prior step, by construction, did not clear it).
+    const steps: number[] = []
+    for (let h = 1; h <= Math.floor(ceilingHours); h++) steps.push(h)
+    if (!Number.isInteger(ceilingHours)) steps.push(ceilingHours)
+
+    for (const h of steps) {
+      if (firmLatePlacements(withOt(h)).filter(onR).length === 0) {
+        const res = await this.evaluate(tenantId, plantId, { origin: { type: 'manual' }, changes: [{ kind: 'overtime', resourceId, hours: h }] }, undefined, userId)
+        return { outcome: 'achieved', resourceName, hours: h, resultId: res.id, baseFirmLateOnResource: baseOnR.length, ceilingHours }
+      }
+    }
+    // R's own firm at-risk can't be cleared by OT. If it's all material/precedence-gated, the cause
+    // is upstream, not capacity — say so (OT genuinely can't help); else capacity is exhausted.
+    const reasons = new Set(baseOnR.map((p) => p.atRiskReason))
+    const nonCapacity = [...reasons].every((r) => r === 'material' || r === 'precedence')
+    const reason = nonCapacity
+      ? `the firm at-risk on ${resourceName} is gated by ${reasons.has('material') ? 'material availability' : 'an upstream step'}, not capacity — overtime can't clear it`
+      : `even ${ceilingHours}h overtime on ${resourceName} does not clear its firm at-risk`
+    return { outcome: 'unachievable', resourceName, hours: null, resultId: null, baseFirmLateOnResource: baseOnR.length, ceilingHours, reason }
   }
 
   /**

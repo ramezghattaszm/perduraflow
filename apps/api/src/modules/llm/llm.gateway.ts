@@ -193,9 +193,13 @@ export class LlmGateway implements LlmGatewayContract {
       }
       messages.push({ role: 'tool', content: results })
     }
-    // Turn budget hit — one final summarizing pass with no tools so the model answers.
-    const final = await this.complete({ system: input.system, messages, params })
-    return { text: final.text.trim(), toolCalls, groundedRefs: [...grounded], resultIds: [...resultIds], model: final.model, provider: final.providerName, promptVersion }
+    // Turn budget hit — one final summarizing pass. Keep `tools` available with toolChoice 'auto':
+    // some providers (groq/openai-compat) 400 with "tool_choice is none but the model called a tool"
+    // if we drop tools while the model still wants one. We don't dispatch further — we take the
+    // text; if the model only emitted a tool call (no text), fall back to a graceful message.
+    const final = await this.complete({ system: input.system, messages, tools: input.tools, toolChoice: 'auto', params })
+    const text = final.text.trim() || 'I could not finish that here — try narrowing the question.'
+    return { text, toolCalls, groundedRefs: [...grounded], resultIds: [...resultIds], model: final.model, provider: final.providerName, promptVersion }
   }
 
   /** Resolve the active provider's config: preset (data) + env (active provider/model/key). */

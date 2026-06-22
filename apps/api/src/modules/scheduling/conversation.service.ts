@@ -20,7 +20,7 @@ import { PlanComparisonService } from './plan-comparison.service'
 import { SchedulingRepository } from './scheduling.repository'
 import { SchedulingService } from './scheduling.service'
 import { factorLabelEn, optionLabelEn } from './whatif.narration'
-import { WhatIfService } from './whatif.service'
+import { WhatIfService, type GoalSeekResult } from './whatif.service'
 
 /** The two tools the LLM routes among (the route IS the tool choice). */
 const RETRIEVE_TOOL: LlmTool = {
@@ -131,6 +131,23 @@ const RETRIEVE_COVERAGE_TOOL: LlmTool = {
 }
 
 /**
+ * Goal-seek (decide-support, Pass: grounded by construction). Finds the value of a lever that
+ * achieves a goal — the ENGINE searches; the model NEVER picks the value. First lever: overtime
+ * hours to clear the firm at-risk on a line. Distinct from evaluate_what_if (which takes a GIVEN
+ * value): goal_seek answers "how much do I need", evaluate answers "what happens if I add X".
+ */
+const GOAL_SEEK_TOOL: LlmTool = {
+  name: 'goal_seek',
+  description:
+    "Find the OVERTIME hours that CLEAR the firm at-risk on a line — the ENGINE searches for the value; you NEVER choose it. Use for 'how much overtime do I need / add overtime until it clears / what overtime clears the at-risk'. For a GIVEN value ('add 4h overtime'), use evaluate_what_if instead. Returns the minimal hours that clears it (with an appliable scenario), or that no amount within the line's overtime cap clears it.",
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { resourceId: { type: ['string', 'null'], description: 'the line to add overtime on; omit to use the line selected on screen' } },
+  },
+}
+
+/**
  * Inline only the nearest-due slice of orders in the prompt; the rest resolve via find_orders.
  * Sized so the demo's full near-term order spine sits inline (no unexpected lookup in the scripted
  * flow) while still capping prompt growth as the order book extends past the near horizon.
@@ -223,6 +240,12 @@ export class ConversationService {
     // (never LLM free-text) and prepended to the answer so the planner always sees exactly what
     // was applied / not applied (the never-silently-drop guarantee, conversation Pass A).
     let lastLedger: RequestedChange[] | null = null
+    // The structure-derived goal-seek finding — rendered (never the model's number) and prepended
+    // so a suggested value is grounded-by-construction (the engine found it). The flag is a plain
+    // boolean (not read off the closure-mutated object) so a not-achieving goal-seek doesn't
+    // inherit a stale result.
+    let lastGoalSeek: GoalSeekResult | null = null
+    let goalSeekNoResultFlag = false
 
     const dispatch: ToolDispatch = async (call: LlmToolCall) => {
       if (call.name === 'retrieve_what_if') {
@@ -257,6 +280,15 @@ export class ConversationService {
           groundedRefs: dto.scheduleVersionId ? [dto.scheduleVersionId] : [],
         }
       }
+      if (call.name === 'goal_seek') {
+        const resourceId = (call.input as { resourceId?: string }).resourceId ?? screenContext?.selectedResourceId
+        if (!resourceId) return { content: JSON.stringify({ needResource: true, note: 'Ask the planner which line to add overtime on.' }), groundedRefs: [] }
+        const gs = await this.whatIf.goalSeek(tenantId, plantId, resourceId, userId)
+        lastGoalSeek = gs
+        goalSeekNoResultFlag = !gs.resultId
+        if (gs.resultId) activeResultId = gs.resultId
+        return { content: JSON.stringify(compactGoalSeek(gs)), groundedRefs: gs.resultId ? [gs.resultId] : [plantId], resultId: gs.resultId ?? undefined }
+      }
       if (call.name === 'retrieve_coverage') {
         const input = call.input as { operator?: string; station?: string }
         const cov = await this.scheduling.coverage(tenantId, plantId)
@@ -290,7 +322,7 @@ export class ConversationService {
     }
 
     try {
-      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL] }, dispatch)
+      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, GOAL_SEEK_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL] }, dispatch)
       let content = loop.text || 'I could not produce a response.'
       let status: 'ok' | 'degraded' = 'ok'
       // Detectable non-fabrication violation: a scheduling claim with no grounding/tool call.
@@ -305,6 +337,13 @@ export class ConversationService {
         const echo = renderChangeEcho(lastLedger)
         if (echo) content = `${echo}\n\n${content}`
       }
+      // Grounded-by-construction: a goal-seek answer leads with the engine-found value, rendered
+      // (never the model's number) — closes the suggest-a-value guess hole.
+      if (lastGoalSeek) content = `${renderGoalSeek(lastGoalSeek)}\n\n${content}`
+      // The turn's resultId is a FRESH result this turn produced, else the active-context result for
+      // continuity — EXCEPT a goal-seek that found nothing must not inherit a stale result (it would
+      // render an unrelated option-set under a "not achievable" answer).
+      const turnResultId = loop.resultIds[0] ?? (goalSeekNoResultFlag ? null : activeResultId)
       const turn = await this.repo.createTurn({
         tenantId,
         conversationId: conv.id,
@@ -312,7 +351,7 @@ export class ConversationService {
         content,
         groundedRefs: loop.groundedRefs,
         toolCalls: loop.toolCalls.map((c) => ({ name: c.name, input: c.input })),
-        resultId: loop.resultIds[0] ?? activeResultId,
+        resultId: turnResultId,
         model: loop.model,
         promptVersion: loop.promptVersion,
         status,
@@ -519,14 +558,16 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     '',
     'Tools:',
     '- retrieve_what_if: the stored, already-computed analysis. Use it for ANY question about the existing options/factors/constraints/costs. No new computation.',
-    '- evaluate_what_if: runs the deterministic engine on a NEW scenario you express as a change-set. Use it for a change not in the stored analysis.',
+    '- evaluate_what_if: runs the deterministic engine on a NEW scenario you express as a change-set (a GIVEN value). Use it for a change not in the stored analysis.',
+    '- goal_seek: finds the overtime hours that CLEAR the firm at-risk on a line — the ENGINE searches for the value. Use when asked HOW MUCH (overtime) is needed, not for a given amount.',
     '- find_orders: look up a demand order (by id, release reference, customer, or part) not in the inline list below, or to confirm which order an ambiguous reference means.',
     '- retrieve_baseline: the live plan vs a baseline arm (engine-lift / historical) — the same comparison the scorecard shows. Use for the baseline / "the lift" / "vs baseline" / a KPI delta. No computation.',
     '- retrieve_coverage: workforce coverage — who is qualified per station, cert gaps, readiness, and the call-in proposal (the same grid the Workforce screen shows). Use for coverage / readiness / "who can run X" / a gap. Explain only — never assign labor.',
     '',
     'Routing:',
     '- A question about the existing analysis → call retrieve_what_if, then answer from what it returns.',
-    '- A new scenario → construct a change-set and call evaluate_what_if, then explain the engine result.',
+    '- A new scenario with a GIVEN value ("add 4h overtime", "set qty to 500") → evaluate_what_if.',
+    '- A "how much / what value" question ("how much overtime to clear the at-risk", "add overtime until it clears") → goal_seek (the engine finds the value). NEVER pick the value yourself.',
     '- A question about the baseline / the lift / vs-baseline / a KPI delta → call retrieve_baseline, then explain the returned numbers.',
     '- A question about workforce coverage / readiness / qualifications / a cert gap → call retrieve_coverage, then explain it (a gap is advisory, not a schedule blocker).',
     '- If retrieve_what_if returns nothing relevant → construct a what-if or say you do not have that. NEVER estimate.',
@@ -541,6 +582,7 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     '',
     'Faithfulness: evaluate_what_if returns `requestedChanges` — what the engine did with EACH change you asked for (applied / partial / unapplied, with a note). A plain-language summary of these is shown to the planner automatically, so do NOT repeat the list verbatim. But you MUST NOT imply a change took effect if its status is partial or unapplied — explain the consequence (e.g. "the overtime could not be added because that resource has no overtime allowance"). Never present a half-applied scenario as fully done.',
     'Grounding: every scheduling fact must come from a tool result; keep numbers exactly as returned. Be concise, like a planner’s note. You explain and construct — you never apply or commit.',
+    'NEVER suggest a scheduling value (overtime hours, a quantity, a date) from your own reasoning — that is fabrication even if it sounds plausible. To suggest a value, call goal_seek (the engine finds it) and report only the value it returns. If a value did not come from a tool result, do not state it.',
     'Language: write natural prose. Refer to options, factors, and constraints by their human labels exactly as given in the tool result (e.g. "Protect delivery", "displacement", "firm delivery") — NEVER print a raw identifier, snake_case key, or code token, and never add a "(see …)" reference.',
   ].join('\n')
 }
@@ -561,6 +603,38 @@ export function renderChangeEcho(ledger: RequestedChange[]): string {
   if (applied.length > 0) lines.push(`**Applied:** ${applied.join('; ')}.`)
   if (unapplied.length > 0) lines.push(`**Not applied:** ${unapplied.map((c) => `${c.summary} — ${c.note}`).join('; ')}.`)
   return lines.join('\n')
+}
+
+/** LLM-readable goal-seek artifact — the engine's finding (resource-scoped outcome + value). */
+function compactGoalSeek(gs: GoalSeekResult) {
+  return {
+    lever: `overtime on ${gs.resourceName}`,
+    goal: `clear the firm at-risk that ${gs.resourceName} carries`,
+    outcome: gs.outcome,
+    value: gs.hours != null ? `${gs.hours}h` : null,
+    firmAtRiskOnResource: gs.baseFirmLateOnResource,
+    overtimeCeilingHours: gs.ceilingHours,
+    bindingConstraintOn: gs.elsewhereResources ?? null,
+    reason: gs.reason ?? null,
+  }
+}
+
+/**
+ * Render the goal-seek finding (decide-support) — deterministic, never the model's number. Leads a
+ * goal-seek answer so the suggested value is grounded-by-construction (the engine found it). The
+ * predicate is resource-scoped, so "elsewhere" names where the binding work actually is.
+ */
+export function renderGoalSeek(gs: GoalSeekResult): string {
+  switch (gs.outcome) {
+    case 'achieved':
+      return `**Found:** ${gs.hours}h overtime on ${gs.resourceName} clears its firm at-risk — the minimum that does.`
+    case 'already_clear':
+      return `**Already clear:** no firm orders are at risk — no overtime needed.`
+    case 'elsewhere':
+      return `**Overtime on ${gs.resourceName} won't help:** ${gs.reason}.`
+    case 'unachievable':
+      return `**Not achievable:** ${gs.reason}.`
+  }
 }
 
 /** Conversation name from the first message — trimmed, recorded-safe, user-editable. */

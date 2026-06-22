@@ -132,7 +132,8 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
 function Turn({ turn, you, assistant, degradedLabel }: { turn: ConversationTurnDto; you: string; assistant: string; degradedLabel: string }) {
   const isUser = turn.role === 'user'
   const degraded = turn.status === 'degraded'
-  const generated = turn.resultId && turn.toolCalls.some((c) => c.name === 'evaluate_what_if')
+  // A Type-2 evaluate OR a goal-seek both produce an appliable result → render its option-set inline.
+  const generated = turn.resultId && turn.toolCalls.some((c) => c.name === 'evaluate_what_if' || c.name === 'goal_seek')
   return (
     <YStack gap="$2" alignSelf={isUser ? 'flex-end' : 'flex-start'} maxWidth="94%">
       <YStack
