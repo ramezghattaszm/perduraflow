@@ -204,6 +204,37 @@ function contiguousRun(cal: WorkingCalendar, fromMs: number, needMs: number): { 
   return { start, end }
 }
 
+/** Minutes of `[s, e)` not covered by any closed interval (maintenance / line-down). */
+function openMinutes(closed: Array<[number, number]>, s: number, e: number): number {
+  let open = e - s
+  for (const [cs, ce] of closed) {
+    const os = Math.max(cs, s)
+    const oe = Math.min(ce, e)
+    if (oe > os) open -= oe - os
+  }
+  return Math.max(0, open) / MS_PER_MINUTE
+}
+
+/**
+ * Total **regular** working minutes available in `[startMs, endMs)` on this calendar — shift windows
+ * on working days, minus holidays and closed intervals (maintenance / line-down). **Overtime is
+ * excluded** (only the day windows count), so this is the denominator for utilization: busy ÷
+ * available > 100% means committed beyond regular capacity (D-util). Pure + deterministic.
+ */
+export function workingMinutesInRange(cal: WorkingCalendar, startMs: number, endMs: number): number {
+  if (endMs <= startMs) return 0
+  let total = 0
+  let day = startOfDayUtc(startMs)
+  for (let scanned = 0; day < endMs && scanned < MAX_SCAN_DAYS; scanned++, day += MS_PER_DAY) {
+    for (const [ws, we] of dayEpochWindows(cal, day)) {
+      const s = Math.max(ws, startMs)
+      const e = Math.min(we, endMs)
+      if (e > s) total += openMinutes(cal.closedIntervals, s, e)
+    }
+  }
+  return total
+}
+
 /** A placed job: wall-clock start/end (closed gaps may sit between for split jobs) + OT used. */
 export interface PlaceResult {
   startMs: number

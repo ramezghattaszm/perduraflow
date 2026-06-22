@@ -5,6 +5,7 @@ import {
   newOvertimeState,
   nextWorkingSegment,
   placeJob,
+  workingMinutesInRange,
   type WorkingCalendar,
 } from './working-calendar'
 
@@ -132,5 +133,39 @@ describe('placeJob — edge + determinism', () => {
   it('ALWAYS_ON behaves like a continuous 24/7 timeline', () => {
     const r = placeJob(ALWAYS_ON, at(MON, 20), 8 * 60 * MIN, newOvertimeState())
     expect(r).toEqual({ startMs: at(MON, 20), endMs: at(TUE, 4), otSpentMinutes: 0 }) // runs straight through midnight
+  })
+})
+
+describe('workingMinutesInRange — utilization denominator (D-util)', () => {
+  it('one full working day = the shift span (06:00–22:00 = 960 min)', () => {
+    expect(workingMinutesInRange(twoShift(), MON, MON + DAY)).toBe(960)
+  })
+
+  it('sums only working days across a range (Sat counts, Sun does not)', () => {
+    // Sat 06:00 → Mon 06:00: Sat (960) + Sun (0, closed weekday) = 960.
+    expect(workingMinutesInRange(twoShift(), SAT, SAT + 2 * DAY)).toBe(960)
+  })
+
+  it('excludes holidays', () => {
+    const cal = twoShift({ holidays: ['2024-01-02'] }) // Tue
+    expect(workingMinutesInRange(cal, MON, WED)).toBe(960) // Mon 960 + Tue 0
+  })
+
+  it('subtracts maintenance / line-down closures', () => {
+    const cal = twoShift({ closedIntervals: [[at(MON, 10), at(MON, 12)]] })
+    expect(workingMinutesInRange(cal, MON, MON + DAY)).toBe(960 - 120)
+  })
+
+  it('clips to a partial range', () => {
+    expect(workingMinutesInRange(twoShift(), at(MON, 10), at(MON, 14))).toBe(240)
+  })
+
+  it('excludes overtime — no regular minutes past shift end', () => {
+    expect(workingMinutesInRange(twoShift(), at(MON, 22), at(TUE, 2))).toBe(0)
+  })
+
+  it('empty/inverted range = 0', () => {
+    expect(workingMinutesInRange(twoShift(), MON, MON)).toBe(0)
+    expect(workingMinutesInRange(twoShift(), MON + DAY, MON)).toBe(0)
   })
 })

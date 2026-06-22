@@ -9,6 +9,8 @@ import {
   BarDetailSheet,
   ContextSelectors,
   DateRangeNav,
+  KpiTile,
+  KpiTileRow,
   LatenessChain,
   LearnedParamPanel,
   P,
@@ -208,16 +210,34 @@ export function BoardContent() {
       predByResource.set(p.resourceId, t('board.predictedWear', { time: fmtTime(new Date(p.crossingAt).getTime()) }))
     }
   }
-  // Lane sub-label: don't echo the raw resource_type enum ("Line"); the behind chip
-  // (when present) is the meaningful secondary, else the predicted flag, else the name.
-  const ganttResources = resources.map((r) => ({
-    id: r.id,
-    label: r.name,
-    behind: downResourceIds.has(r.id) ? undefined : behindByResource.get(r.id),
-    predicted: downResourceIds.has(r.id) ? undefined : predByResource.get(r.id),
-    down: downResourceIds.has(r.id),
-  }))
+  // Per-lane utilization (D-util) — capacity over the forward window, one grounded source (variance)
+  // feeding the lane badge AND the KPI strip. >100% = overloaded (red glance); <60% = slack (info).
+  const utilByResource = new Map((variance?.resources ?? []).map((r) => [r.resourceId, r.utilizationPct]))
+  const utilTone = (p: number): 'ok' | 'bad' | 'info' => (p > 1 ? 'bad' : p < 0.6 ? 'info' : 'ok')
+  // Lane sub-label: don't echo the raw resource_type enum ("Line"); show the calm utilization badge
+  // (always), plus the behind chip (when present) or the predicted flag as the anomaly secondary.
+  const ganttResources = resources.map((r) => {
+    const p = downResourceIds.has(r.id) ? null : utilByResource.get(r.id)
+    return {
+      id: r.id,
+      label: r.name,
+      behind: downResourceIds.has(r.id) ? undefined : behindByResource.get(r.id),
+      predicted: downResourceIds.has(r.id) ? undefined : predByResource.get(r.id),
+      down: downResourceIds.has(r.id),
+      util: p != null ? { label: `${Math.round(p * 100)}%`, tone: utilTone(p) } : undefined,
+    }
+  })
   const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
+
+  // KPI strip (D-util headline) — all computed from the committed schedule, no literals. On-time +
+  // At-risk derive from the ops (+ demand firmness); Utilization + Throughput come from the SAME
+  // variance payload as the lane badges, so the strip and lanes reconcile.
+  const kpiOps = detail?.operations ?? []
+  const onTimePct = kpiOps.length > 0 ? 1 - kpiOps.filter((o) => o.atRisk).length / kpiOps.length : 1
+  const firmLineIds = useMemo(() => new Set(demand.filter((d) => d.firmness === 'firm').map((d) => d.demandLineId)), [demand])
+  const atRiskFirmCount = new Set(kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)).size
+  const plantUtil = variance?.utilizationPct ?? null
+  const tputPct = variance?.throughputAttainment ?? null
 
   // Detected conditions (selected plant vs its committed plan) → reviewable cards.
   const plannedQtyByLine = useMemo(
@@ -586,6 +606,35 @@ export function BoardContent() {
           </XStack>
         }
       />
+
+      {detail ? (
+        <KpiTileRow>
+          <KpiTile
+            label={t('kpi.onTime')}
+            value={`${Math.round(onTimePct * 100)}%`}
+            caption={t('kpi.onTimeCaption')}
+            valueTone={onTimePct >= 0.95 ? 'ok' : onTimePct >= 0.85 ? 'warn' : 'bad'}
+          />
+          <KpiTile
+            label={t('kpi.utilization')}
+            value={plantUtil == null ? '—' : `${Math.round(plantUtil * 100)}%`}
+            caption={t('kpi.utilizationCaption')}
+            valueTone={plantUtil == null ? 'neutral' : plantUtil > 1 ? 'bad' : plantUtil < 0.6 ? 'info' : 'ok'}
+          />
+          <KpiTile
+            label={t('kpi.atRisk')}
+            value={String(atRiskFirmCount)}
+            caption={t('kpi.atRiskCaption')}
+            valueTone={atRiskFirmCount > 0 ? 'bad' : 'ok'}
+          />
+          <KpiTile
+            label={t('kpi.throughput')}
+            value={tputPct == null ? '—' : `${Math.round(tputPct * 100)}%`}
+            caption={t('kpi.throughputCaption')}
+            valueTone={tputPct == null ? 'neutral' : tputPct >= 0.95 ? 'ok' : 'warn'}
+          />
+        </KpiTileRow>
+      ) : null}
 
       <ContextSelectors
         selectors={[

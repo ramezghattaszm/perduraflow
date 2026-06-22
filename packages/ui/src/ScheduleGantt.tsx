@@ -37,6 +37,9 @@ export interface GanttResource {
   /** The line is offline (a "line down" condition) — lane is greyed + tagged DOWN and
    *  shows no bars (its work is stranded until rerouted). */
   down?: boolean
+  /** Capacity utilization over the forward window (D-util) — a calm always-on badge, e.g. "81%".
+   *  `tone` flags overload: `bad` ≥ 100% (overloaded), `info` < 60% (slack), else `ok`. */
+  util?: { label: string; tone: 'ok' | 'warn' | 'bad' | 'info' }
 }
 
 /**
@@ -115,6 +118,8 @@ export interface ScheduleGanttProps {
   emptyText?: string
 }
 
+const UTIL_BG = { ok: '$successSoft', warn: '$warningSoft', bad: '$dangerSoft', info: '$surfaceRaised' } as const
+const UTIL_FG = { ok: '$success', warn: '$warning', bad: '$danger', info: '$textTertiary' } as const
 const LABEL_W = 150
 const AXIS_H = 38
 const LANE_H = 62
@@ -324,23 +329,36 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
                   down
                 </P>
               </XStack>
-            ) : r.behind ? (
-              <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
-                <P size={5} weight="b" color="$danger" numberOfLines={1}>
-                  {r.behind}
-                </P>
+            ) : (
+              <XStack gap="$1" alignItems="center" flexWrap="wrap">
+                {/* Utilization — always-on capacity badge; bad ≥100% = the red "overloaded" glance. */}
+                {r.util ? (
+                  <XStack backgroundColor={UTIL_BG[r.util.tone]} borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
+                    <P size={5} weight="b" color={UTIL_FG[r.util.tone]} numberOfLines={1}>
+                      {r.util.label}
+                    </P>
+                  </XStack>
+                ) : null}
+                {/* Anomaly signal alongside util (behind > predicted), else the plain sublabel. */}
+                {r.behind ? (
+                  <XStack backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
+                    <P size={5} weight="b" color="$danger" numberOfLines={1}>
+                      {r.behind}
+                    </P>
+                  </XStack>
+                ) : r.predicted ? (
+                  <XStack backgroundColor="$warningSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
+                    <P size={5} weight="b" color="$warning" numberOfLines={1}>
+                      {r.predicted}
+                    </P>
+                  </XStack>
+                ) : !r.util && r.subLabel ? (
+                  <P size={5} color="$textSecondary" numberOfLines={1}>
+                    {r.subLabel}
+                  </P>
+                ) : null}
               </XStack>
-            ) : r.predicted ? (
-              <XStack alignSelf="flex-start" backgroundColor="$warningSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
-                <P size={5} weight="b" color="$warning" numberOfLines={1}>
-                  {r.predicted}
-                </P>
-              </XStack>
-            ) : r.subLabel ? (
-              <P size={5} color="$textSecondary" numberOfLines={1}>
-                {r.subLabel}
-              </P>
-            ) : null}
+            )}
           </YStack>
         ))}
       </YStack>

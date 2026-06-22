@@ -2,6 +2,11 @@ import type { ReactNode } from 'react'
 import { XStack, YStack } from 'tamagui'
 import { H, P } from './typography'
 
+/** Value-colour tone for a headline KPI. `info` = notable-but-fine (e.g. slack); default neutral. */
+export type KpiTone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral'
+
+const TONE_COLOR = { ok: '$success', warn: '$warning', bad: '$danger', info: '$primary', neutral: '$textPrimary' } as const
+
 /** Props for {@link KpiTile}. */
 export interface KpiTileProps {
   /** The headline value, pre-formatted by the caller (e.g. "96.2%", "$142"). */
@@ -14,6 +19,8 @@ export interface KpiTileProps {
   trend?: 'up' | 'down'
   /** Whether `trend` up is good (green) — most KPIs up=good; cost up=bad. Default true. */
   upIsGood?: boolean
+  /** Colour the value by state (e.g. utilization > 100% = bad). Default neutral ($textPrimary). */
+  valueTone?: KpiTone
 }
 
 /**
@@ -24,7 +31,7 @@ export interface KpiTileProps {
  * @example
  * <KpiTile value="96.2%" label="On-time-in-full" caption="service level" trend="up" />
  */
-export function KpiTile({ value, label, caption, trend, upIsGood = true }: KpiTileProps) {
+export function KpiTile({ value, label, caption, trend, upIsGood = true, valueTone = 'neutral' }: KpiTileProps) {
   const good = trend === 'up' ? upIsGood : !upIsGood
   return (
     <YStack
@@ -40,7 +47,9 @@ export function KpiTile({ value, label, caption, trend, upIsGood = true }: KpiTi
       gap="$1"
     >
       <XStack alignItems="baseline" gap="$1">
-        <H level={2}>{value}</H>
+        <H level={2} color={TONE_COLOR[valueTone]}>
+          {value}
+        </H>
         {trend ? (
           <P size={4} weight="b" color={good ? '$success' : '$danger'}>
             {trend === 'up' ? '↑' : '↓'}

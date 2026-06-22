@@ -43,7 +43,7 @@ import { SchedulingRepository } from './scheduling.repository'
 import type { DemandInput, ScheduledOperation } from './schema'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperatorFactor, type SequencerItem } from './sequencer'
-import { buildWorkingCalendar, startOfDayUtc, type WorkingCalendar } from './working-calendar'
+import { buildWorkingCalendar, startOfDayUtc, workingMinutesInRange, type WorkingCalendar } from './working-calendar'
 
 /** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
 export interface BaseContext {
@@ -693,7 +693,21 @@ export class SchedulingService {
     const actuals = await this.learning.listActualsForVersion(tenantId, versionId)
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
     const md = await this.resolveMasterData(tenantId)
-    const nameById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+    const allResources = await md.listResources(tenantId)
+    const nameById = new Map(allResources.map((r) => [r.id, r.name]))
+
+    // Capacity utilization (D-util) over the FORWARD window [max(today, horizonStart) → horizonEnd]
+    // — excludes the rolling window's executed past. busy = engine processing minutes of the ops
+    // STARTING in the window; available = regular working minutes from the live calendar (OT excluded).
+    // Single source feeding the KPI strip (plant) + the lane badges (per resource); plant = Σbusy/Σavail
+    // (capacity-weighted average → reconciles by construction). > 1 = committed beyond regular capacity.
+    const utilWindowStart = Math.max(startOfDayUtc(Date.now()), version.horizonStart.getTime())
+    const utilWindowEnd = version.horizonEnd.getTime()
+    const utilCalendars = await this.resolveResourceCalendars(tenantId, allResources.filter((r) => r.plantId === version.plantId))
+    const availByResource = new Map<string, number>()
+    for (const [rid, cal] of utilCalendars) availByResource.set(rid, workingMinutesInRange(cal, utilWindowStart, utilWindowEnd))
+    let plantBusy = 0
+    let plantAvail = 0
 
     const byResource = new Map<string, typeof ops>()
     for (const op of ops) {
@@ -703,6 +717,16 @@ export class SchedulingService {
     }
     const resources: ResourceVarianceDto[] = [...byResource.entries()]
       .map(([resourceId, list]) => {
+        // Utilization: busy (processing minutes of ops starting in the window) ÷ available (regular cal).
+        const busy = list
+          .filter((o) => o.plannedStart.getTime() >= utilWindowStart && o.plannedStart.getTime() < utilWindowEnd)
+          .reduce((s, o) => s + o.setupTime + o.cycleTime * o.plannedQty, 0)
+        const avail = availByResource.get(resourceId) ?? 0
+        const utilizationPct = avail > 0 ? busy / avail : null
+        if (avail > 0) {
+          plantBusy += busy
+          plantAvail += avail
+        }
         // Attainment is EXECUTION performance: good output vs the planned qty of the ops that have
         // actually RUN (have actuals). The denominator is scoped to executed ops, NOT the whole
         // horizon — in the rolling window most ops are future/unexecuted, so dividing by all planned
@@ -721,6 +745,7 @@ export class SchedulingService {
           throughputAttainment: attainment,
           behindPlanPct: Math.max(0, 1 - attainment),
           scheduleAdherence: withActual.length > 0 ? onTime / withActual.length : 1,
+          utilizationPct,
         }
       })
       .sort((a, b) => a.resourceName.localeCompare(b.resourceName))
@@ -760,6 +785,9 @@ export class SchedulingService {
       resources,
       // null when no actuals yet — the board hides the chip (no data ≠ 100%).
       throughputAttainment: hasActuals && totalPlanned > 0 ? totalGood / totalPlanned : null,
+      utilizationPct: plantAvail > 0 ? plantBusy / plantAvail : null,
+      utilizationWindowStart: new Date(utilWindowStart).toISOString(),
+      utilizationWindowEnd: new Date(utilWindowEnd).toISOString(),
       churn,
       learnedParamCount,
       opCount: ops.length,

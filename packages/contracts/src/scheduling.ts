@@ -169,6 +169,13 @@ export interface ResourceVarianceDto {
   behindPlanPct: number
   /** Ops started within tolerance of planned_start / executed ops. */
   scheduleAdherence: number
+  /**
+   * Capacity utilization over the forward window (D-util): busy (engine processing minutes,
+   * setup + cycle×qty of the resource's ops starting in the window) ÷ regular working minutes
+   * available (shifts − closures, OT excluded). `> 1` = committed beyond regular capacity
+   * (overloaded). `null` when the resource has no regular capacity in the window (e.g. down).
+   */
+  utilizationPct: number | null
 }
 
 /** Board variance strip + Scorecard operational summary (all computed from rows). */
@@ -177,6 +184,15 @@ export interface PerformanceVarianceDto {
   resources: ResourceVarianceDto[]
   /** Blended throughput attainment; **null when the version has no actuals yet** (no data ≠ 100%). */
   throughputAttainment: number | null
+  /**
+   * Plant capacity utilization over the forward window (D-util) — Σ busy ÷ Σ available across the
+   * plant's resources, the capacity-weighted average of the per-resource figures (reconciles by
+   * construction). `null` when the plant has no regular capacity in the window.
+   */
+  utilizationPct: number | null
+  /** The forward utilization window (ISO): `max(today, horizonStart)` → `horizonEnd`. */
+  utilizationWindowStart: string
+  utilizationWindowEnd: string
   /** Sequence churn vs the prior committed version (0–1); null if no prior. */
   churn: number | null
   /** Ops with a held learned overlay / total ops. */

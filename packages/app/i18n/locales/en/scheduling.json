@@ -94,6 +94,16 @@
     "collapse": "Hide chain",
     "truncated": "… chain truncated"
   },
+  "kpi": {
+    "onTime": "On-time",
+    "onTimeCaption": "ops meeting due",
+    "utilization": "Utilization",
+    "utilizationCaption": "capacity, plan ahead",
+    "atRisk": "At-risk",
+    "atRiskCaption": "firm orders",
+    "throughput": "Throughput",
+    "throughputCaption": "good vs planned"
+  },
   "source": { "standard": "std", "ml_adjusted": "ml", "ml_predicted": "predicted" },
   "variance": {
     "behindPlan": "{{pct}}% behind plan",
