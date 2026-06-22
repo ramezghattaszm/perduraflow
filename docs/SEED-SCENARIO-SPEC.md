@@ -36,6 +36,42 @@
 
 **Cost rates (Tier-B, Master-Data-owned):** run_cost_per_hour, setup_cost per resource; overhead_per_unit. Sane for stamping/welding so cost-per-unit computes plausibly.
 
+## The rolling window — past · today · future (always anchored to today)
+
+The seed is a **rolling window** recomputed from `baseDay` (today 00:00 UTC) on every `demo:reset`. Nothing is a fixed calendar date. Every run produces the same *shape* — **N completed past days → today → future horizon** — sliding forward with the wall clock so the past stays in the past, today is today, future stays future.
+
+### Shape
+| Segment | Range (working days, rel. today) | What it holds | Actuals? |
+|---|---|---|---|
+| **Past — completed** | −N … −1 | One committed, fully-executed schedule version per working day. Every operation carries actuals. The board's view-only past-day nav walks these. | **Yes** — every op |
+| **Today — live** | 0 | The plan the planner acts on: the collision spine — DL-1006 (Saltillo, due 00:45, computed-late before the shift opens) and ST-8830 (Ramos, due 20:00, **material-gated** on PV-22 until 14:00). At-risk tensions are live now. | In-flight / partial |
+| **Future — planned** | +1 … month-end | The planned horizon: remaining collision-spine due dates (+1…+5) + month-fill load to month-end. Std / learned-projected times; no actuals yet. | No |
+
+Calendar: Mon–Sat working, Sunday closed (`workingDays [1..6]`), so N working days ≈ N × 7⁄6 calendar days. All offsets are computed via the existing `at(offsetDays, h, m)` helper off `baseDay` — past days are simply **negative** offsets, the symmetric extension of what the historical-outcomes rows already do.
+
+### N — how many completed past days
+**Decision: N = 10 completed working days (~2 calendar weeks).**
+
+Driven by the learning gate, not by looks. Adoption needs `MIN_SAMPLES = 5` and confidence ≥ `CONF_ADOPT 0.6`; confidence saturates at `N_TRUST = 8`; the trailing mean/dispersion uses `WINDOW = 8`; wear prediction needs `MIN_SAMPLES = 5` over the same window (`learning.rule.ts`, `learning.predictor.ts`). The wear-story parameter (Press Line A, one representative part) accrues **one actual per completed day**. So:
+- **8** is the hard floor — fills the trailing window, saturates confidence, gives a clean slope.
+- **10** is chosen — 8 in-window samples all post-wear-onset **plus 2 days of margin**, so the adopted value and predicted trend stay unambiguous as the window slides forward each reseed.
+- Reads as "a running system with a fortnight of completed production" — credible, not a token few days; not so long it bloats the dataset or the past-day nav.
+
+Lever, if a shorter calendar past is ever wanted: run the wear part 2×/day on Press Line A → 4–5 days clears the gate. Kept at 1×/day here for realism and a clean day↔sample mapping.
+
+### What the past actuals carry — and fuel
+"Seed past completed days" and "seed actuals" are the same task. Each past op's actuals — `actualStart`, `actualEnd`, `actualCycleTime`, `goodQty`, `scrapQty`, `downtimeMinutes` — are seeded **inputs**; everything downstream computes through the real path (no hardcoded outputs):
+- **(a) Credible history** — completed committed versions on the board's past days; the system has visibly been running.
+- **(b) Learning adoption** — ≥ 8 samples on Press Line A's representative part → its cycle steps std → `ml_adjusted` (divergence ≥ `STEP_BAND 0.05`), with confidence. Other (resource, part, op) parameters accrue actuals too but stay ≈ std (below the step band) → they remain `std`. Result: the board is *mostly std with Press Line A lit up* — the wear story, **learned not hardcoded**.
+- **(c) Wear prediction** — the same drifting series feeds the resource forecast on the board.
+- **(d) Execution OEE (measured-historical arm)** — per-op actuals roll up to per-version execution OEE; the weekly `historicalOutcome` rows become **roll-ups of these same actuals** (recent weeks), optionally plus coarser older representative rows for a longer trend. Monterrey / Press Line B stay empty → honest "no history yet" state.
+
+### The warm-start implication (run-of-show note)
+With past actuals seeded, a fresh `demo:reset` is **not a cold start** — Press Line A already shows an adopted learned value, a wear prediction, and execution variance. This is deliberate (the credibility + learning-fuel goals above). The "watch it learn live" beat, if still wanted, **layers on top**: the simulator adds *today's* incremental drift onto the established trend rather than learning from zero. A cold-start variant is the same seed with the past-window length set to 0.
+
+### Determinism
+The drift curve and every per-op actual are generated deterministically from `baseDay` + a fixed per-day function (no `Math.random`), so each reseed reproduces identical learned values, prediction, and OEE — same window, same story, every rehearsal.
+
 ## The four collisions (the demo's spine — all must be seeded coherently)
 
 The seed must support the demo's four disruption beats, each driven by real seeded data through the real mechanism:
@@ -52,7 +88,7 @@ Each collision's data must reconcile across every view it appears in.
 - **Collision timing:** are all four seeded "ready to trigger," or staged in sequence for the run-of-show (staging concern — likely later).
 
 ## Done when
-- `demo:reset` restores this scenario deterministically; baseline board is all-`std`, 0 learned, no variance.
+- `demo:reset` restores this scenario deterministically as the rolling window (see *The rolling window*): the **future** horizon is all-`std`/projected, while the **past** window has already driven Press Line A to a learned value + prediction + variance (warm-start, by design). A cold-start variant is the same seed with past-window N = 0.
 - Every view draws from it and reconciles (same order/operator/line across Cockpit, Scorecard, Workforce, Exception Queue, Board).
 - All four collisions are seeded and trigger through the real mechanism on real seeded inputs.
 - Cost/OEE/variance all **compute** (no hardcoded outputs); a domain expert finds the numbers plausible.
@@ -73,3 +109,5 @@ The **measured-historical baseline arm** (D57) computes from past recorded outco
 **Honesty:** the measured-historical comparison in the demo is **seeded representative history**, stated as such — "this computes from your historical data the moment your historian is connected; today it's representative seed." Same posture as the rest of the platform.
 
 **Done when:** the measured-historical arm computes a real comparison from seeded historical rows; a no-history scope shows the honest empty state; the dataset is swappable for real historian data with no code change.
+
+> **Superseded sourcing (see *The rolling window*):** these weekly rows are no longer hand-authored aggregates — they are **roll-ups of the per-op actuals** from the N completed past days (recent weeks), optionally plus coarser older representative rows for a longer trend. Same row shape, same arm, but now consistent with the board's past-day actuals and the learning fuel — one set of actuals feeds history, learning, and OEE.
