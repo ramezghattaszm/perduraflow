@@ -16,6 +16,8 @@ test('Next.js dev server starts', async () => {
       cwd: path.resolve(__dirname, '..'),
       stdio: 'pipe',
       shell: true,
+      // Isolated dist dir → no `.next/dev/lock` collision with a running `bun web` (parallel-safe).
+      env: { ...process.env, NEXT_DIST_DIR: '.next-smoke' },
     })
 
     let output = ''

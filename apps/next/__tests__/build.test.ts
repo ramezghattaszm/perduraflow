@@ -16,7 +16,8 @@ afterAll(() => {
 })
 
 test('Next.js build completes', async () => {
-  buildProcess = exec('bun run build', { cwd: path.resolve(__dirname, '..') })
+  // Isolated dist dir → the build never touches a running dev server's `.next` (parallel-safe).
+  buildProcess = exec('bun run build', { cwd: path.resolve(__dirname, '..'), env: { ...process.env, NEXT_DIST_DIR: '.next-smoke' } })
 
   const result = await new Promise<string>((resolve, reject) => {
     let output = ''
@@ -32,10 +33,11 @@ test('Next.js build completes', async () => {
   expect(result).toContain('Creating an optimized production build')
   expect(result).toContain('Route (app)')
 
-  // Phase-0 routes: the dashboard ('/') + the admin CRUD screens.
+  // Phase-0 routes: the dashboard ('/') + the admin CRUD screens. (Admin was restructured into
+  // config/ and access/ sections — these are the current paths.)
   expect(result).toContain('ƒ /')
-  expect(result).toContain('/admin/plants')
-  expect(result).toContain('/admin/roles')
+  expect(result).toContain('/admin/config/plants')
+  expect(result).toContain('/admin/access/roles')
 
   // All routes are server-rendered on demand (no static prerender in phase 0).
   expect(result).toContain('ƒ  (Dynamic)  server-rendered on demand')

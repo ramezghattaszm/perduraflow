@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 module.exports = {
+  // Build/dist dir — env-overridable so the build/dev smoke tests can run in an ISOLATED dir
+  // (e.g. `.next-smoke`) and never collide with a running dev server's `.next/dev/lock`. Lets the
+  // test suite run green in parallel with `bun web`, no process-killing needed (orphan-prevention).
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   typescript: {
     ignoreBuildErrors: true,
   },
