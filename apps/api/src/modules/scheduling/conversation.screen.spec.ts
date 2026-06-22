@@ -57,9 +57,10 @@ describe('buildSystemPrompt — Pass B precedence (named wins / deictic→screen
     expect(prompt).toMatch(/DEICTIC[\s\S]*on-screen selection/)
     // deictic with no selection → ask, never null-resolve/guess
     expect(prompt).toContain('ASK which one — do NOT fall back')
-    // resolution ≠ action: resolves the referent but is honest about missing baseline/coverage tools
+    // resolution ≠ action: Pass D added baseline retrieval, so the boundary shrank to coverage only
     expect(prompt).toContain('Capability boundary')
-    expect(prompt).toContain('cannot pull baseline/coverage detail yet')
+    expect(prompt).toContain('retrieve the baseline comparison')
+    expect(prompt).toContain('cannot pull coverage detail yet')
   })
 
   it('omits the CURRENT SCREEN block when there is no context (Pass A regression)', () => {

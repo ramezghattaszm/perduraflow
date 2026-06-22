@@ -1,9 +1,12 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import {
   changeSetSchema,
+  type BaselineSource,
+  type CostedKpis,
   type ConversationDetailDto,
   type ConversationDto,
   type ConversationTurnDto,
+  type PlanComparisonDto,
   type RequestedChange,
   type ScreenContext,
   type WhatIfOption,
@@ -12,6 +15,7 @@ import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception
 import { LlmGateway, type ToolDispatch } from '../llm/llm.gateway'
 import type { LlmTool, LlmToolCall } from '../llm/llm.canonical'
 import type { Conversation, ConversationTurn } from './schema'
+import { PlanComparisonService } from './plan-comparison.service'
 import { SchedulingRepository } from './scheduling.repository'
 import { SchedulingService } from './scheduling.service'
 import { factorLabelEn, optionLabelEn } from './whatif.narration'
@@ -82,6 +86,26 @@ const FIND_ORDERS_TOOL: LlmTool = {
   },
 }
 /**
+ * Baseline retrieval (content-grounding, Pass D) — the live plan vs a baseline arm, the SAME
+ * comparison the scorecard shows (calls PlanComparisonService.compare, so the Copilot and the
+ * screen can never disagree). Type-1: retrieve + translate, no computation, no action. `arm`/`scope`
+ * default to the scorecard's published screen context; a named arm/line overrides (named-wins).
+ */
+const RETRIEVE_BASELINE_TOOL: LlmTool = {
+  name: 'retrieve_baseline',
+  description:
+    'Return the live plan vs a baseline comparison — the SAME numbers the scorecard shows (per-KPI live / baseline / delta for OTIF, cost/unit, OEE, late orders, throughput). Use for any question about the baseline, "the lift", "vs baseline", or a KPI delta. No computation — explain the returned numbers. Omit arm/scope to use what is on screen.',
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      arm: { type: 'string', enum: ['engine_lift', 'historical'], description: "which baseline: 'engine_lift' (vs the engine with its intelligence off) or 'historical' (vs recorded outcomes)" },
+      scope: { type: 'string', description: 'a resource/line id to scope to; omit for the whole plant' },
+    },
+  },
+}
+
+/**
  * Inline only the nearest-due slice of orders in the prompt; the rest resolve via find_orders.
  * Sized so the demo's full near-term order spine sits inline (no unexpected lookup in the scripted
  * flow) while still capping prompt growth as the order book extends past the near horizon.
@@ -112,6 +136,7 @@ export class ConversationService {
     private readonly repo: SchedulingRepository,
     private readonly scheduling: SchedulingService,
     private readonly whatIf: WhatIfService,
+    private readonly planComparison: PlanComparisonService,
     private readonly gateway: LlmGateway,
   ) {}
 
@@ -193,6 +218,20 @@ export class ConversationService {
           return { content: `The engine could not evaluate that change (${code}). Ask the planner to clarify or decline.`, isError: true }
         }
       }
+      if (call.name === 'retrieve_baseline') {
+        const input = call.input as { arm?: string; scope?: string }
+        // arm: named override → scorecard's published arm (view) → default engine-lift.
+        const armRaw = input.arm ?? (screenContext?.screen === 'scorecard' ? screenContext.view : undefined)
+        const arm: BaselineSource = armRaw === 'historical' || armRaw === 'measured_historical' ? 'measured_historical' : 'frozen_engine_snapshot'
+        // scope: named line → screen-context scope → whole plant.
+        const scope = input.scope ?? screenContext?.selectedResourceId ?? undefined
+        const dto = await this.planComparison.compare(tenantId, plantId, arm, scope)
+        const resName = scope ? catalog.resources.find((r) => r.id === scope)?.name ?? scope : null
+        return {
+          content: JSON.stringify(compactBaseline(dto, resName)),
+          groundedRefs: dto.scheduleVersionId ? [dto.scheduleVersionId] : [],
+        }
+      }
       if (call.name === 'find_orders') {
         const q = String((call.input as { query?: unknown }).query ?? '').toLowerCase().trim()
         const matches = q
@@ -216,7 +255,7 @@ export class ConversationService {
     }
 
     try {
-      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, FIND_ORDERS_TOOL] }, dispatch)
+      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, EVALUATE_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL] }, dispatch)
       let content = loop.text || 'I could not produce a response.'
       let status: 'ok' | 'degraded' = 'ok'
       // Detectable non-fabrication violation: a scheduling claim with no grounding/tool call.
@@ -308,6 +347,54 @@ function compactArtifact(id: string, recommendedOptionId: string | null, baseKpi
   }
 }
 
+const round4 = (n: number): number => Number(n.toFixed(4))
+/** Per-KPI live/baseline/delta + direction, deterministic — the model translates, never computes. */
+function kpiDelta(live: number | null, base: number | null, lowerIsBetter: boolean): { delta: number | null; direction: 'better' | 'worse' | 'flat' } {
+  if (live == null || base == null) return { delta: null, direction: 'flat' }
+  const d = round4(live - base)
+  if (Math.abs(d) < 1e-9) return { delta: 0, direction: 'flat' }
+  return { delta: d, direction: (lowerIsBetter ? d < 0 : d > 0) ? 'better' : 'worse' }
+}
+
+/**
+ * Compact, LLM-readable view of a baseline comparison (Pass D) — the SAME numbers the scorecard
+ * shows (it comes from the same {@link PlanComparisonService.compare}). Per-KPI live/baseline/delta
+ * with the delta computed here (deterministic) so the model only translates. Honest empty-state
+ * carries an explicit instruction so an absent historical baseline is never fabricated.
+ */
+export function compactBaseline(dto: PlanComparisonDto, scopeName: string | null) {
+  const comparison = dto.source === 'measured_historical' ? 'measured-historical (vs recorded outcomes)' : 'engine-lift (vs the engine with its intelligence off)'
+  const scope = scopeName ?? 'the whole plant'
+  if (dto.emptyState || !dto.live || !dto.baseline) {
+    return {
+      comparison,
+      scope,
+      emptyState: true,
+      note:
+        dto.source === 'measured_historical'
+          ? 'No historical baseline exists yet for this scope — tell the planner so plainly; do NOT invent figures.'
+          : 'No comparison is available for this scope — say so; do NOT invent figures.',
+    }
+  }
+  const live = dto.live
+  const base = dto.baseline
+  const rows: Array<{ kpi: string; live: number | null; baseline: number | null; lowerIsBetter: boolean }> = [
+    { kpi: 'OTIF', live: live.otif, baseline: base.otif, lowerIsBetter: false },
+    { kpi: 'cost per unit', live: live.costPerUnit, baseline: base.costPerUnit, lowerIsBetter: true },
+    { kpi: 'OEE', live: live.oee?.oee ?? null, baseline: base.oee?.oee ?? null, lowerIsBetter: false },
+    { kpi: 'late orders', live: live.lateOrders, baseline: base.lateOrders, lowerIsBetter: true },
+    { kpi: 'throughput', live: live.throughput, baseline: base.throughput, lowerIsBetter: false },
+  ]
+  return {
+    comparison,
+    scope,
+    emptyState: false,
+    kpis: rows
+      .filter((r) => !(r.live == null && r.baseline == null))
+      .map((r) => ({ kpi: r.kpi, live: r.live, baseline: r.baseline, ...kpiDelta(r.live, r.baseline, r.lowerIsBetter) })),
+  }
+}
+
 /**
  * The CURRENT SCREEN line (Pass B) — a planner-readable snapshot of what's on screen, with the
  * selected order rendered by its human release reference and the selected line by name. Returns
@@ -346,7 +433,8 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
         'Use the current screen ONLY to resolve a DEICTIC or unspecified reference — "this", "it", "here", "this order", "this line", "the current option". Resolve such a reference to the matching on-screen selection (and "this option / why not X" to the analysis open on screen).',
         'A NAMED entity ALWAYS WINS: if the planner names an order or line (by id, release reference, customer, or part), resolve THAT via the inline list / find_orders and IGNORE the on-screen selection — even when a different order is selected. Screen context is a default for deictic references, never a filter on what you can reach.',
         'If a deictic reference has NO matching on-screen selection (e.g. "this order" but no order is selected), ASK which one — do NOT fall back to anything or guess.',
-        'Capability boundary: you can run what-if scenarios on ORDERS (evaluate_what_if) and read the stored what-if analysis. You do NOT yet have tools to retrieve baseline/comparison or workforce-coverage figures. If the planner asks to explain or act on those (e.g. "explain this lift", "this comparison", a coverage gap), resolve WHAT they refer to from the current screen, then say plainly you can work with orders and what-if scenarios but cannot pull baseline/coverage detail yet — never invent those numbers.',
+        'On the scorecard, "this lift / comparison / KPI delta" → call retrieve_baseline (it defaults to the arm + scope on screen); explain the returned numbers.',
+        'Capability boundary: you can read the stored what-if analysis, run what-if scenarios on ORDERS, and retrieve the baseline comparison (retrieve_baseline). You do NOT yet have a tool to retrieve workforce-coverage figures — if asked about a coverage gap or an operator, resolve what it refers to, then say plainly you can work with orders, what-if, and baseline but cannot pull coverage detail yet — never invent those numbers.',
       ]
     : []
   return [
@@ -356,10 +444,12 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     '- retrieve_what_if: the stored, already-computed analysis. Use it for ANY question about the existing options/factors/constraints/costs. No new computation.',
     '- evaluate_what_if: runs the deterministic engine on a NEW scenario you express as a change-set. Use it for a change not in the stored analysis.',
     '- find_orders: look up a demand order (by id, release reference, customer, or part) not in the inline list below, or to confirm which order an ambiguous reference means.',
+    '- retrieve_baseline: the live plan vs a baseline arm (engine-lift / historical) — the same comparison the scorecard shows. Use for the baseline / "the lift" / "vs baseline" / a KPI delta. No computation.',
     '',
     'Routing:',
     '- A question about the existing analysis → call retrieve_what_if, then answer from what it returns.',
     '- A new scenario → construct a change-set and call evaluate_what_if, then explain the engine result.',
+    '- A question about the baseline / the lift / vs-baseline / a KPI delta → call retrieve_baseline, then explain the returned numbers.',
     '- If retrieve_what_if returns nothing relevant → construct a what-if or say you do not have that. NEVER estimate.',
     '- Off-domain or unanswerable (not this plant’s scheduling) → say you cannot help. Do NOT call a tool. Do NOT fabricate.',
     '',
