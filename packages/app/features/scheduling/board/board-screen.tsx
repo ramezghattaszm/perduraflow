@@ -2,13 +2,20 @@
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { TriangleAlert } from '@tamagui/lucide-icons'
-import type { GanttBar, MeasuredDetail, ParamProvenance, VarianceChip, WearPrediction } from '@perduraflow/ui'
+import type {
+  GanttBar,
+  MeasuredDetail,
+  ParamProvenance,
+  VarianceChip,
+  WearPrediction,
+} from '@perduraflow/ui'
 import type { ChangeSet, WhatIfResultDto } from '@perduraflow/contracts'
 import {
   AppButton,
+  AppSelect,
   BarDetailSheet,
-  ContextSelectors,
   DateRangeNav,
+  H,
   KpiTile,
   KpiTileRow,
   LatenessChain,
@@ -19,7 +26,6 @@ import {
   ResourceWearPanel,
   ScheduleGantt,
   SegmentedControl,
-  StatusPill,
   VarianceStrip,
   XStack,
   YStack,
@@ -32,6 +38,7 @@ import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts } from '../../../hooks/useMasterData'
 import {
   useCommitSchedule,
+  useDiscardDraft,
   useMaterialConditions,
   useScheduleDemand,
   useScheduleResources,
@@ -46,6 +53,7 @@ import { useSessionState } from '../../../hooks/useSessionState'
 import { useSetScreenContext } from '../../../stores/screenContext.store'
 import { AdminShell } from '../../shell/admin-shell'
 import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
+import { WorkListTable } from '../work-list/work-list-screen'
 
 /** Cycle deviation (learned vs std) at/above which a tool-wear flag is shown (mirrors RULE.STEP_BAND). */
 const WEAR_PCT = 0.05
@@ -54,7 +62,8 @@ const BEHIND_PCT = 0.05
 const MS_PER_DAY = 86_400_000
 const utcDay = (ms: number): number => Math.floor(ms / MS_PER_DAY) * MS_PER_DAY
 /** Monday (UTC) of the week containing `ms`. */
-const weekStartMon = (ms: number): number => utcDay(ms) - ((new Date(ms).getUTCDay() + 6) % 7) * MS_PER_DAY
+const weekStartMon = (ms: number): number =>
+  utcDay(ms) - ((new Date(ms).getUTCDay() + 6) % 7) * MS_PER_DAY
 
 /**
  * Board body (shell-agnostic) — selectors, run strip, Gantt. Rendered inside the
@@ -72,13 +81,17 @@ export function BoardContent() {
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
   const { data: demand = [] } = useScheduleDemand(plantId ?? undefined)
-  const { data: materialConditions = [] } = useMaterialConditions(plantId ?? undefined, versionId ?? undefined)
+  const { data: materialConditions = [] } = useMaterialConditions(
+    plantId ?? undefined,
+    versionId ?? undefined
+  )
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
   const { data: variance } = useVariance(versionId ?? undefined)
   const { data: learned = [] } = useLearnedParameters()
   const { data: predictions = [] } = usePredictions()
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
+  const discard = useDiscardDraft()
   const whatIf = useWhatIf()
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
   const [whatIfError, setWhatIfError] = useState<string | null>(null)
@@ -133,13 +146,18 @@ export function BoardContent() {
   const changeoverIds = useMemo(() => {
     const ids = new Set<string>()
     const ops = [...(detail?.operations ?? [])].sort((a, b) =>
-      a.resourceId === b.resourceId ? a.sequencePosition - b.sequencePosition : a.resourceId < b.resourceId ? -1 : 1,
+      a.resourceId === b.resourceId
+        ? a.sequencePosition - b.sequencePosition
+        : a.resourceId < b.resourceId
+          ? -1
+          : 1
     )
     let prevRes: string | null = null
     let prevColour: string | null | undefined = null
     for (const o of ops) {
       const colour = partColour.get(o.partId)
-      if (o.resourceId === prevRes && colour != null && prevColour != null && colour !== prevColour) ids.add(o.id)
+      if (o.resourceId === prevRes && colour != null && prevColour != null && colour !== prevColour)
+        ids.add(o.id)
       prevRes = o.resourceId
       prevColour = colour
     }
@@ -150,26 +168,31 @@ export function BoardContent() {
   // resource; a demand change = a demand line whose qty ≠ the committed plan's qty.
   // The board detects them, suppresses the down line's (now-stranded) bars, and offers
   // costed options to review + apply (the real Apply→draft→commit, below).
-  const downResourceIds = useMemo(() => new Set(resources.filter((r) => r.status !== 'active').map((r) => r.id)), [resources])
+  const downResourceIds = useMemo(
+    () => new Set(resources.filter((r) => r.status !== 'active').map((r) => r.id)),
+    [resources]
+  )
 
-  const bars: GanttBar[] = (detail?.operations ?? []).filter((o) => !downResourceIds.has(o.resourceId)).map((o) => {
-    const ml = o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted'
-    return {
-      id: o.id,
-      resourceId: o.resourceId,
-      demandLineId: o.demandLineId,
-      label: partNo.get(o.partId) ?? o.partId.slice(0, 6),
-      sourceTag: t(`source.${o.cycleSource}`),
-      startMs: new Date(o.plannedStart).getTime(),
-      endMs: new Date(o.plannedEnd).getTime(),
-      setupMin: o.setupTime,
-      runMin: o.cycleTime * o.plannedQty,
-      atRisk: o.atRisk,
-      changeover: changeoverIds.has(o.id),
-      ml,
-      confidence: o.cycleConfidence ?? o.setupConfidence,
-    }
-  })
+  const bars: GanttBar[] = (detail?.operations ?? [])
+    .filter((o) => !downResourceIds.has(o.resourceId))
+    .map((o) => {
+      const ml = o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted'
+      return {
+        id: o.id,
+        resourceId: o.resourceId,
+        demandLineId: o.demandLineId,
+        label: partNo.get(o.partId) ?? o.partId.slice(0, 6),
+        sourceTag: t(`source.${o.cycleSource}`),
+        startMs: new Date(o.plannedStart).getTime(),
+        endMs: new Date(o.plannedEnd).getTime(),
+        setupMin: o.setupTime,
+        runMin: o.cycleTime * o.plannedQty,
+        atRisk: o.atRisk,
+        changeover: changeoverIds.has(o.id),
+        ml,
+        confidence: o.cycleConfidence ?? o.setupConfidence,
+      }
+    })
   // Visible range for the Gantt: the selected day (day mode) or its Mon–Sun week (week
   // mode). The committed version holds the whole multi-day schedule; this just scopes
   // which slice renders (no re-fetch — date nav is pure client scoping).
@@ -192,7 +215,9 @@ export function BoardContent() {
   // Date navigation clamps to the version horizon, buffered to whole weeks; prev/next
   // disable at the edges. (Today is exempt — it jumps to the real date even if outside.)
   const navMin = detail ? weekStartMon(new Date(detail.version.horizonStart).getTime()) : undefined
-  const navMax = detail ? weekStartMon(new Date(detail.version.horizonEnd).getTime()) + 6 * MS_PER_DAY : undefined
+  const navMax = detail
+    ? weekStartMon(new Date(detail.version.horizonEnd).getTime()) + 6 * MS_PER_DAY
+    : undefined
 
   // Per-resource behind-plan chip (BOARD-SIGNALS item 2): the variance is about the
   // resource, so it lives on the lane. Threshold-gated + settled; per the selected
@@ -200,19 +225,27 @@ export function BoardContent() {
   const behindByResource = new Map(
     (variance?.resources ?? [])
       .filter((r) => r.behindPlanPct >= BEHIND_PCT)
-      .map((r) => [r.resourceId, t('variance.behindPlan', { pct: Math.round(r.behindPlanPct * 100) })]),
+      .map((r) => [
+        r.resourceId,
+        t('variance.behindPlan', { pct: Math.round(r.behindPlanPct * 100) }),
+      ])
   )
   // Forward-looking lane flag (phase 4, FS18): a live predicted threshold-crossing on
   // the resource → a calm settled "predicted wear ~HH:MM" chip (when not already behind).
   const predByResource = new Map<string, string>()
   for (const p of predictions) {
     if (p.crossingAt && !predByResource.has(p.resourceId)) {
-      predByResource.set(p.resourceId, t('board.predictedWear', { time: fmtTime(new Date(p.crossingAt).getTime()) }))
+      predByResource.set(
+        p.resourceId,
+        t('board.predictedWear', { time: fmtTime(new Date(p.crossingAt).getTime()) })
+      )
     }
   }
   // Per-lane utilization (D-util) — capacity over the forward window, one grounded source (variance)
   // feeding the lane badge AND the KPI strip. >100% = overloaded (red glance); <60% = slack (info).
-  const utilByResource = new Map((variance?.resources ?? []).map((r) => [r.resourceId, r.utilizationPct]))
+  const utilByResource = new Map(
+    (variance?.resources ?? []).map((r) => [r.resourceId, r.utilizationPct])
+  )
   const utilTone = (p: number): 'ok' | 'bad' | 'info' => (p > 1 ? 'bad' : p < 0.6 ? 'info' : 'ok')
   // Lane sub-label: don't echo the raw resource_type enum ("Line"); show the calm utilization badge
   // (always), plus the behind chip (when present) or the predicted flag as the anomaly secondary.
@@ -233,31 +266,50 @@ export function BoardContent() {
   // At-risk derive from the ops (+ demand firmness); Utilization + Throughput come from the SAME
   // variance payload as the lane badges, so the strip and lanes reconcile.
   const kpiOps = detail?.operations ?? []
-  const onTimePct = kpiOps.length > 0 ? 1 - kpiOps.filter((o) => o.atRisk).length / kpiOps.length : 1
-  const firmLineIds = useMemo(() => new Set(demand.filter((d) => d.firmness === 'firm').map((d) => d.demandLineId)), [demand])
-  const atRiskFirmCount = new Set(kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)).size
+  const onTimePct =
+    kpiOps.length > 0 ? 1 - kpiOps.filter((o) => o.atRisk).length / kpiOps.length : 1
+  const firmLineIds = useMemo(
+    () => new Set(demand.filter((d) => d.firmness === 'firm').map((d) => d.demandLineId)),
+    [demand]
+  )
+  const atRiskFirmCount = new Set(
+    kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
+  ).size
   const plantUtil = variance?.utilizationPct ?? null
   const tputPct = variance?.throughputAttainment ?? null
 
   // Detected conditions (selected plant vs its committed plan) → reviewable cards.
   const plannedQtyByLine = useMemo(
     () => new Map((detail?.operations ?? []).map((o) => [o.demandLineId, o.plannedQty])),
-    [detail],
+    [detail]
   )
   // Show a line-down condition only while the selected plan still strands work on the
   // down line; once rerouted (the applied draft has 0 ops there) it self-clears.
   const lineDownConditions = resources
     .filter((r) => downResourceIds.has(r.id))
-    .map((r) => ({ resourceId: r.id, name: r.name, affected: (detail?.operations ?? []).filter((o) => o.resourceId === r.id).length }))
+    .map((r) => ({
+      resourceId: r.id,
+      name: r.name,
+      affected: (detail?.operations ?? []).filter((o) => o.resourceId === r.id).length,
+    }))
     .filter((c) => c.affected > 0)
   const demandConditions = demand
-    .map((d) => ({ demandLineId: d.demandLineId, to: d.requiredQty, from: plannedQtyByLine.get(d.demandLineId) }))
+    .map((d) => ({
+      demandLineId: d.demandLineId,
+      to: d.requiredQty,
+      from: plannedQtyByLine.get(d.demandLineId),
+    }))
     .filter((c) => c.from != null && c.from !== c.to)
 
   // Learned cycle overlays keyed by (resource, op) — the LearnedParamPanel source.
   const learnedCycleByKey = useMemo(
-    () => new Map(learned.filter((l) => l.param === 'cycle').map((l) => [`${l.resourceId}:${l.routingOperationId}`, l])),
-    [learned],
+    () =>
+      new Map(
+        learned
+          .filter((l) => l.param === 'cycle')
+          .map((l) => [`${l.resourceId}:${l.routingOperationId}`, l])
+      ),
+    [learned]
   )
   const opById = useMemo(() => new Map((detail?.operations ?? []).map((o) => [o.id, o])), [detail])
 
@@ -271,16 +323,35 @@ export function BoardContent() {
     // green 96% chip is self-contradictory. Top strip and lanes now agree on what counts as behind.
     const behind = [...variance.resources].sort((a, b) => b.behindPlanPct - a.behindPlanPct)[0]
     if (behind && behind.behindPlanPct >= BEHIND_PCT) {
-      chips.push({ label: behind.resourceName, value: t('variance.behindPlan', { pct: Math.round(behind.behindPlanPct * 100) }), tone: 'bad' })
+      chips.push({
+        label: behind.resourceName,
+        value: t('variance.behindPlan', { pct: Math.round(behind.behindPlanPct * 100) }),
+        tone: 'bad',
+      })
     }
-    if (variance.throughputAttainment != null) {
-      chips.push({ label: t('variance.throughput'), value: `${Math.round(variance.throughputAttainment * 100)}%`, tone: variance.throughputAttainment >= 0.95 ? 'ok' : 'warn' })
-    }
+    // Throughput attainment now lives only on the KPI strip (kpi.throughput) — kept out of this strip
+    // so the figure isn't shown twice on the board.
     if (variance.churn != null && variance.churn > 0.005) {
-      chips.push({ label: t('variance.churn'), value: variance.churn < 0.34 ? t('variance.churnLow') : variance.churn < 0.67 ? t('variance.churnMed') : t('variance.churnHigh'), tone: variance.churn < 0.34 ? 'warn' : 'bad' })
+      chips.push({
+        label: t('variance.churn'),
+        value:
+          variance.churn < 0.34
+            ? t('variance.churnLow')
+            : variance.churn < 0.67
+              ? t('variance.churnMed')
+              : t('variance.churnHigh'),
+        tone: variance.churn < 0.34 ? 'warn' : 'bad',
+      })
     }
     if (variance.learnedParamCount > 0) {
-      chips.push({ label: t('variance.learnedParams'), value: t('variance.learnedCount', { count: variance.learnedParamCount, total: variance.opCount }), tone: 'ok' })
+      chips.push({
+        label: t('variance.learnedParams'),
+        value: t('variance.learnedCount', {
+          count: variance.learnedParamCount,
+          total: variance.opCount,
+        }),
+        tone: 'ok',
+      })
     }
     return chips
   }, [variance, t])
@@ -293,16 +364,24 @@ export function BoardContent() {
       const key = `${l.resourceId}:${l.routingOperationId}`
       if (dev >= WEAR_PCT && !wearShown.current.has(key)) {
         wearShown.current.add(key)
-        showToast(t('wear.body', { resource: resourceName.get(l.resourceId) ?? l.resourceId, pct: `+${Math.round(dev * 100)}` }), {
-          title: t('wear.title'),
-          type: 'warning',
-        })
+        showToast(
+          t('wear.body', {
+            resource: resourceName.get(l.resourceId) ?? l.resourceId,
+            pct: `+${Math.round(dev * 100)}`,
+          }),
+          {
+            title: t('wear.title'),
+            type: 'warning',
+          }
+        )
       }
     }
   }, [learned, resourceName, showToast, t])
 
   const selectedOp = selectedBarId ? opById.get(selectedBarId) : undefined
-  const selectedLearned = selectedOp ? learnedCycleByKey.get(`${selectedOp.resourceId}:${selectedOp.routingOperationId}`) : undefined
+  const selectedLearned = selectedOp
+    ? learnedCycleByKey.get(`${selectedOp.resourceId}:${selectedOp.routingOperationId}`)
+    : undefined
 
   // Publish the board's live selection so the Copilot can resolve deictic references ("this
   // order", "this option") against what's on screen (Pass B). Cleared on unmount so a stale
@@ -319,7 +398,14 @@ export function BoardContent() {
       activeResultId: whatIfResult?.id ?? undefined,
     })
     return () => setScreenContext(null)
-  }, [setScreenContext, horizonMode, versionId, selectedOp?.demandLineId, selectedResourceId, whatIfResult?.id])
+  }, [
+    setScreenContext,
+    horizonMode,
+    versionId,
+    selectedOp?.demandLineId,
+    selectedResourceId,
+    whatIfResult?.id,
+  ])
 
   const actionError = solve.error ?? commit.error
   const errorMsg = actionError ? translateError(getApiErrorCode(actionError)) : undefined
@@ -358,7 +444,10 @@ export function BoardContent() {
     setWhatIfTrigger(triggerKey)
     whatIf.mutate(
       { plantId, changeSet },
-      { onSuccess: setWhatIfResult, onError: (e) => setWhatIfError(translateError(getApiErrorCode(e))) },
+      {
+        onSuccess: setWhatIfResult,
+        onError: (e) => setWhatIfError(translateError(getApiErrorCode(e))),
+      }
     )
   }
   /** Collapse the visible option-set (the "Close options" half of the CTA toggle). */
@@ -368,42 +457,83 @@ export function BoardContent() {
     setWhatIfTrigger(null)
   }
   /** A condition's option-set is currently open → its CTA reads "Close options". */
-  const whatIfOpenFor = (triggerKey: string) => whatIfTrigger === triggerKey && Boolean(whatIfResult)
+  const whatIfOpenFor = (triggerKey: string) =>
+    whatIfTrigger === triggerKey && Boolean(whatIfResult)
   const runDemandWhatIf = (demandLineId: string, to: number) =>
-    runWhatIf({ origin: { type: 'demand', ref: demandLineId }, changes: [{ kind: 'demand_qty', demandLineId, to }] }, `demand-${demandLineId}`)
+    runWhatIf(
+      {
+        origin: { type: 'demand', ref: demandLineId },
+        changes: [{ kind: 'demand_qty', demandLineId, to }],
+      },
+      `demand-${demandLineId}`
+    )
   const runLineDownWhatIf = (resourceId: string) => {
     const now = new Date()
     const week = new Date(now.getTime() + 7 * 86_400_000)
-    runWhatIf({ origin: { type: 'collision', ref: resourceId }, changes: [{ kind: 'resource_window', resourceId, downFrom: now.toISOString(), downTo: week.toISOString() }] }, `down-${resourceId}`)
+    runWhatIf(
+      {
+        origin: { type: 'collision', ref: resourceId },
+        changes: [
+          {
+            kind: 'resource_window',
+            resourceId,
+            downFrom: now.toISOString(),
+            downTo: week.toISOString(),
+          },
+        ],
+      },
+      `down-${resourceId}`
+    )
   }
   const runWearWhatIf = (resourceId: string) =>
-    runWhatIf({ origin: { type: 'prediction', ref: resourceId }, changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }] }, `wear-${resourceId}`)
+    runWhatIf(
+      {
+        origin: { type: 'prediction', ref: resourceId },
+        changes: [{ kind: 'wear_remediation', resourceId, action: 'service' }],
+      },
+      `wear-${resourceId}`
+    )
   const runMaterialWhatIf = (componentPartId: string, availableAt: string) =>
-    runWhatIf({ origin: { type: 'collision', ref: componentPartId }, changes: [{ kind: 'material_arrival', componentPartId, availableAt }] }, `material-${componentPartId}`)
+    runWhatIf(
+      {
+        origin: { type: 'collision', ref: componentPartId },
+        changes: [{ kind: 'material_arrival', componentPartId, availableAt }],
+      },
+      `material-${componentPartId}`
+    )
 
   // Self-contained bar detail (identity + learned/std + performance). Identity is
   // repeated so the panel/sheet stands alone (the tap target never assumes a hover).
   const scheduleRows = selectedOp
     ? [
-        { label: t('board.tooltip.resource'), value: resourceName.get(selectedOp.resourceId) ?? '—' },
+        {
+          label: t('board.tooltip.resource'),
+          value: resourceName.get(selectedOp.resourceId) ?? '—',
+        },
         { label: t('board.tooltip.demandLine'), value: selectedOp.demandLineId ?? '—' },
         {
           label: t('board.tooltip.scheduled'),
           value: `${fmtTime(new Date(selectedOp.plannedStart).getTime())} – ${fmtTime(new Date(selectedOp.plannedEnd).getTime())}`,
         },
         { label: t('board.tooltip.setup'), value: `${Math.round(selectedOp.setupTime)} min` },
-        { label: t('board.tooltip.run'), value: `${Math.round(selectedOp.cycleTime * selectedOp.plannedQty)} min` },
+        {
+          label: t('board.tooltip.run'),
+          value: `${Math.round(selectedOp.cycleTime * selectedOp.plannedQty)} min`,
+        },
       ]
     : []
 
   const r2 = (n: number) => Number(n.toFixed(2)) // round to ≤2 decimals (drops trailing zeros)
-  const fmtH = (min: number) => (min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`)
+  const fmtH = (min: number) =>
+    min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`
 
   // ===== Operation panel (click a bar) — OPERATION-LEVEL ONLY =====
   // Measured when this op adopted a learned cycle from actuals; else standard. No
   // line-level wear/forecast/confidence here (that's the resource surface, below).
   const opProvenance: ParamProvenance =
-    selectedLearned?.source === 'ml_adjusted' && selectedLearned.sampleCount > 0 && selectedLearned.learnedValue != null
+    selectedLearned?.source === 'ml_adjusted' &&
+    selectedLearned.sampleCount > 0 &&
+    selectedLearned.learnedValue != null
       ? 'measured'
       : 'standard'
 
@@ -429,53 +559,89 @@ export function BoardContent() {
     const actualRun = (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000
     const runDelta = plannedRun > 0 ? (actualRun - plannedRun) / plannedRun : 0
     perfRows = [
-      { label: t('board.perf.cycle'), value: a.actualCycleTime != null ? `${r2(selectedOp.cycleTime)} → ${r2(a.actualCycleTime)} min` : '—', tone: a.actualCycleTime == null ? undefined : a.actualCycleTime > selectedOp.cycleTime ? 'warn' : 'ok' },
-      { label: t('board.perf.run'), value: `${Math.round(plannedRun)} → ${Math.round(actualRun)} min (${runDelta >= 0 ? '+' : ''}${Math.round(runDelta * 100)}%)`, tone: runDelta > 0.02 ? 'warn' : runDelta < -0.02 ? 'ok' : undefined },
-      { label: t('board.perf.output'), value: `${a.goodQty} / ${a.scrapQty}`, tone: a.scrapQty > 0 ? 'bad' : 'ok' },
+      {
+        label: t('board.perf.cycle'),
+        value:
+          a.actualCycleTime != null
+            ? `${r2(selectedOp.cycleTime)} → ${r2(a.actualCycleTime)} min`
+            : '—',
+        tone:
+          a.actualCycleTime == null
+            ? undefined
+            : a.actualCycleTime > selectedOp.cycleTime
+              ? 'warn'
+              : 'ok',
+      },
+      {
+        label: t('board.perf.run'),
+        value: `${Math.round(plannedRun)} → ${Math.round(actualRun)} min (${runDelta >= 0 ? '+' : ''}${Math.round(runDelta * 100)}%)`,
+        tone: runDelta > 0.02 ? 'warn' : runDelta < -0.02 ? 'ok' : undefined,
+      },
+      {
+        label: t('board.perf.output'),
+        value: `${a.goodQty} / ${a.scrapQty}`,
+        tone: a.scrapQty > 0 ? 'bad' : 'ok',
+      },
     ]
   }
 
   // A pointer to the line surface when the op's resource has a live forecast (the
   // prediction itself lives on the resource panel, never the op panel).
-  const opResourceHasPrediction = selectedOp ? predictions.some((p) => p.resourceId === selectedOp.resourceId) : false
+  const opResourceHasPrediction = selectedOp
+    ? predictions.some((p) => p.resourceId === selectedOp.resourceId)
+    : false
 
   const tl = (k: string, o?: Record<string, unknown>): string => t(k, o ?? {})
   const opPanel = selectedOp ? (
     <YStack gap="$2.5">
-    <LearnedParamPanel
-      title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
-      subtitle={`op ${selectedOp.opSeq}`}
-      status={
-        selectedOp.atRisk
-          ? {
-              label: selectedOp.atRiskReason
-                ? t('atRiskWithReason', { reason: t(`riskReason.${selectedOp.atRiskReason}`, { defaultValue: selectedOp.atRiskReason }) })
-                : t('atRisk'),
-              tone: 'danger',
-            }
-          : undefined
-      }
-      scheduleRows={scheduleRows}
-      metricLabel={opProvenance === 'measured' ? t('learned.cycle') : t('learned.cycleStd')}
-      sourceText={opProvenance === 'measured' ? t('source.ml_adjusted') : t('source.standard')}
-      provenance={opProvenance}
-      standardText={`${r2(selectedOp.cycleTime)}m`}
-      secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
-      standardNote={selectedLearned && selectedLearned.sampleCount > 0 ? t('learned.accruing', { count: selectedLearned.sampleCount }) : t('learned.noAdjustment')}
-      measured={opMeasured}
-      performance={selectedOp.actual ? { label: t('board.perf.title'), rows: perfRows, emptyText: t('board.perf.empty') } : undefined}
-      wearPointer={
-        opResourceHasPrediction
-          ? {
-              label: t('board.pred.pointer', { resource: resourceName.get(selectedOp.resourceId) ?? '' }),
-              onPress: () => {
-                setSelectedResourceId(selectedOp.resourceId)
-                setSelectedBarId(null)
-              },
-            }
-          : undefined
-      }
-    />
+      <LearnedParamPanel
+        title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
+        subtitle={`op ${selectedOp.opSeq}`}
+        status={
+          selectedOp.atRisk
+            ? {
+                label: selectedOp.atRiskReason
+                  ? t('atRiskWithReason', {
+                      reason: t(`riskReason.${selectedOp.atRiskReason}`, {
+                        defaultValue: selectedOp.atRiskReason,
+                      }),
+                    })
+                  : t('atRisk'),
+                tone: 'danger',
+              }
+            : undefined
+        }
+        scheduleRows={scheduleRows}
+        metricLabel={opProvenance === 'measured' ? t('learned.cycle') : t('learned.cycleStd')}
+        sourceText={opProvenance === 'measured' ? t('source.ml_adjusted') : t('source.standard')}
+        provenance={opProvenance}
+        standardText={`${r2(selectedOp.cycleTime)}m`}
+        secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
+        standardNote={
+          selectedLearned && selectedLearned.sampleCount > 0
+            ? t('learned.accruing', { count: selectedLearned.sampleCount })
+            : t('learned.noAdjustment')
+        }
+        measured={opMeasured}
+        performance={
+          selectedOp.actual
+            ? { label: t('board.perf.title'), rows: perfRows, emptyText: t('board.perf.empty') }
+            : undefined
+        }
+        wearPointer={
+          opResourceHasPrediction
+            ? {
+                label: t('board.pred.pointer', {
+                  resource: resourceName.get(selectedOp.resourceId) ?? '',
+                }),
+                onPress: () => {
+                  setSelectedResourceId(selectedOp.resourceId)
+                  setSelectedBarId(null)
+                },
+              }
+            : undefined
+        }
+      />
       {selectedOp.latenessChain ? (
         <LatenessChain
           title={t('lateness.why')}
@@ -498,17 +664,28 @@ export function BoardContent() {
     : undefined
   // A held/predicted cycle materially above std on the line → the D56 wear signal.
   const lineWear = selectedResourceId
-    ? learned.find((l) => l.resourceId === selectedResourceId && l.param === 'cycle' && l.learnedValue != null && (l.learnedValue - l.stdBaseline) / l.stdBaseline >= WEAR_PCT)
+    ? learned.find(
+        (l) =>
+          l.resourceId === selectedResourceId &&
+          l.param === 'cycle' &&
+          l.learnedValue != null &&
+          (l.learnedValue - l.stdBaseline) / l.stdBaseline >= WEAR_PCT
+      )
     : undefined
 
   let wearPrediction: WearPrediction | undefined
   if (linePred) {
-    const lpStd = learnedCycleByKey.get(`${linePred.resourceId}:${linePred.routingOperationId}`)?.stdBaseline ?? linePred.threshold
+    const lpStd =
+      learnedCycleByKey.get(`${linePred.resourceId}:${linePred.routingOperationId}`)?.stdBaseline ??
+      linePred.threshold
     const band = linePred.threshold - lpStd
     const span = band > 0 ? band * 2 : 1
     wearPrediction = {
       statement: linePred.crossingAt
-        ? t('board.pred.horizon', { horizon: fmtH(linePred.horizonMinutes), time: fmtTime(new Date(linePred.crossingAt).getTime()) })
+        ? t('board.pred.horizon', {
+            horizon: fmtH(linePred.horizonMinutes),
+            time: fmtTime(new Date(linePred.crossingAt).getTime()),
+          })
         : t('board.pred.horizonNone'),
       proximity: {
         valueFrac: (linePred.predictedValue - lpStd) / span,
@@ -521,62 +698,94 @@ export function BoardContent() {
     }
   }
 
-  const lineOpsN = selectedResourceId ? (detail?.operations ?? []).filter((o) => o.resourceId === selectedResourceId).length : 0
+  const lineOpsN = selectedResourceId
+    ? (detail?.operations ?? []).filter((o) => o.resourceId === selectedResourceId).length
+    : 0
   const selectedDown = selectedResourceId ? downResourceIds.has(selectedResourceId) : false
 
   // Down line (click a downed lane) — a "line is down" surface, not the normal panel.
-  const downPanel = selectedResourceId && selectedDown ? (
-    <ResourceWearPanel
-      title={resName}
-      subtitle={t('board.down.subtitle')}
-      status={{ label: t('board.down.pill'), tone: 'danger' }}
-      warning={{ title: t('board.down.title'), body: t('board.down.body', { count: lineOpsN, resource: resName }) }}
-      action={readOnly ? undefined : { label: t('whatif:trigger.seeOptions'), onPress: () => runLineDownWhatIf(selectedResourceId!), loading: whatIf.isPending }}
-      emptyText=""
-    />
-  ) : null
+  const downPanel =
+    selectedResourceId && selectedDown ? (
+      <ResourceWearPanel
+        title={resName}
+        subtitle={t('board.down.subtitle')}
+        status={{ label: t('board.down.pill'), tone: 'danger' }}
+        warning={{
+          title: t('board.down.title'),
+          body: t('board.down.body', { count: lineOpsN, resource: resName }),
+        }}
+        action={
+          readOnly
+            ? undefined
+            : {
+                label: t('whatif:trigger.seeOptions'),
+                onPress: () => runLineDownWhatIf(selectedResourceId!),
+                loading: whatIf.isPending,
+              }
+        }
+        emptyText=""
+      />
+    ) : null
 
   // `lineWear` (a real learned value materially above std) means the wear has CROSSED and the plan
   // already reflects it (adopted / pre-emptively adjusted) → "crossed — re-sequenced" copy. A
   // prediction with no such learned value is still APPROACHING → advisory/forecast copy only.
   const wearSignal = linePred || lineWear
   const wearActed = !!lineWear
-  const resourcePanel = selectedResourceId && !selectedDown ? (
-    <ResourceWearPanel
-      title={resName}
-      subtitle={t('board.pred.lineSubtitle')}
-      status={wearSignal ? { label: t(wearActed ? 'board.pred.wearPill' : 'board.pred.forecastPill'), tone: 'warning' } : undefined}
-      warning={
-        wearSignal
-          ? {
-              title: t(wearActed ? 'wear.trigger' : 'wear.forecast'),
-              body: t(wearActed ? 'wear.triggerBody' : 'wear.forecastBody', { resource: resName }),
-            }
-          : undefined
-      }
-      prediction={wearPrediction}
-      consequence={
-        wearSignal
-          ? {
-              maintenance: t('board.pred.maintenance'),
-              downstream:
-                lineOpsN > 0
-                  ? t(wearActed ? 'board.pred.downstream' : 'board.pred.downstreamForecast', { count: lineOpsN, resource: resName })
-                  : t('board.pred.downstreamNone'),
-            }
-          : undefined
-      }
-      action={
-        wearSignal && !readOnly
-          ? { label: t('whatif:trigger.seeOptions'), onPress: () => runWearWhatIf(selectedResourceId!), loading: whatIf.isPending }
-          : undefined
-      }
-      emptyText={t('board.pred.healthy')}
-    />
-  ) : null
+  const resourcePanel =
+    selectedResourceId && !selectedDown ? (
+      <ResourceWearPanel
+        title={resName}
+        subtitle={t('board.pred.lineSubtitle')}
+        status={
+          wearSignal
+            ? {
+                label: t(wearActed ? 'board.pred.wearPill' : 'board.pred.forecastPill'),
+                tone: 'warning',
+              }
+            : undefined
+        }
+        warning={
+          wearSignal
+            ? {
+                title: t(wearActed ? 'wear.trigger' : 'wear.forecast'),
+                body: t(wearActed ? 'wear.triggerBody' : 'wear.forecastBody', {
+                  resource: resName,
+                }),
+              }
+            : undefined
+        }
+        prediction={wearPrediction}
+        consequence={
+          wearSignal
+            ? {
+                maintenance: t('board.pred.maintenance'),
+                downstream:
+                  lineOpsN > 0
+                    ? t(wearActed ? 'board.pred.downstream' : 'board.pred.downstreamForecast', {
+                        count: lineOpsN,
+                        resource: resName,
+                      })
+                    : t('board.pred.downstreamNone'),
+              }
+            : undefined
+        }
+        action={
+          wearSignal && !readOnly
+            ? {
+                label: t('whatif:trigger.seeOptions'),
+                onPress: () => runWearWhatIf(selectedResourceId!),
+                loading: whatIf.isPending,
+              }
+            : undefined
+        }
+        emptyText={t('board.pred.healthy')}
+      />
+    ) : null
 
   const detailPanel = opPanel ?? downPanel ?? resourcePanel
-  const conditionCount = lineDownConditions.length + demandConditions.length + materialConditions.length
+  const conditionCount =
+    lineDownConditions.length + demandConditions.length + materialConditions.length
 
   return (
     <>
@@ -584,15 +793,48 @@ export function BoardContent() {
         title={t('board.title')}
         subtitle={t('board.subtitle')}
         actions={
-          <XStack gap="$2">
+          <XStack
+            gap="$2"
+            alignItems="center"
+            flexWrap="wrap"
+          >
+            {/* Plant = the master scope for the whole cockpit → lives in the header toolbar. */}
+            <YStack width={220}>
+              <AppSelect
+                options={plantOptions}
+                value={plantId}
+                onChange={setPlant}
+                placeholder={t('board.plant')}
+              />
+            </YStack>
             {selectedVersion?.status === 'draft' ? (
-              <AppButton variant="primary" size="$3" loading={commit.isPending} onPress={() => versionId && commit.mutate(versionId)}>
-                {t('board.commit')}
-              </AppButton>
+              <>
+                <AppButton
+                  variant="primary"
+                  size="$3"
+                  loading={commit.isPending}
+                  onPress={() => versionId && commit.mutate(versionId)}
+                >
+                  {t('board.commit')}
+                </AppButton>
+                {/* Discard is draft-only (the API enforces it too); selection self-repairs to the
+                    committed/newest version after the discarded draft drops out of the list. */}
+                <AppButton
+                  variant="ghost"
+                  size="$3"
+                  loading={discard.isPending}
+                  onPress={() => versionId && discard.mutate(versionId)}
+                >
+                  {t('board.discard')}
+                </AppButton>
+              </>
             ) : null}
             {/* Re-solve is disabled in view-only (past) mode — the day is over (UI-§5:
                 simulate disabled with opacity + pointerEvents, not a Button `disabled`). */}
-            <YStack opacity={readOnly ? 0.4 : 1} pointerEvents={readOnly ? 'none' : 'auto'}>
+            <YStack
+              opacity={readOnly ? 0.4 : 1}
+              pointerEvents={readOnly ? 'none' : 'auto'}
+            >
               <AppButton
                 variant={planStale && !readOnly ? 'primary' : 'ghost'}
                 size="$3"
@@ -619,7 +861,15 @@ export function BoardContent() {
             label={t('kpi.utilization')}
             value={plantUtil == null ? '—' : `${Math.round(plantUtil * 100)}%`}
             caption={t('kpi.utilizationCaption')}
-            valueTone={plantUtil == null ? 'neutral' : plantUtil > 1 ? 'bad' : plantUtil < 0.6 ? 'info' : 'ok'}
+            valueTone={
+              plantUtil == null
+                ? 'neutral'
+                : plantUtil > 1
+                  ? 'bad'
+                  : plantUtil < 0.6
+                    ? 'info'
+                    : 'ok'
+            }
           />
           <KpiTile
             label={t('kpi.atRisk')}
@@ -636,15 +886,11 @@ export function BoardContent() {
         </KpiTileRow>
       ) : null}
 
-      <ContextSelectors
-        selectors={[
-          { label: t('board.plant'), value: plantId, options: plantOptions, onChange: setPlant, width: 240 },
-          { label: t('board.version'), value: versionId, options: versionOptions, onChange: setVersionId, width: 360 },
-        ]}
-      />
-
       {errorMsg ? (
-        <P size={3} color="$danger">
+        <P
+          size={3}
+          color="$danger"
+        >
           {errorMsg}
         </P>
       ) : null}
@@ -660,8 +906,14 @@ export function BoardContent() {
           paddingHorizontal="$3"
           paddingVertical="$2.5"
         >
-          <TriangleAlert size={16} color="$warning" />
-          <P size={4} color="$textPrimary">
+          <TriangleAlert
+            size={16}
+            color="$warning"
+          />
+          <P
+            size={4}
+            color="$textPrimary"
+          >
             {t('board.stale.banner')}
           </P>
         </XStack>
@@ -672,7 +924,10 @@ export function BoardContent() {
       {detail && (conditionCount > 0 || whatIfResult || whatIfError) ? (
         <Panel title={t('whatif:trigger.title')}>
           {conditionCount === 0 ? (
-            <P size={4} color="$textSecondary">
+            <P
+              size={4}
+              color="$textSecondary"
+            >
               {t('whatif:subtitle')}
             </P>
           ) : (
@@ -710,21 +965,42 @@ export function BoardContent() {
                 return (
                   <ConditionCard
                     key={`material-${c.componentPartId}`}
-                    title={t('whatif:condition.material', { component: c.componentPartNo, time: new Date(c.availableAt).toISOString().slice(11, 16) })}
-                    detail={t('whatif:condition.materialDetail', { count: c.gatedDemandLineIds.length })}
+                    title={t('whatif:condition.material', {
+                      component: c.componentPartNo,
+                      time: new Date(c.availableAt).toISOString().slice(11, 16),
+                    })}
+                    detail={t('whatif:condition.materialDetail', {
+                      count: c.gatedDemandLineIds.length,
+                    })}
                     cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
                     loading={whatIf.isPending && whatIfTrigger === `material-${c.componentPartId}`}
                     disabled={readOnly}
-                    onPress={() => (open ? closeWhatIf() : runMaterialWhatIf(c.componentPartId, c.availableAt))}
+                    onPress={() =>
+                      open ? closeWhatIf() : runMaterialWhatIf(c.componentPartId, c.availableAt)
+                    }
                   />
                 )
               })}
             </YStack>
           )}
           {whatIfError ? (
-            <XStack marginTop="$3" gap="$2" alignItems="center" backgroundColor="$dangerSoft" borderRadius="$4" paddingHorizontal="$3" paddingVertical="$2.5">
-              <TriangleAlert size={15} color="$danger" />
-              <P size={4} color="$danger">
+            <XStack
+              marginTop="$3"
+              gap="$2"
+              alignItems="center"
+              backgroundColor="$dangerSoft"
+              borderRadius="$4"
+              paddingHorizontal="$3"
+              paddingVertical="$2.5"
+            >
+              <TriangleAlert
+                size={15}
+                color="$danger"
+              />
+              <P
+                size={4}
+                color="$danger"
+              >
                 {whatIfError}
               </P>
             </XStack>
@@ -746,47 +1022,77 @@ export function BoardContent() {
         </Panel>
       ) : null}
 
-      {detail ? (
-        <XStack gap="$3" alignItems="center" flexWrap="wrap">
-          <StatusPill tone={detail.version.status === 'committed' ? 'active' : detail.version.status === 'draft' ? 'neutral' : 'inactive'}>
-            {t(`status.${detail.version.status}`)}
-          </StatusPill>
-          <P size={4} color="$textSecondary">
-            {t('board.run.status')}: {t(`runStatus.${detail.run.status}`)} · {t('board.run.ops')}: {detail.operations.length} ·{' '}
-            {t('board.run.demand')}: {detail.run.inputDemandCount}
-          </P>
-        </XStack>
-      ) : null}
-
       {variance && varianceChips.length > 0 ? <VarianceStrip chips={varianceChips} /> : null}
 
       {/* Shift-model work-area (C1): Day|Week horizon toggle + date navigation. */}
       {detail ? (
-        <XStack gap="$3" alignItems="center" justifyContent="space-between" flexWrap="wrap">
-          <SegmentedControl<'day' | 'week'>
-            options={[
-              { value: 'day', label: t('board.horizon.day') },
-              { value: 'week', label: t('board.horizon.week') },
-            ]}
-            value={horizonMode}
-            onChange={setHorizonMode}
-          />
-          <DateRangeNav
-            mode={horizonMode}
-            valueMs={viewDate}
-            onChange={setViewDate}
-            isDayClosed={isDayClosed}
-            minMs={navMin}
-            maxMs={navMax}
-            labels={{ today: t('board.nav.today'), prev: t('board.nav.prev'), next: t('board.nav.next'), pickTitle: t('board.nav.pick') }}
-          />
+        <XStack
+          gap="$3"
+          alignItems="center"
+          justifyContent="space-between"
+          flexWrap="wrap"
+          marginBottom="$-4"
+        >
+          {/* Version + its run summary (which plan you're viewing) → sits with the Gantt's own controls.
+              The dropdown label already carries the status, so no separate status pill/row is needed. */}
+          <XStack
+            gap="$3"
+            alignItems="center"
+            flexWrap="wrap"
+          >
+            <YStack width={320}>
+              <AppSelect
+                options={versionOptions}
+                value={versionId}
+                onChange={setVersionId}
+                placeholder={t('board.version')}
+              />
+            </YStack>
+            <P
+              size={4}
+              color="$textSecondary"
+            >
+              {t('board.run.status')}: {t(`runStatus.${detail.run.status}`)} · {t('board.run.ops')}:{' '}
+              {detail.operations.length} · {t('board.run.demand')}: {detail.run.inputDemandCount}
+            </P>
+          </XStack>
+          {/* Horizon toggle + date navigation, grouped together on the right. */}
+          <XStack
+            gap="$3"
+            alignItems="center"
+            flexWrap="wrap"
+          >
+            <SegmentedControl<'day' | 'week'>
+              options={[
+                { value: 'day', label: t('board.horizon.day') },
+                { value: 'week', label: t('board.horizon.week') },
+              ]}
+              value={horizonMode}
+              onChange={setHorizonMode}
+            />
+            <DateRangeNav
+              mode={horizonMode}
+              valueMs={viewDate}
+              onChange={setViewDate}
+              isDayClosed={isDayClosed}
+              minMs={navMin}
+              maxMs={navMax}
+              labels={{
+                today: t('board.nav.today'),
+                prev: t('board.nav.prev'),
+                next: t('board.nav.next'),
+                pickTitle: t('board.nav.pick'),
+              }}
+            />
+          </XStack>
         </XStack>
       ) : null}
 
-      {detail ? <GanttLegend /> : null}
-
       {versions.length === 0 ? (
-        <P size={3} color="$textSecondary">
+        <P
+          size={3}
+          color="$textSecondary"
+        >
           {t('board.empty')}
         </P>
       ) : detail ? (
@@ -805,18 +1111,47 @@ export function BoardContent() {
           horizonEndMs={new Date(detail.version.horizonEnd).getTime()}
           workingWindow={detail.workingWindow}
           barDetail={(bar) => (
-            <YStack gap="$2" minWidth={210}>
-              <P size={3} weight="b" color="$textPrimary">
+            <YStack
+              gap="$2"
+              minWidth={210}
+            >
+              <P
+                size={3}
+                weight="b"
+                color="$textPrimary"
+              >
                 {bar.label}
               </P>
-              <DetailRow label={t('board.tooltip.resource')} value={resourceName.get(bar.resourceId) ?? '—'} />
-              <DetailRow label={t('board.tooltip.demandLine')} value={bar.demandLineId ?? '—'} />
-              <DetailRow label={t('board.tooltip.scheduled')} value={`${fmtTime(bar.startMs)} – ${fmtTime(bar.endMs)}`} />
-              <DetailRow label={t('board.tooltip.setup')} value={`${Math.round(bar.setupMin)} min`} />
-              <DetailRow label={t('board.tooltip.run')} value={`${Math.round(bar.runMin)} min`} />
-              <DetailRow label={t('board.tooltip.source')} value={bar.sourceTag} />
+              <DetailRow
+                label={t('board.tooltip.resource')}
+                value={resourceName.get(bar.resourceId) ?? '—'}
+              />
+              <DetailRow
+                label={t('board.tooltip.demandLine')}
+                value={bar.demandLineId ?? '—'}
+              />
+              <DetailRow
+                label={t('board.tooltip.scheduled')}
+                value={`${fmtTime(bar.startMs)} – ${fmtTime(bar.endMs)}`}
+              />
+              <DetailRow
+                label={t('board.tooltip.setup')}
+                value={`${Math.round(bar.setupMin)} min`}
+              />
+              <DetailRow
+                label={t('board.tooltip.run')}
+                value={`${Math.round(bar.runMin)} min`}
+              />
+              <DetailRow
+                label={t('board.tooltip.source')}
+                value={bar.sourceTag}
+              />
               {bar.atRisk ? (
-                <P size={4} weight="b" color="$danger">
+                <P
+                  size={4}
+                  weight="b"
+                  color="$danger"
+                >
                   {t('atRisk')}
                 </P>
               ) : null}
@@ -836,9 +1171,12 @@ export function BoardContent() {
         />
       ) : null}
 
+      {detail ? <GanttLegend /> : null}
+
       {/* Click/tap detail — two surfaces (BAR-PANEL-FIX): the operation panel (a bar)
           or the resource wear surface (a lane). Web: a persistent panel below the
-          board; native: a bottom sheet. */}
+          board; native: a bottom sheet. Kept directly under the Gantt (above the work
+          list) so a selected bar's panel opens next to what was clicked. */}
       {detailPanel ? (
         <BarDetailSheet
           open
@@ -850,12 +1188,47 @@ export function BoardContent() {
           {detailPanel}
         </BarDetailSheet>
       ) : null}
+
+      {/* Work list (D-worklist) below the Gantt — the all-work table for the selected plan, the same
+          single source the standalone Work List screen + the exception queue read. Rendered flat
+          (no card chrome) directly on the page, with extra space above to separate it from the Gantt. */}
+      {detail ? (
+        <YStack
+          gap="$3"
+          marginTop="$5"
+        >
+          <H
+            level={3}
+            color="$textPrimary"
+          >
+            {t('workList:title')}
+          </H>
+          <WorkListTable
+            plantId={plantId ?? undefined}
+            versionId={versionId ?? undefined}
+          />
+        </YStack>
+      ) : null}
     </>
   )
 }
 
 /** A detected-condition card on the board (line down / demand change) → review options. */
-function ConditionCard({ title, detail, cta, loading, disabled, onPress }: { title: string; detail: string; cta: string; loading?: boolean; disabled?: boolean; onPress: () => void }) {
+function ConditionCard({
+  title,
+  detail,
+  cta,
+  loading,
+  disabled,
+  onPress,
+}: {
+  title: string
+  detail: string
+  cta: string
+  loading?: boolean
+  disabled?: boolean
+  onPress: () => void
+}) {
   return (
     <XStack
       gap="$3"
@@ -867,18 +1240,34 @@ function ConditionCard({ title, detail, cta, loading, disabled, onPress }: { tit
       paddingHorizontal="$3"
       paddingVertical="$2.5"
     >
-      <YStack flex={1} minWidth={200} gap="$0.5">
-        <P size={3} weight="m" color="$textPrimary">
+      <YStack
+        flex={1}
+        minWidth={200}
+        gap="$0.5"
+      >
+        <P
+          size={3}
+          weight="m"
+          color="$textPrimary"
+        >
           {title}
         </P>
-        <P size={4} color="$textSecondary">
+        <P
+          size={4}
+          color="$textSecondary"
+        >
           {detail}
         </P>
       </YStack>
       {/* View-only (past day): the signal stays visible but the action is disabled
           (UI-§5: simulate disabled with opacity + pointerEvents, not Button `disabled`). */}
       {disabled ? null : (
-        <AppButton variant="ghost" size="$3" loading={loading} onPress={onPress}>
+        <AppButton
+          variant="ghost"
+          size="$3"
+          loading={loading}
+          onPress={onPress}
+        >
           {cta}
         </AppButton>
       )}
@@ -889,11 +1278,21 @@ function ConditionCard({ title, detail, cta, loading, disabled, onPress }: { tit
 /** A label/value row in the bar-detail popover. */
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <XStack justifyContent="space-between" gap="$4">
-      <P size={3} color="$textSecondary">
+    <XStack
+      justifyContent="space-between"
+      gap="$4"
+    >
+      <P
+        size={3}
+        color="$textSecondary"
+      >
         {label}
       </P>
-      <P size={3} weight="m" color="$textPrimary">
+      <P
+        size={3}
+        weight="m"
+        color="$textPrimary"
+      >
         {value}
       </P>
     </XStack>
@@ -910,31 +1309,83 @@ function fmtTime(ms: number): string {
 function GanttLegend() {
   const { t } = useTranslation('scheduling')
   const Entry = ({ swatch, label }: { swatch: ReactNode; label: string }) => (
-    <XStack alignItems="center" gap="$2">
+    <XStack
+      alignItems="center"
+      gap="$2"
+    >
       {swatch}
-      <P size={5} color="$textSecondary">
+      <P
+        size={5}
+        color="$textSecondary"
+      >
         {label}
       </P>
     </XStack>
   )
   return (
-    <XStack gap="$4" flexWrap="wrap" alignItems="center">
-      <Entry swatch={<YStack width={22} height={12} borderRadius="$2" backgroundColor="$primary" />} label={t('legend.run')} />
+    <XStack
+      gap="$4"
+      flexWrap="wrap"
+      alignItems="center"
+      marginTop="$-5"
+    >
+      <Entry
+        swatch={
+          <YStack
+            width={22}
+            height={12}
+            borderRadius="$2"
+            backgroundColor="$primary"
+          />
+        }
+        label={t('legend.run')}
+      />
       {/* setup = run colour + a black-0.28 overlay, same recipe as the bar's setup head */}
       <Entry
         swatch={
-          <YStack width={22} height={12} borderRadius="$2" backgroundColor="$primary" overflow="hidden">
-            <YStack flex={1} style={{ backgroundColor: 'rgba(0,0,0,0.28)' }} />
+          <YStack
+            width={22}
+            height={12}
+            borderRadius="$2"
+            backgroundColor="$primary"
+            overflow="hidden"
+          >
+            <YStack
+              flex={1}
+              style={{ backgroundColor: 'rgba(0,0,0,0.28)' }}
+            />
           </YStack>
         }
         label={t('legend.setup')}
       />
-      <Entry swatch={<YStack width={4} height={16} borderRadius="$1" backgroundColor="$primaryLight" />} label={t('legend.changeover')} />
       <Entry
-        swatch={<YStack width={22} height={12} borderRadius="$2" backgroundColor="$primary" borderWidth={2} borderColor="$danger" />}
+        swatch={
+          <YStack
+            width={4}
+            height={16}
+            borderRadius="$1"
+            backgroundColor="$primaryLight"
+          />
+        }
+        label={t('legend.changeover')}
+      />
+      <Entry
+        swatch={
+          <YStack
+            width={22}
+            height={12}
+            borderRadius="$2"
+            backgroundColor="$primary"
+            borderWidth={2}
+            borderColor="$danger"
+          />
+        }
         label={t('legend.atRisk')}
       />
-      <P size={5} color="$textSecondary">
+      <P
+        size={5}
+        color="$textSecondary"
+      >
         {t('legend.sourceNote')}
       </P>
     </XStack>
@@ -945,7 +1396,10 @@ function GanttLegend() {
 export function BoardScreen() {
   const { t } = useTranslation('scheduling')
   return (
-    <AdminShell activeId="board" title={t('board.title')}>
+    <AdminShell
+      activeId="board"
+      title={t('board.title')}
+    >
       <BoardContent />
     </AdminShell>
   )

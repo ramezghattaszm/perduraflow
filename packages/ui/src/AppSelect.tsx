@@ -69,10 +69,18 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…' 
         role="button"
         aria-label={selected?.label ?? placeholder}
       >
-        <P size={3} weight={selected ? 'm' : 'r'} color={selected ? '$textPrimary' : '$textSecondary'} numberOfLines={1}>
+        <P
+          size={3}
+          weight={selected ? 'm' : 'r'}
+          color={selected ? '$textPrimary' : '$textSecondary'}
+          numberOfLines={1}
+        >
           {selected?.label ?? placeholder}
         </P>
-        <ChevronDown size={16} color="$textSecondary" />
+        <ChevronDown
+          size={16}
+          color="$textSecondary"
+        />
       </XStack>
 
       {anchor ? (
@@ -92,7 +100,6 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…' 
             top={anchor.y}
             left={anchor.x}
             width={anchor.width}
-            maxHeight={300}
             zIndex={250001}
             pointerEvents="auto"
             backgroundColor="$surfaceRaised"
@@ -102,27 +109,47 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…' 
             elevation="$4"
             overflow="hidden"
           >
-            <ScrollView>
-              {options.map((o) => (
-                <XStack
-                  key={o.value}
-                  onPress={() => {
-                    onChange(o.value)
-                    setAnchor(null)
-                  }}
-                  cursor="pointer"
-                  paddingHorizontal="$3"
-                  paddingVertical="$2.5"
-                  backgroundColor={o.value === value ? '$primarySoft' : 'transparent'}
-                  hoverStyle={{ backgroundColor: o.value === value ? '$primarySoft' : '$hoverFill' }}
-                  role="button"
-                  aria-label={o.label}
-                >
-                  <P size={3} weight={o.value === value ? 'b' : 'r'} color={o.value === value ? '$primary' : '$textPrimary'} numberOfLines={1}>
-                    {o.label}
-                  </P>
-                </XStack>
-              ))}
+            {/* maxHeight lives on the ScrollView (not just the frame) so a long list
+                caps the scroll container and actually scrolls instead of being clipped. */}
+            <ScrollView maxHeight={300}>
+              {/* Options wrap side by side (chips) rather than one full-width row each, so a long
+                  list (e.g. orders) stays compact; long labels still take a full row by wrapping. */}
+              <XStack
+                flexWrap="wrap"
+                gap="$2"
+                padding="$2"
+              >
+                {options.map((o) => (
+                  <XStack
+                    key={o.value}
+                    onPress={() => {
+                      onChange(o.value)
+                      setAnchor(null)
+                    }}
+                    cursor="pointer"
+                    paddingHorizontal="$3"
+                    paddingVertical="$2"
+                    borderRadius="$3"
+                    borderWidth={1}
+                    borderColor={o.value === value ? '$primary' : '$borderColor'}
+                    backgroundColor={o.value === value ? '$primarySoft' : 'transparent'}
+                    hoverStyle={{
+                      backgroundColor: o.value === value ? '$primarySoft' : '$hoverFill',
+                    }}
+                    role="button"
+                    aria-label={o.label}
+                  >
+                    <P
+                      size={3}
+                      weight={o.value === value ? 'b' : 'r'}
+                      color={o.value === value ? '$primary' : '$textPrimary'}
+                      numberOfLines={1}
+                    >
+                      {o.label}
+                    </P>
+                  </XStack>
+                ))}
+              </XStack>
             </ScrollView>
           </YStack>
         </Portal>

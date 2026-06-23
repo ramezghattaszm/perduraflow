@@ -13,13 +13,14 @@ import scheduling from './locales/en/scheduling.json'
 import scorecard from './locales/en/scorecard.json'
 import whatif from './locales/en/whatif.json'
 import workforce from './locales/en/workforce.json'
+import workList from './locales/en/workList.json'
 
 /**
  * i18n (UI-ARCHITECTURE.md §9). All user-facing copy goes through here.
  * errors.json mirrors the API's error codes — resolve a message with
  * getApiErrorCode(err) → t(`errors:${code}`). initI18n() is idempotent.
  */
-export const resources = { en: { common, auth, errors, admin, masterData, scheduling, scorecard, workforce, exceptions, objectivePolicy, whatif, baseline, conversation } } as const
+export const resources = { en: { common, auth, errors, admin, masterData, scheduling, scorecard, workforce, workList, exceptions, objectivePolicy, whatif, baseline, conversation } } as const
 export const defaultNS = 'common'
 
 export function initI18n(): typeof i18next {
@@ -29,7 +30,7 @@ export function initI18n(): typeof i18next {
     lng: 'en',
     fallbackLng: 'en',
     defaultNS,
-    ns: ['common', 'auth', 'errors', 'admin', 'masterData', 'scheduling', 'scorecard', 'workforce', 'exceptions', 'objectivePolicy', 'whatif', 'baseline', 'conversation'],
+    ns: ['common', 'auth', 'errors', 'admin', 'masterData', 'scheduling', 'scorecard', 'workforce', 'workList', 'exceptions', 'objectivePolicy', 'whatif', 'baseline', 'conversation'],
     interpolation: { escapeValue: false },
   })
   return i18next

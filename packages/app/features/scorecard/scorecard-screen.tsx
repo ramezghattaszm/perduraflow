@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { BaselineSource, CostedKpis } from '@perduraflow/contracts'
 import {
+  AppSelect,
   BaselineDeltaStrip,
   ContextSelectors,
   KpiTile,
@@ -65,7 +66,12 @@ export function ScorecardContent() {
   // the Copilot resolves the referent but is honest it can't pull baseline figures yet.
   const setScreenContext = useSetScreenContext()
   useEffect(() => {
-    setScreenContext({ screen: 'scorecard', versionId: versionId ?? undefined, selectedResourceId: resourceId ?? undefined, view: source })
+    setScreenContext({
+      screen: 'scorecard',
+      versionId: versionId ?? undefined,
+      selectedResourceId: resourceId ?? undefined,
+      view: source,
+    })
     return () => setScreenContext(null)
   }, [setScreenContext, versionId, resourceId, source])
 
@@ -101,16 +107,22 @@ export function ScorecardContent() {
 
   return (
     <>
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
+      <PageHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <YStack width={220}>
+            <AppSelect
+              options={plantOptions}
+              value={plantId}
+              onChange={setPlant}
+              placeholder={t('plant')}
+            />
+          </YStack>
+        }
+      />
       <ContextSelectors
         selectors={[
-          {
-            label: t('plant'),
-            value: plantId,
-            options: plantOptions,
-            onChange: setPlant,
-            width: 240,
-          },
           {
             label: t('version'),
             value: versionId,
@@ -123,8 +135,17 @@ export function ScorecardContent() {
 
       {/* Drill-down scope: Plant (default) or a single line; chips + clickable at-risk rows */}
       {resources.length > 0 ? (
-        <XStack gap="$2" flexWrap="wrap" alignItems="center">
-          <P size={5} weight="b" caps color="$textTertiary">
+        <XStack
+          gap="$2"
+          flexWrap="wrap"
+          alignItems="center"
+        >
+          <P
+            size={5}
+            weight="b"
+            caps
+            color="$textTertiary"
+          >
             {t('scope.label')}
           </P>
           <ScopeChip
@@ -144,7 +165,10 @@ export function ScorecardContent() {
       ) : null}
 
       {!sc || sc.scheduleVersionId === null ? (
-        <P size={3} color="$textSecondary">
+        <P
+          size={3}
+          color="$textSecondary"
+        >
           {t('empty')}
         </P>
       ) : (
@@ -187,9 +211,17 @@ export function ScorecardContent() {
             />
           </KpiTileRow>
 
-          <XStack gap="$4" flexWrap="wrap">
+          <XStack
+            gap="$4"
+            flexWrap="wrap"
+          >
             {/* OEE breakdown panel (4b); per-line when drilled */}
-            <Panel title={t('oee.title')} flexGrow={1} flexBasis={360} minWidth={300}>
+            <Panel
+              title={t('oee.title')}
+              flexGrow={1}
+              flexBasis={360}
+              minWidth={300}
+            >
               {sc.oee != null ? (
                 <MetricBars
                   items={[
@@ -199,7 +231,10 @@ export function ScorecardContent() {
                   ]}
                 />
               ) : (
-                <P size={4} color="$textSecondary">
+                <P
+                  size={4}
+                  color="$textSecondary"
+                >
                   {t('oee.empty')}
                 </P>
               )}
@@ -218,7 +253,10 @@ export function ScorecardContent() {
             >
               {sc.atRisk.length === 0 ? (
                 <YStack padding="$4">
-                  <P size={3} color="$textSecondary">
+                  <P
+                    size={3}
+                    color="$textSecondary"
+                  >
                     {t('atRisk.empty')}
                   </P>
                 </YStack>
@@ -239,14 +277,24 @@ export function ScorecardContent() {
                     onPress={() => setResourceId(a.resourceId)}
                   >
                     <YStack flex={1}>
-                      <P size={3} weight="m" color="$textPrimary">
+                      <P
+                        size={3}
+                        weight="m"
+                        color="$textPrimary"
+                      >
                         {a.label}
                       </P>
-                      <P size={4} color="$textSecondary">
+                      <P
+                        size={4}
+                        color="$textSecondary"
+                      >
                         {a.detail}
                       </P>
                       {a.chain ? (
-                        <P size={3} color="$textSecondary">
+                        <P
+                          size={3}
+                          color="$textSecondary"
+                        >
                           {latenessSummary(a.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
                         </P>
                       ) : null}
@@ -258,7 +306,11 @@ export function ScorecardContent() {
                       paddingHorizontal="$2"
                       paddingVertical="$0.5"
                     >
-                      <P size={5} weight="b" color="$danger">
+                      <P
+                        size={5}
+                        weight="b"
+                        color="$danger"
+                      >
                         {t(`scheduling:riskReason.${a.reason}`, { defaultValue: a.reason })}
                       </P>
                     </XStack>
@@ -270,7 +322,12 @@ export function ScorecardContent() {
 
           {/* Plan-comparison / baseline (D57) — both arms, honest empty-state. */}
           <Panel title={t('baseline:title', { defaultValue: 'Vs baseline' })}>
-            <BaselinePanel plantId={plantId ?? undefined} resourceId={resourceId ?? undefined} source={source} onSourceChange={setSource} />
+            <BaselinePanel
+              plantId={plantId ?? undefined}
+              resourceId={resourceId ?? undefined}
+              source={source}
+              onSourceChange={setSource}
+            />
           </Panel>
         </>
       )}
@@ -280,36 +337,88 @@ export function ScorecardContent() {
 
 const fmtPct = (n: number | null) => (n == null ? '—' : `${Math.round(n * 100)}%`)
 const fmtMoney = (n: number | null) => (n == null ? '—' : `$${n.toFixed(2)}`)
-function kpiDelta(live: number | null, base: number | null, kind: 'pct' | 'money' | 'count', lowerIsBetter: boolean) {
+function kpiDelta(
+  live: number | null,
+  base: number | null,
+  kind: 'pct' | 'money' | 'count',
+  lowerIsBetter: boolean
+) {
   if (live == null || base == null) return { delta: '—', tone: 'neutral' as const }
   const d = live - base
   if (Math.abs(d) < 1e-9) return { delta: '0', tone: 'neutral' as const }
   const tone = (d < 0 ? lowerIsBetter : !lowerIsBetter) ? ('up' as const) : ('down' as const)
   const sign = d > 0 ? '+' : '−'
   const mag = Math.abs(d)
-  const txt = kind === 'pct' ? `${sign}${Math.round(mag * 100)}%` : kind === 'money' ? `${sign}$${mag.toFixed(2)}` : `${sign}${Math.round(mag)}`
+  const txt =
+    kind === 'pct'
+      ? `${sign}${Math.round(mag * 100)}%`
+      : kind === 'money'
+        ? `${sign}$${mag.toFixed(2)}`
+        : `${sign}${Math.round(mag)}`
   return { delta: txt, tone }
 }
 function baselineRows(live: CostedKpis, base: CostedKpis, t: (k: string) => string) {
-  return [
-    { label: t('baseline:kpi.otif'), live: fmtPct(live.otif), baseline: fmtPct(base.otif), ...kpiDelta(live.otif, base.otif, 'pct', false) },
-    { label: t('baseline:kpi.cost'), live: fmtMoney(live.costPerUnit), baseline: fmtMoney(base.costPerUnit), ...kpiDelta(live.costPerUnit, base.costPerUnit, 'money', true) },
-    { label: t('baseline:kpi.oee'), live: fmtPct(live.oee?.oee ?? null), baseline: fmtPct(base.oee?.oee ?? null), ...kpiDelta(live.oee?.oee ?? null, base.oee?.oee ?? null, 'pct', false) },
-    { label: t('baseline:kpi.late'), live: String(live.lateOrders), baseline: String(base.lateOrders), ...kpiDelta(live.lateOrders, base.lateOrders, 'count', true) },
-  ]
-    // Hide a KPI that isn't applicable to this arm (e.g. OEE — an execution metric —
-    // for the plan-vs-plan engine-lift arm): a row that is "—" on BOTH sides.
-    .filter((r) => !(r.live === '—' && r.baseline === '—'))
+  return (
+    [
+      {
+        label: t('baseline:kpi.otif'),
+        live: fmtPct(live.otif),
+        baseline: fmtPct(base.otif),
+        ...kpiDelta(live.otif, base.otif, 'pct', false),
+      },
+      {
+        label: t('baseline:kpi.cost'),
+        live: fmtMoney(live.costPerUnit),
+        baseline: fmtMoney(base.costPerUnit),
+        ...kpiDelta(live.costPerUnit, base.costPerUnit, 'money', true),
+      },
+      {
+        label: t('baseline:kpi.oee'),
+        live: fmtPct(live.oee?.oee ?? null),
+        baseline: fmtPct(base.oee?.oee ?? null),
+        ...kpiDelta(live.oee?.oee ?? null, base.oee?.oee ?? null, 'pct', false),
+      },
+      {
+        label: t('baseline:kpi.late'),
+        live: String(live.lateOrders),
+        baseline: String(base.lateOrders),
+        ...kpiDelta(live.lateOrders, base.lateOrders, 'count', true),
+      },
+    ]
+      // Hide a KPI that isn't applicable to this arm (e.g. OEE — an execution metric —
+      // for the plan-vs-plan engine-lift arm): a row that is "—" on BOTH sides.
+      .filter((r) => !(r.live === '—' && r.baseline === '—'))
+  )
 }
 
 /** Baseline comparison (D57) — frozen-engine / measured-historical arms + empty-state. Controlled
  *  arm (`source`/`onSourceChange`) so the screen can publish it as the deictic referent (Pass C). */
-function BaselinePanel({ plantId, resourceId, source, onSourceChange }: { plantId?: string; resourceId?: string; source: BaselineSource; onSourceChange: (s: BaselineSource) => void }) {
+function BaselinePanel({
+  plantId,
+  resourceId,
+  source,
+  onSourceChange,
+}: {
+  plantId?: string
+  resourceId?: string
+  source: BaselineSource
+  onSourceChange: (s: BaselineSource) => void
+}) {
   const { t } = useTranslation(['baseline'])
   const { data } = useBaseline(plantId, source, resourceId)
   const arms = [
-    { id: 'frozen_engine_snapshot', label: t('arm.frozen'), active: source === 'frozen_engine_snapshot', onPress: () => onSourceChange('frozen_engine_snapshot') },
-    { id: 'measured_historical', label: t('arm.historical'), active: source === 'measured_historical', onPress: () => onSourceChange('measured_historical') },
+    {
+      id: 'frozen_engine_snapshot',
+      label: t('arm.frozen'),
+      active: source === 'frozen_engine_snapshot',
+      onPress: () => onSourceChange('frozen_engine_snapshot'),
+    },
+    {
+      id: 'measured_historical',
+      label: t('arm.historical'),
+      active: source === 'measured_historical',
+      onPress: () => onSourceChange('measured_historical'),
+    },
   ]
   const empty = !data || data.emptyState || !data.live || !data.baseline
   return (
@@ -351,7 +460,11 @@ function ScopeChip({
       role="button"
       aria-label={label}
     >
-      <P size={4} weight={active ? 'b' : 'r'} color={active ? '$primary' : '$textSecondary'}>
+      <P
+        size={4}
+        weight={active ? 'b' : 'r'}
+        color={active ? '$primary' : '$textSecondary'}
+      >
         {label}
       </P>
     </XStack>
@@ -362,7 +475,10 @@ function ScopeChip({
 export function ScorecardScreen() {
   const { t } = useTranslation('scorecard')
   return (
-    <AdminShell activeId="scorecard" title={t('title')}>
+    <AdminShell
+      activeId="scorecard"
+      title={t('title')}
+    >
       <ScorecardContent />
     </AdminShell>
   )

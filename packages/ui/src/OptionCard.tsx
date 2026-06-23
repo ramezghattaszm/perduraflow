@@ -40,7 +40,8 @@ export interface OptionCardProps {
   hideApply?: boolean
 }
 
-const toneColor = (tone?: OptionKpiCell['tone']) => (tone === 'up' ? '$success' : tone === 'down' ? '$danger' : '$textSecondary')
+const toneColor = (tone?: OptionKpiCell['tone']) =>
+  tone === 'up' ? '$success' : tone === 'down' ? '$danger' : '$textSecondary'
 
 /**
  * OptionCard — one ranked what-if option (Cockpit, D55): header (rank · label ·
@@ -86,20 +87,40 @@ export function OptionCard({
         justifyContent="space-between"
         {...(onToggle && feasible ? { cursor: 'pointer', onPress: onToggle } : {})}
       >
-        <XStack gap="$2.5" alignItems="center" flex={1}>
-          <P size={4} weight="b" color="$textTertiary">
+        <XStack
+          gap="$2.5"
+          alignItems="center"
+          flex={1}
+        >
+          <P
+            size={4}
+            weight="b"
+            color="$textTertiary"
+          >
             {rank}
           </P>
-          <YStack flex={1} gap="$0.5">
-            <H level={4} color="$textPrimary">
+          <YStack
+            flex={1}
+            gap="$0.5"
+          >
+            <H
+              level={4}
+              color="$textPrimary"
+            >
               {label}
             </H>
             {feasible ? (
-              <P size={5} color="$textTertiary">
+              <P
+                size={5}
+                color="$textTertiary"
+              >
                 {scoreLabel} {score}
               </P>
             ) : (
-              <P size={5} color="$danger">
+              <P
+                size={5}
+                color="$danger"
+              >
                 {infeasibleReason}
               </P>
             )}
@@ -110,17 +131,39 @@ export function OptionCard({
       </XStack>
 
       {feasible ? (
-        <XStack flexWrap="wrap" gap="$4" paddingHorizontal="$3.5" paddingBottom="$3">
+        <XStack
+          flexWrap="wrap"
+          gap="$4"
+          paddingHorizontal="$3.5"
+          paddingBottom="$3"
+        >
           {kpis.map((k) => (
-            <YStack key={k.label} gap="$0.5" minWidth={72}>
-              <P size={5} weight="b" caps color="$textTertiary">
+            <YStack
+              key={k.label}
+              gap="$0.5"
+              minWidth={72}
+            >
+              <P
+                size={5}
+                weight="b"
+                caps
+                color="$textTertiary"
+              >
                 {k.label}
               </P>
-              <P size={3} weight="b" color="$textPrimary">
+              <P
+                size={3}
+                weight="b"
+                color="$textPrimary"
+              >
                 {k.value}
               </P>
               {k.delta ? (
-                <P size={5} weight="m" color={toneColor(k.tone)}>
+                <P
+                  size={5}
+                  weight="m"
+                  color={toneColor(k.tone)}
+                >
                   {k.delta}
                 </P>
               ) : null}
@@ -130,18 +173,38 @@ export function OptionCard({
       ) : null}
 
       {expanded && feasible ? (
-        <YStack gap="$3.5" padding="$3.5" borderTopWidth={1} borderTopColor="$borderColor">
+        <YStack
+          gap="$3.5"
+          padding="$3.5"
+          borderTopWidth={1}
+          borderTopColor="$borderColor"
+        >
           {rationale}
           {narration}
           {hideApply ? null : applied ? (
-            <XStack gap="$2" alignItems="center">
-              <Check size={15} color="$success" />
-              <P size={3} weight="m" color="$success">
+            <XStack
+              gap="$2"
+              alignItems="center"
+            >
+              <Check
+                size={15}
+                color="$success"
+              />
+              <P
+                size={3}
+                weight="m"
+                color="$success"
+              >
                 {appliedLabel}
               </P>
             </XStack>
           ) : (
-            <AppButton variant="primary" size="$3" loading={applying} onPress={onApply}>
+            <AppButton
+              variant="primary"
+              size="$3"
+              loading={applying}
+              onPress={onApply}
+            >
               {applyCta}
             </AppButton>
           )}

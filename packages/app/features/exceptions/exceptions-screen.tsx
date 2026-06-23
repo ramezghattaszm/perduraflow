@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ParameterPredictionDto } from '@perduraflow/contracts'
 import {
   AppButton,
-  ContextSelectors,
+  AppSelect,
   ExceptionRow,
   KpiTile,
   KpiTileRow,
@@ -17,8 +17,8 @@ import { useTranslation } from '../../i18n'
 import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
-import { useScheduleResources } from '../../hooks/useScheduling'
-import { useApprovePrediction, useDismissPrediction, usePredictions, useScorecard } from '../../hooks/useLearning'
+import { useScheduleResources, useWorkList } from '../../hooks/useScheduling'
+import { useApprovePrediction, useDismissPrediction, usePredictions } from '../../hooks/useLearning'
 import { useCanConfigure } from '../../stores/auth.store'
 import { useSetScreenContext } from '../../stores/screenContext.store'
 import { AdminShell } from '../shell/admin-shell'
@@ -28,7 +28,8 @@ const fmtTime = (iso: string | null) => {
   const d = new Date(iso)
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 }
-const fmtHorizon = (min: number) => (min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`)
+const fmtHorizon = (min: number) =>
+  min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`
 
 /**
  * View 4 · Exception Queue (planner) — **autonomy demonstrated, not named**. The
@@ -45,16 +46,20 @@ export function ExceptionsContent() {
   const { plantId, setPlant } = usePlantSelection(plants)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
   const { data: predictions = [] } = usePredictions()
-  const { data: sc } = useScorecard(plantId ?? undefined)
+  const { data: workList } = useWorkList(plantId ?? undefined)
   const approve = useApprovePrediction()
   const dismiss = useDismissPrediction()
 
   const resName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
 
-  const auto = predictions.filter((p) => p.disposition === 'auto_committed' || p.disposition === 'approved')
+  const auto = predictions.filter(
+    (p) => p.disposition === 'auto_committed' || p.disposition === 'approved'
+  )
   const queued = predictions.filter((p) => p.disposition === 'queued')
-  const atRisk = sc?.atRisk ?? []
+  // The at-risk queue IS the Work List filtered to at-risk (order grain) — single source, so the
+  // count here equals the Work List's at-risk chip (counts.atRisk) by construction.
+  const atRisk = (workList?.rows ?? []).filter((r) => r.status === 'at_risk')
   const needYou = queued.length + atRisk.length
 
   // Pass C: the selected at-risk row is the deictic referent ("this order / why is this at-risk").
@@ -68,7 +73,8 @@ export function ExceptionsContent() {
     return () => setScreenContext(null)
   }, [setScreenContext, selectedOrderId])
 
-  const title = (p: ParameterPredictionDto) => `${resName.get(p.resourceId) ?? p.resourceId.slice(-5)} · ${t(`param.${p.param}`)}`
+  const title = (p: ParameterPredictionDto) =>
+    `${resName.get(p.resourceId) ?? p.resourceId.slice(-5)} · ${t(`param.${p.param}`)}`
   const statement = (p: ParameterPredictionDto) =>
     t('pred.statement', {
       crossing: fmtTime(p.crossingAt),
@@ -78,21 +84,46 @@ export function ExceptionsContent() {
 
   return (
     <>
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
-      <ContextSelectors
-        selectors={[{ label: t('plant'), value: plantId, options: plantOptions, onChange: setPlant, width: 240 }]}
+      <PageHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <YStack width={220}>
+            <AppSelect
+              options={plantOptions}
+              value={plantId}
+              onChange={setPlant}
+              placeholder={t('plant')}
+            />
+          </YStack>
+        }
       />
 
       <KpiTileRow>
-        <KpiTile value={String(needYou)} label={t('needYou')} caption={t('needYouCaption')} />
-        <KpiTile value={String(auto.length)} label={t('autoHandled')} caption={t('autoHandledCaption')} />
+        <KpiTile
+          value={String(needYou)}
+          label={t('needYou')}
+          caption={t('needYouCaption')}
+        />
+        <KpiTile
+          value={String(auto.length)}
+          label={t('autoHandled')}
+          caption={t('autoHandledCaption')}
+        />
       </KpiTileRow>
 
       {/* Needs you — queued predictions (Approve/Dismiss) + at-risk (Tier-3, human). */}
-      <Panel title={t('needYou')} contentPadding="$0" contentGap="$0">
+      <Panel
+        title={t('needYou')}
+        contentPadding="$0"
+        contentGap="$0"
+      >
         {needYou === 0 ? (
           <YStack padding="$4">
-            <P size={3} color="$textSecondary">
+            <P
+              size={3}
+              color="$textSecondary"
+            >
               {t('needYouEmpty')}
             </P>
           </YStack>
@@ -108,10 +139,19 @@ export function ExceptionsContent() {
                 actions={
                   canConfigure ? (
                     <>
-                      <AppButton variant="primary" size="$3" loading={approve.isPending} onPress={() => approve.mutate(p.id)}>
+                      <AppButton
+                        variant="primary"
+                        size="$3"
+                        loading={approve.isPending}
+                        onPress={() => approve.mutate(p.id)}
+                      >
                         {t('approve')}
                       </AppButton>
-                      <AppButton variant="ghost" size="$3" onPress={() => dismiss.mutate(p.id)}>
+                      <AppButton
+                        variant="ghost"
+                        size="$3"
+                        onPress={() => dismiss.mutate(p.id)}
+                      >
                         {t('dismiss')}
                       </AppButton>
                     </>
@@ -120,16 +160,18 @@ export function ExceptionsContent() {
               />
             ))}
             {atRisk.map((a, i) => (
-              // A demand line can have more than one at-risk op (e.g. ST-8830's weld + leak-test),
-              // so key by line + the op's resource + detail, not demandLineId alone.
+              // Order grain (one row per demand line) — the Work List consolidates an order's
+              // at-risk ops into a single binding row, so demandLineId is a stable key.
               <ExceptionRow
-                key={`${a.demandLineId}:${a.resourceId}:${a.detail}`}
+                key={a.demandLineId}
                 divided={queued.length > 0 || i > 0}
                 title={a.label}
-                statement={`${a.detail} · ${a.chain ? latenessSummary(a.chain, (k, o) => t(`scheduling:${k}`, o ?? {})) : t(`scheduling:riskReason.${a.reason}`, { defaultValue: a.reason })}`}
+                statement={`${a.atRiskDetail ?? ''} · ${a.chain ? latenessSummary(a.chain, (k, o) => t(`scheduling:${k}`, o ?? {})) : t(`scheduling:riskReason.${a.atRiskReason}`, { defaultValue: a.atRiskReason ?? '' })}`}
                 badge={{ label: t('tier.t3'), tone: 'danger' }}
                 selected={selectedOrderId === a.demandLineId}
-                onPress={() => setSelectedOrderId((cur) => (cur === a.demandLineId ? null : a.demandLineId))}
+                onPress={() =>
+                  setSelectedOrderId((cur) => (cur === a.demandLineId ? null : a.demandLineId))
+                }
               />
             ))}
           </>
@@ -137,10 +179,17 @@ export function ExceptionsContent() {
       </Panel>
 
       {/* Auto-handled — Tier-1 ≥ threshold, pre-applied + logged (transparent). */}
-      <Panel title={t('autoHandled')} contentPadding="$0" contentGap="$0">
+      <Panel
+        title={t('autoHandled')}
+        contentPadding="$0"
+        contentGap="$0"
+      >
         {auto.length === 0 ? (
           <YStack padding="$4">
-            <P size={3} color="$textSecondary">
+            <P
+              size={3}
+              color="$textSecondary"
+            >
               {t('autoHandledEmpty')}
             </P>
           </YStack>
@@ -168,7 +217,10 @@ export function ExceptionsContent() {
 export function ExceptionsScreen() {
   const { t } = useTranslation('exceptions')
   return (
-    <AdminShell activeId="exceptions" title={t('title')}>
+    <AdminShell
+      activeId="exceptions"
+      title={t('title')}
+    >
       <ExceptionsContent />
     </AdminShell>
   )

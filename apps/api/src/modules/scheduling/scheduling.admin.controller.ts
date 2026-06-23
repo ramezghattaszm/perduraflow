@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Param, Post, UseGuards } from '@nestjs/common'
 import { applyOptionSchema, solveScheduleSchema, type ApplyOptionRequest, type SolveScheduleRequest } from '@perduraflow/contracts'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { ConfigureGuard } from '../../common/guards/configure.guard'
@@ -33,6 +33,15 @@ export class SchedulingAdminController {
   @Post('versions/:id/commit')
   commit(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.scheduling.commit(user.tenantId, id)
+  }
+
+  /**
+   * `DELETE /admin/scheduling/versions/:id` — soft-delete a DRAFT version (status → discarded).
+   * Rejects committed/superseded (immutable record). Both guards.
+   */
+  @Delete('versions/:id')
+  discardDraft(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.scheduling.discardDraft(user.tenantId, id)
   }
 
   /**

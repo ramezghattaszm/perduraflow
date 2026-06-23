@@ -98,6 +98,19 @@ export class SchedulingController {
     return this.scheduling.scorecard(user.tenantId, plantId, versionId, resourceId)
   }
 
+  /**
+   * `GET /scheduling/work-list?plantId=&versionId=` — the all-work table: every order with a
+   * computed status + status rollup counts. `versionId` optional → defaults to latest committed.
+   */
+  @Get('work-list')
+  workList(
+    @CurrentUser() user: JwtPayload,
+    @Query('plantId') plantId: string,
+    @Query('versionId') versionId?: string,
+  ) {
+    return this.scheduling.workList(user.tenantId, plantId, versionId)
+  }
+
   // --- phase 5: what-if + baseline + narration -------------------------------
 
   /** `POST /scheduling/what-if` — evaluate a change-set → ranked costed option-set (D55). */

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ColorTokens, MatrixCell } from '@perduraflow/ui'
 import {
-  ContextSelectors,
+  AppSelect,
   CoverageProposal,
   H,
   P,
@@ -57,11 +57,27 @@ export function WorkforceContent() {
 
   return (
     <>
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
-      <ContextSelectors selectors={[{ label: t('plant'), value: plantId, options: plantOptions, onChange: setPlant, width: 240 }]} />
+      <PageHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <YStack width={220}>
+            <AppSelect
+              options={plantOptions}
+              value={plantId}
+              onChange={setPlant}
+              placeholder={t('plant')}
+            />
+          </YStack>
+        }
+      />
 
       {!cov ? null : (
-        <XStack gap="$4" flexWrap="wrap" alignItems="flex-start">
+        <XStack
+          gap="$4"
+          flexWrap="wrap"
+          alignItems="flex-start"
+        >
           {/* Coverage panel — ~60%. Full-bleed matrix (pinned OPERATOR column,
               cert columns scroll) + legend below, divided by a horizontal line. */}
           <Panel
@@ -89,28 +105,61 @@ export function WorkforceContent() {
                 return CELL[cov.cells[r]?.[c] ?? 'not_qualified'] ?? 'off'
               }}
             />
-            <XStack gap="$4" flexWrap="wrap" padding="$3" borderTopWidth={1} borderTopColor="$borderColor">
-              <Legend tone="$primary" label={t('legend.qualified')} />
-              <Legend tone="$borderColor" label={t('legend.notQualified')} outline />
-              <Legend tone="$dangerSoft" label={t('legend.gap')} />
-              <P size={5} color="$textSecondary">
+            <XStack
+              gap="$4"
+              flexWrap="wrap"
+              padding="$3"
+              borderTopWidth={1}
+              borderTopColor="$borderColor"
+            >
+              <Legend
+                tone="$primary"
+                label={t('legend.qualified')}
+              />
+              <Legend
+                tone="$borderColor"
+                label={t('legend.notQualified')}
+                outline
+              />
+              <Legend
+                tone="$dangerSoft"
+                label={t('legend.gap')}
+              />
+              <P
+                size={5}
+                color="$textSecondary"
+              >
                 {t('legend.certRequired')}
               </P>
             </XStack>
           </Panel>
 
           {/* Readiness panel — ~40%. The "%" is the panel's one hero number. */}
-          <Panel title={t('readiness.title')} flexGrow={2} flexBasis={240} minWidth={240}>
+          <Panel
+            title={t('readiness.title')}
+            flexGrow={2}
+            flexBasis={240}
+            minWidth={240}
+          >
             <YStack gap="$1">
-              <H level={3} color={cov.certGapCount > 0 ? '$warning' : '$success'}>
+              <H
+                level={3}
+                color={cov.certGapCount > 0 ? '$warning' : '$success'}
+              >
                 {Math.round(cov.readinessPct * 100)}%
               </H>
-              <P size={4} color="$textSecondary">
+              <P
+                size={4}
+                color="$textSecondary"
+              >
                 {t('readiness.effective')} · {t('readiness.gaps', { count: cov.certGapCount })}
               </P>
             </YStack>
             {cov.proposals.length === 0 ? (
-              <P size={4} color="$textSecondary">
+              <P
+                size={4}
+                color="$textSecondary"
+              >
                 {t('proposal.none')}
               </P>
             ) : (
@@ -139,7 +188,10 @@ export function WorkforceContent() {
 /** A small coverage legend swatch. */
 function Legend({ tone, label, outline }: { tone: ColorTokens; label: string; outline?: boolean }) {
   return (
-    <XStack alignItems="center" gap="$2">
+    <XStack
+      alignItems="center"
+      gap="$2"
+    >
       <YStack
         width={14}
         height={14}
@@ -148,7 +200,10 @@ function Legend({ tone, label, outline }: { tone: ColorTokens; label: string; ou
         borderWidth={outline ? 1 : 0}
         borderColor="$borderColor"
       />
-      <P size={5} color="$textSecondary">
+      <P
+        size={5}
+        color="$textSecondary"
+      >
         {label}
       </P>
     </XStack>
@@ -159,7 +214,10 @@ function Legend({ tone, label, outline }: { tone: ColorTokens; label: string; ou
 export function WorkforceScreen() {
   const { t } = useTranslation('workforce')
   return (
-    <AdminShell activeId="workforce" title={t('title')}>
+    <AdminShell
+      activeId="workforce"
+      title={t('title')}
+    >
       <WorkforceContent />
     </AdminShell>
   )

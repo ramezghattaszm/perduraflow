@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { NarrationMode } from './llm'
+import type { OrgPriority } from './org'
 
 /**
  * Scheduling module client↔API contract (phase 2 — api-spec §11). The scheduling
@@ -21,7 +22,9 @@ export type DemandType = z.infer<typeof demandTypeSchema>
 export const firmnessSchema = z.enum(['firm', 'forecast'])
 export type Firmness = z.infer<typeof firmnessSchema>
 
-export const scheduleVersionStatusSchema = z.enum(['draft', 'committed', 'superseded'])
+// `discarded` is a soft-deleted draft (never committed → no audit value): the status transition
+// IS the soft delete (no row removed). committed/superseded stay immutable and are never discardable.
+export const scheduleVersionStatusSchema = z.enum(['draft', 'committed', 'superseded', 'discarded'])
 export type ScheduleVersionStatus = z.infer<typeof scheduleVersionStatusSchema>
 
 export const optimizerRunStatusSchema = z.enum(['success', 'infeasible', 'failed'])
@@ -281,6 +284,86 @@ export interface ScorecardDto {
   /** Throughput attainment; **null when no actuals yet**. */
   throughputAttainment: number | null
   atRisk: AtRiskOrderDto[]
+}
+
+// --- work list (all-work table; generalizes the exception queue) --------------
+
+/**
+ * A work item's computed lifecycle status (D-worklist) — derived from the schedule + actuals,
+ * never stored. Mutually exclusive + exhaustive, evaluated in precedence order:
+ * `completed` (executed) → `at_risk` (committed, late/blocked) → `in_progress` (started, on-track)
+ * → `scheduled` (future, on-track). The `at_risk` set uses the SAME `atRisk` flag the board, KPI
+ * strip and exception queue read, so the at-risk count reconciles across surfaces by construction.
+ */
+export const workListStatusSchema = z.enum(['completed', 'at_risk', 'in_progress', 'scheduled'])
+export type WorkListStatus = z.infer<typeof workListStatusSchema>
+
+/** One operation under a work-list order row (the expand detail) — same per-op taxonomy. */
+export interface WorkListOpDto {
+  opSeq: number
+  resourceId: string
+  resourceName: string
+  status: WorkListStatus
+  plannedStart: string
+  plannedEnd: string
+  atRiskReason: string | null
+}
+
+/**
+ * One order (demand line) in the work list — its ops rolled up to a single status, plus the
+ * fields a planner scans (customer / priority / due / planned / lane). At-risk rows carry the
+ * binding op's reason + the computed causal chain (D-late), identical to the exception queue.
+ */
+export interface WorkListRowDto {
+  /** = demandLineId (the DataTable row key). */
+  id: string
+  demandLineId: string
+  /** "partNo · releaseReference" (or demandLineId) — the scan label. */
+  label: string
+  partNo: string
+  releaseReference: string | null
+  customerName: string
+  priority: OrgPriority
+  firmness: Firmness
+  /** ISO timestamp. */
+  requiredDate: string
+  requiredQty: number
+  /** Rolled-up status (precedence: at_risk → all-completed → in_progress → scheduled). */
+  status: WorkListStatus
+  /** The order's planned window across its ops (ISO); null if it has no ops. */
+  plannedStart: string | null
+  plannedEnd: string | null
+  /** Distinct lanes the order runs on, name-resolved, in op order. */
+  resourceNames: string[]
+  /** The binding at-risk op's "op N · Lane" sub-line; null when not at-risk. */
+  atRiskDetail: string | null
+  /** The binding at-risk op's reason tag; null when not at-risk. */
+  atRiskReason: string | null
+  /** The computed causal chain for the order's at-risk op (D-late); null otherwise. */
+  chain: LatenessChainDto | null
+  /** Per-op breakdown for the expand row. */
+  ops: WorkListOpDto[]
+}
+
+/** Status rollup counts (the filter chips); `total` = all rows. */
+export interface WorkListCountsDto {
+  total: number
+  completed: number
+  atRisk: number
+  inProgress: number
+  scheduled: number
+}
+
+/**
+ * The Work List payload (D-worklist): every order with a computed status + the summary counts.
+ * Single source — the exception queue renders this filtered to `at_risk`, so its row count equals
+ * `counts.atRisk`. Statuses are computed here, never persisted (compute-not-store).
+ */
+export interface WorkListResponseDto {
+  plantId: string
+  scheduleVersionId: string | null
+  counts: WorkListCountsDto
+  rows: WorkListRowDto[]
 }
 
 /** A coverage matrix axis entry (operator row or station/cert column). */

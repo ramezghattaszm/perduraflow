@@ -6,6 +6,7 @@
     "version": "Version",
     "resolve": "Re-solve",
     "commit": "Commit",
+    "discard": "Discard draft",
     "empty": "Nothing scheduled yet — Re-solve to generate a draft.",
     "noResources": "No resources for this plant.",
     "stale": {

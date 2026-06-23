@@ -26,6 +26,7 @@ import {
   type ScorecardDto,
   type WorkforceCoverageDto,
   type WorkingWindowDto,
+  type WorkListResponseDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { EVENTS } from '../../events'
@@ -42,6 +43,7 @@ import {
 import { SchedulingRepository } from './scheduling.repository'
 import type { DemandInput, ScheduledOperation } from './schema'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
+import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperatorFactor, type SequencerItem } from './sequencer'
 import { buildWorkingCalendar, startOfDayUtc, workingMinutesInRange, type WorkingCalendar } from './working-calendar'
 
@@ -436,6 +438,9 @@ export class SchedulingService {
         bindingBlockerOpSeq: p.bindingBlockerOpSeq,
       })),
     )
+    // Auto-reap: soft-delete the plant's prior (uncommitted) drafts so re-solving doesn't pile up
+    // stale drafts in the version list — keep only this newest draft. Committed/superseded untouched.
+    await this.repo.discardDraftsForPlant(tenantId, plantId, version.id)
     await this.events.publish(EVENTS.SCHEDULING_RUN_COMPLETED, { id: run.id, tenantId, name: plantId }, tenantId)
     return toScheduleVersionDto(version)
   }
@@ -460,6 +465,27 @@ export class SchedulingService {
       supersedesVersionId: prior?.id ?? null,
     })
     await this.events.publish(EVENTS.SCHEDULING_VERSION_COMMITTED, { id, tenantId, name: version.plantId }, tenantId)
+    return toScheduleVersionDto(updated!)
+  }
+
+  /**
+   * Soft-delete a DRAFT version (status → `discarded`; the row is kept, just hidden from listings).
+   * The immutability boundary: a `committed` or `superseded` version is part of the permanent record
+   * (IATF/audit) and is NEVER discardable — only a never-committed `draft` is. Idempotent only for an
+   * already-`discarded` draft is rejected too (it is no longer a draft).
+   * @throws AppException SCHEDULE_VERSION_NOT_FOUND - no such version for this tenant
+   * @throws AppException SCHEDULE_VERSION_NOT_DRAFT - the version is committed/superseded/discarded (immutable)
+   */
+  async discardDraft(tenantId: string, id: string): Promise<ScheduleVersionDto> {
+    const version = await this.repo.findVersion(tenantId, id)
+    if (!version) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
+    }
+    if (version.status !== 'draft') {
+      // The hard boundary: committed and superseded (a former live plan) are immutable history.
+      throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Only a draft can be discarded', ERROR_CODES.SCHEDULE_VERSION_NOT_DRAFT)
+    }
+    const updated = await this.repo.updateVersionStatus(tenantId, id, { status: 'discarded' })
     return toScheduleVersionDto(updated!)
   }
 
@@ -489,6 +515,28 @@ export class SchedulingService {
     const rank = PRIORITY_RANK[priority] ?? 2
     cache.set(key, rank)
     return rank
+  }
+
+  /** Resolve an order's effective priority tier (program override → customer default → standard). Cached per (customer, program). */
+  private async priorityFor(
+    tenantId: string,
+    customerId: string,
+    programId: string | null,
+    cache: Map<string, OrgPriority>,
+  ): Promise<OrgPriority> {
+    const key = `${customerId}:${programId ?? ''}`
+    const cached = cache.get(key)
+    if (cached !== undefined) return cached
+    let priority: OrgPriority = 'standard'
+    if (programId) {
+      const program = await this.org.getProgram(tenantId, programId)
+      if (program?.priority) priority = program.priority
+      else priority = (await this.org.getCustomer(tenantId, customerId))?.priority ?? 'standard'
+    } else {
+      priority = (await this.org.getCustomer(tenantId, customerId))?.priority ?? 'standard'
+    }
+    cache.set(key, priority)
+    return priority
   }
 
   /**
@@ -918,6 +966,88 @@ export class SchedulingService {
       throughputAttainment: cur.throughputAttainment,
       atRisk: cur.atRisk,
     }
+  }
+
+  /**
+   * View · Work List (D-worklist) — every order (demand line) in a version with a **computed**
+   * lifecycle status (completed / at-risk / in-progress / scheduled) rolled up from its ops, plus the
+   * status rollup counts that drive the filter chips. Single source: the at-risk subset uses the SAME
+   * engine flag + causal chain the exception queue renders, so `counts.atRisk` equals that queue's row
+   * count by construction. Statuses are computed here, never stored. Defaults to the plant's committed
+   * version (else its newest).
+   * @throws AppException SCHEDULE_VERSION_NOT_FOUND - an explicit `versionId` that doesn't exist
+   */
+  async workList(tenantId: string, plantId: string, versionId?: string): Promise<WorkListResponseDto> {
+    const version = versionId
+      ? await this.repo.findVersion(tenantId, versionId)
+      : ((await this.repo.findCommittedVersion(tenantId, plantId)) ?? (await this.repo.listVersions(tenantId, plantId))[0])
+    if (versionId && !version) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
+    }
+    const resolvedPlant = version?.plantId ?? plantId
+    const empty = { total: 0, completed: 0, atRisk: 0, inProgress: 0, scheduled: 0 }
+    if (!version) return { plantId: resolvedPlant, scheduleVersionId: null, counts: empty, rows: [] }
+
+    const md = await this.resolveMasterData(tenantId)
+    const ops = await this.repo.operationsForVersion(version.id)
+    const actuals = await this.learning.listActualsForVersion(tenantId, version.id)
+    const actualOpIds = new Set(actuals.map((a) => a.scheduledOperationId))
+    const resourceName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+    const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
+    // Same computed chains the queue/board/Copilot read (built from the unfiltered ops).
+    const chains = await this.latenessChainsFor(tenantId, version.plantId, ops)
+
+    // Order metadata (customer / priority / due / firmness), keyed by demand line.
+    const custCache = new Map<string, string>()
+    const priorityCache = new Map<string, OrgPriority>()
+    const orders = new Map<string, WorkListOrderMeta>()
+    for (const d of (await this.repo.listDemand(tenantId, version.plantId)).filter((x) => x.isActive)) {
+      let customerName = custCache.get(d.customerId)
+      if (customerName === undefined) {
+        customerName = (await this.org.getCustomer(tenantId, d.customerId))?.name ?? d.customerId
+        custCache.set(d.customerId, customerName)
+      }
+      orders.set(d.demandLineId, {
+        demandLineId: d.demandLineId,
+        partNo: partNoById.get(d.partId) ?? d.partId,
+        releaseReference: d.releaseReference,
+        customerName,
+        priority: await this.priorityFor(tenantId, d.customerId, d.programId, priorityCache),
+        firmness: d.firmness,
+        requiredDateIso: d.requiredDate.toISOString(),
+        requiredQty: d.requiredQty,
+      })
+    }
+    // An op whose demand line isn't active (edge): synthesize minimal meta so it isn't silently dropped.
+    for (const o of ops) {
+      if (orders.has(o.demandLineId)) continue
+      orders.set(o.demandLineId, {
+        demandLineId: o.demandLineId,
+        partNo: partNoById.get(o.partId) ?? o.partId,
+        releaseReference: null,
+        customerName: '—',
+        priority: 'standard',
+        firmness: 'forecast',
+        requiredDateIso: version.horizonEnd.toISOString(),
+        requiredQty: o.plannedQty,
+      })
+    }
+
+    const opInputs: WorkListOpInput[] = ops.map((o) => ({
+      demandLineId: o.demandLineId,
+      opSeq: o.opSeq,
+      resourceId: o.resourceId,
+      resourceName: resourceName.get(o.resourceId) ?? o.resourceId,
+      plannedStartMs: o.plannedStart.getTime(),
+      plannedEndMs: o.plannedEnd.getTime(),
+      atRisk: o.atRisk,
+      atRiskReason: o.atRiskReason,
+      hasActual: actualOpIds.has(o.id),
+      chain: chains.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
+    }))
+
+    const { rows, counts } = buildWorkList(opInputs, orders, Date.now())
+    return { plantId: resolvedPlant, scheduleVersionId: version.id, counts, rows }
   }
 
   /**

@@ -318,6 +318,9 @@ export class WhatIfService {
         atRiskReason: p.atRiskReason,
       })),
     )
+    // Auto-reap prior uncommitted drafts (same as solve) so applying options doesn't accumulate
+    // stale drafts in the version list — keep only this newest draft. Committed/superseded untouched.
+    await this.repo.discardDraftsForPlant(tenantId, plantId, version.id)
     return toScheduleVersionDto(version)
   }
 

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type { NarrationMode } from '@perduraflow/contracts'
-import { and, asc, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm'
 import { SCHEDULING_DB, type SchedulingDatabase } from './scheduling.db'
 import {
   conversation,
@@ -160,12 +160,35 @@ export class SchedulingRepository {
   }
 
   // --- versions + operations -------------------------------------------------
+  /** Plant versions, newest first — EXCLUDING soft-deleted (`discarded`) drafts, so the board never lists them. */
   listVersions(tenantId: string, plantId: string): Promise<ScheduleVersion[]> {
     return this.db
       .select()
       .from(scheduleVersion)
-      .where(and(eq(scheduleVersion.tenantId, tenantId), eq(scheduleVersion.plantId, plantId)))
+      .where(
+        and(
+          eq(scheduleVersion.tenantId, tenantId),
+          eq(scheduleVersion.plantId, plantId),
+          ne(scheduleVersion.status, 'discarded'),
+        ),
+      )
       .orderBy(desc(scheduleVersion.createdAt))
+  }
+
+  /**
+   * Soft-delete (status → `discarded`) the plant's OTHER draft versions — the auto-reap when a new
+   * draft is created, so uncommitted drafts don't accumulate. Only ever touches `draft` rows, so
+   * committed/superseded are untouched; `exceptId` keeps the just-created draft. Returns the count.
+   */
+  async discardDraftsForPlant(tenantId: string, plantId: string, exceptId?: string): Promise<number> {
+    const where = and(
+      eq(scheduleVersion.tenantId, tenantId),
+      eq(scheduleVersion.plantId, plantId),
+      eq(scheduleVersion.status, 'draft'),
+      ...(exceptId ? [ne(scheduleVersion.id, exceptId)] : []),
+    )
+    const rows = await this.db.update(scheduleVersion).set({ status: 'discarded' }).where(where).returning()
+    return rows.length
   }
 
   findVersion(tenantId: string, id: string): Promise<ScheduleVersion | undefined> {

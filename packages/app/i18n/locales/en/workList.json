@@ -1,0 +1,47 @@
+{
+  "title": "Work list",
+  "subtitle": "Every order in the committed plan, by computed status.",
+  "plant": "Plant",
+  "empty": "Nothing scheduled yet — commit a plan to populate the work list.",
+  "emptyFiltered": "No orders match the current filter or search.",
+  "searchPlaceholder": "Search orders…",
+  "filter": {
+    "all": "All",
+    "at_risk": "At-risk",
+    "in_progress": "In progress",
+    "scheduled": "Scheduled",
+    "completed": "Completed"
+  },
+  "status": {
+    "at_risk": "At-risk",
+    "in_progress": "In progress",
+    "scheduled": "Scheduled",
+    "completed": "Completed"
+  },
+  "priority": {
+    "critical": "Critical",
+    "high": "High",
+    "standard": "Standard"
+  },
+  "firmness": {
+    "firm": "Firm",
+    "forecast": "Forecast"
+  },
+  "col": {
+    "status": "Status",
+    "order": "Order",
+    "customer": "Customer",
+    "due": "Due",
+    "planned": "Planned end",
+    "resource": "Line",
+    "risk": "At-risk reason"
+  },
+  "detail": {
+    "title": "{{label}}",
+    "ops": "Operations",
+    "op": "op {{opSeq}}",
+    "planned": "{{start}} → {{end}}",
+    "why": "Why at-risk",
+    "selectHint": "Select a row to see its operations."
+  }
+}

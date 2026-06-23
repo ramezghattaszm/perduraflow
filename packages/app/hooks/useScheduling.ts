@@ -7,6 +7,7 @@ import type {
   ResourceOperatorAssignmentDto,
   ScheduleVersionDetailDto,
   ScheduleVersionDto,
+  WorkListResponseDto,
 } from '@perduraflow/contracts'
 import { apiClient } from '../lib/axios'
 import { queryClient } from '../lib/query-client'
@@ -15,6 +16,7 @@ import { QUERY_KEYS } from '../lib/query-keys'
 const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
 const post = <T, B>(url: string, body: B) => apiClient.post<T>(url, body).then((r) => r.data)
 const patch = <T, B>(url: string, body: B) => apiClient.patch<T>(url, body).then((r) => r.data)
+const del = <T>(url: string) => apiClient.delete<T>(url).then((r) => r.data)
 
 /**
  * The plant's schedule versions, newest first (board selector). Enabled once a plant
@@ -62,6 +64,21 @@ export function useScheduleDemand(plantId: string | undefined) {
   return useQuery({
     queryKey: QUERY_KEYS.scheduling.demand(plantId ?? ''),
     queryFn: () => get<DemandInputDto[]>(`/scheduling/demand?plantId=${plantId}`),
+    enabled: Boolean(plantId),
+    refetchOnMount: 'always',
+  })
+}
+
+/**
+ * The plant's Work List (D-worklist): every order with a computed status + status rollup counts.
+ * Single source the Work List screen + the exception queue (filtered to at-risk) both read, so the
+ * at-risk count reconciles. `versionId` optional → the API defaults to the plant's committed version.
+ * `refetchOnMount: 'always'` so it reflects a re-solve / new actuals on entry.
+ */
+export function useWorkList(plantId: string | undefined, versionId?: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.workList(plantId ?? '', versionId ?? ''),
+    queryFn: () => get<WorkListResponseDto>(`/scheduling/work-list?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}`),
     enabled: Boolean(plantId),
     refetchOnMount: 'always',
   })
@@ -153,6 +170,21 @@ export function useSolveSchedule() {
 export function useCommitSchedule() {
   return useMutation({
     mutationFn: (id: string) => post<ScheduleVersionDto, undefined>(`/admin/scheduling/versions/${id}/commit`, undefined),
+    onSuccess: (v) => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.versions(v.plantId) })
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.version(v.id) })
+    },
+  })
+}
+
+/**
+ * Soft-deletes a **draft** version (`DELETE /admin/scheduling/versions/:id`, status → discarded).
+ * Draft-only — the API rejects committed/superseded (immutable record). Invalidates the plant's
+ * version list (the discarded draft drops out) + the version query.
+ */
+export function useDiscardDraft() {
+  return useMutation({
+    mutationFn: (id: string) => del<ScheduleVersionDto>(`/admin/scheduling/versions/${id}`),
     onSuccess: (v) => {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.versions(v.plantId) })
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.version(v.id) })

@@ -4,6 +4,7 @@ import {
   NarrationBlock,
   OptionCard,
   RationaleView,
+  XStack,
   YStack,
   type NarrationState,
 } from '@perduraflow/ui'
@@ -18,22 +19,44 @@ function fmtMoney(n: number | null): string {
   return n == null ? '—' : `$${n.toFixed(2)}`
 }
 /** Signed delta vs base, with the "good direction" tone (lower cost/late = up). */
-function delta(value: number | null, base: number | null, kind: 'pct' | 'money' | 'count', lowerIsBetter: boolean) {
+function delta(
+  value: number | null,
+  base: number | null,
+  kind: 'pct' | 'money' | 'count',
+  lowerIsBetter: boolean
+) {
   if (value == null || base == null) return undefined
   const d = value - base
   if (Math.abs(d) < 1e-9) return { delta: '0', tone: 'neutral' as const }
   const tone = (d < 0 ? lowerIsBetter : !lowerIsBetter) ? ('up' as const) : ('down' as const)
   const sign = d > 0 ? '+' : '−'
   const mag = Math.abs(d)
-  const txt = kind === 'pct' ? `${sign}${Math.round(mag * 100)}%` : kind === 'money' ? `${sign}$${mag.toFixed(2)}` : `${sign}${Math.round(mag)}`
+  const txt =
+    kind === 'pct'
+      ? `${sign}${Math.round(mag * 100)}%`
+      : kind === 'money'
+        ? `${sign}$${mag.toFixed(2)}`
+        : `${sign}${Math.round(mag)}`
   return { delta: txt, tone }
 }
 
 function kpiCells(k: CostedKpis, base: CostedKpis, t: (k: string) => string) {
   return [
-    { label: t('whatif:kpi.otif'), value: fmtPct(k.otif), ...delta(k.otif, base.otif, 'pct', false) },
-    { label: t('whatif:kpi.cost'), value: fmtMoney(k.costPerUnit), ...delta(k.costPerUnit, base.costPerUnit, 'money', true) },
-    { label: t('whatif:kpi.late'), value: String(k.lateOrders), ...delta(k.lateOrders, base.lateOrders, 'count', true) },
+    {
+      label: t('whatif:kpi.otif'),
+      value: fmtPct(k.otif),
+      ...delta(k.otif, base.otif, 'pct', false),
+    },
+    {
+      label: t('whatif:kpi.cost'),
+      value: fmtMoney(k.costPerUnit),
+      ...delta(k.costPerUnit, base.costPerUnit, 'money', true),
+    },
+    {
+      label: t('whatif:kpi.late'),
+      value: String(k.lateOrders),
+      ...delta(k.lateOrders, base.lateOrders, 'count', true),
+    },
   ]
 }
 
@@ -54,7 +77,12 @@ export interface WhatIfOptionSetProps {
  * one "why the winner won" summary. Translate-only (the backend grounds it in the
  * stored rationale).
  */
-function Narration({ resultId, mode, optionId, title }: { resultId: string; mode: 'option' | 'across_options'; optionId?: string; title: string }) {
+function Narration({
+  resultId,
+  mode,
+  optionId,
+  title,
+}: { resultId: string; mode: 'option' | 'across_options'; optionId?: string; title: string }) {
   const { t } = useTranslation()
   const q = useNarration(resultId, mode, optionId)
   const state: NarrationState = q.isError
@@ -71,7 +99,6 @@ function Narration({ resultId, mode, optionId, title }: { resultId: string; mode
       title={title}
       loadingText={t('whatif:narrationLoading')}
       unavailableText={t('whatif:narrationUnavailable')}
-      note={t('whatif:narrationNote')}
     />
   )
 }
@@ -86,76 +113,121 @@ function Narration({ resultId, mode, optionId, title }: { resultId: string; mode
  */
 export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOptionSetProps) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState<string | null>(result.recommendedOptionId)
+  // All options start expanded (open at once) for side-by-side comparison; each still toggles.
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(result.options.map((o) => o.id))
+  )
   const [appliedId, setAppliedId] = useState<string | null>(null)
   const apply = useApplyOption()
   const feasibleCount = result.options.filter((o) => o.feasible).length
 
   const optionLabel = (o: WhatIfOption) => resolveKey(o.labelKey)
 
+  const cards = result.options.map((o, idx) => {
+    const isRec = o.id === result.recommendedOptionId
+    const rationale = o.feasible ? (
+      <RationaleView
+        factorsTitle={t('whatif:factorsTitle')}
+        constraintsTitle={t('whatif:constraintsTitle')}
+        comparativesTitle={t('whatif:comparativesTitle')}
+        factors={o.rationale.factors.map((f) => ({
+          label: resolveKey(f.labelKey),
+          detail: resolveKey(f.detailKey, f.detailParams),
+          contribution: f.contribution,
+          direction: f.direction,
+        }))}
+        constraints={o.rationale.constraints.map((c) => ({
+          label: resolveKey(c.labelKey),
+          detail: resolveKey(c.detailKey, c.detailParams),
+          binding: c.binding,
+          type: c.type,
+        }))}
+        comparatives={o.rationale.comparatives.map((c) => {
+          const other = result.options.find((x) => x.id === c.vsOptionId)
+          const driver = c.decidingFactors[0]
+          const because = driver
+            ? ` — ${t('whatif:drivenBy', { factor: resolveKey(`whatif.factorLabel.${driver.key}`) })}`
+            : ''
+          return {
+            text: `${optionLabel(o)} ${t(`whatif:verdict.${c.verdict}`)} ${other ? optionLabel(other) : c.vsOptionId}${because}.`,
+          }
+        })}
+      />
+    ) : undefined
+    const isExpanded = expanded.has(o.id)
+    const onToggle = () =>
+      setExpanded((prev) => {
+        const next = new Set(prev)
+        if (next.has(o.id)) next.delete(o.id)
+        else next.add(o.id)
+        return next
+      })
+    return (
+      <YStack
+        key={o.id}
+        flexGrow={1}
+        flexBasis={300}
+        minWidth={280}
+        maxWidth="100%"
+      >
+        <OptionCard
+          rank={t('whatif:rank', { n: idx + 1 })}
+          label={optionLabel(o)}
+          recommended={isRec}
+          recommendedLabel={t('whatif:recommended')}
+          feasible={o.feasible}
+          infeasibleReason={o.infeasibleReasonKey ? resolveKey(o.infeasibleReasonKey) : undefined}
+          scoreLabel={t('whatif:score')}
+          score={o.score}
+          kpis={o.feasible ? kpiCells(o.kpis, result.baseKpis, t) : []}
+          expanded={isExpanded}
+          onToggle={onToggle}
+          rationale={rationale}
+          narration={
+            o.feasible ? (
+              <Narration
+                resultId={result.id}
+                mode="option"
+                optionId={o.id}
+                title={t('whatif:narrationTitle')}
+              />
+            ) : undefined
+          }
+          applyCta={t('whatif:applyCta')}
+          appliedLabel={t('whatif:applied')}
+          hideApply={previewOnly}
+          applying={apply.isPending && apply.variables?.optionId === o.id}
+          applied={appliedId === o.id}
+          onApply={() => {
+            apply.mutateAsync({ resultId: result.id, optionId: o.id }).then((v) => {
+              setAppliedId(o.id)
+              onApplied?.(v.id)
+            })
+          }}
+        />
+      </YStack>
+    )
+  })
+
   return (
     <YStack gap="$3">
       {/* The across-options "why the winner won" — ONE place, not on every card. */}
       {feasibleCount >= 2 ? (
-        <Narration resultId={result.id} mode="across_options" title={t('whatif:narrationSummaryTitle')} />
+        <Narration
+          resultId={result.id}
+          mode="across_options"
+          title={t('whatif:narrationSummaryTitle')}
+        />
       ) : null}
-      {result.options.map((o, idx) => {
-        const isRec = o.id === result.recommendedOptionId
-        const rationale = o.feasible ? (
-          <RationaleView
-            factorsTitle={t('whatif:factorsTitle')}
-            constraintsTitle={t('whatif:constraintsTitle')}
-            comparativesTitle={t('whatif:comparativesTitle')}
-            factors={o.rationale.factors.map((f) => ({
-              label: resolveKey(f.labelKey),
-              detail: resolveKey(f.detailKey, f.detailParams),
-              contribution: f.contribution,
-              direction: f.direction,
-            }))}
-            constraints={o.rationale.constraints.map((c) => ({
-              label: resolveKey(c.labelKey),
-              detail: resolveKey(c.detailKey, c.detailParams),
-              binding: c.binding,
-              type: c.type,
-            }))}
-            comparatives={o.rationale.comparatives.map((c) => {
-              const other = result.options.find((x) => x.id === c.vsOptionId)
-              const driver = c.decidingFactors[0]
-              const because = driver ? ` — ${t('whatif:drivenBy', { factor: resolveKey(`whatif.factorLabel.${driver.key}`) })}` : ''
-              return { text: `${optionLabel(o)} ${t(`whatif:verdict.${c.verdict}`)} ${other ? optionLabel(other) : c.vsOptionId}${because}.` }
-            })}
-          />
-        ) : undefined
-        return (
-          <OptionCard
-            key={o.id}
-            rank={t('whatif:rank', { n: idx + 1 })}
-            label={optionLabel(o)}
-            recommended={isRec}
-            recommendedLabel={t('whatif:recommended')}
-            feasible={o.feasible}
-            infeasibleReason={o.infeasibleReasonKey ? resolveKey(o.infeasibleReasonKey) : undefined}
-            scoreLabel={t('whatif:score')}
-            score={o.score}
-            kpis={o.feasible ? kpiCells(o.kpis, result.baseKpis, t) : []}
-            expanded={expanded === o.id}
-            onToggle={() => setExpanded(expanded === o.id ? null : o.id)}
-            rationale={rationale}
-            narration={o.feasible ? <Narration resultId={result.id} mode="option" optionId={o.id} title={t('whatif:narrationTitle')} /> : undefined}
-            applyCta={t('whatif:applyCta')}
-            appliedLabel={t('whatif:applied')}
-            hideApply={previewOnly}
-            applying={apply.isPending && apply.variables?.optionId === o.id}
-            applied={appliedId === o.id}
-            onApply={() => {
-              apply.mutateAsync({ resultId: result.id, optionId: o.id }).then((v) => {
-                setAppliedId(o.id)
-                onApplied?.(v.id)
-              })
-            }}
-          />
-        )
-      })}
+      {/* Options side by side — each card flexes to share the row, wrapping to a new line on
+          narrow widths; an expanded card just grows its own column (cards stay top-aligned). */}
+      <XStack
+        flexWrap="wrap"
+        gap="$3"
+        alignItems="flex-start"
+      >
+        {cards}
+      </XStack>
     </YStack>
   )
 }

@@ -4,6 +4,7 @@ import {
   Award,
   CalendarClock,
   CalendarDays,
+  ClipboardList,
   Cpu,
   Factory,
   FolderKanban,
@@ -55,6 +56,7 @@ export const OPERATIONAL_NAV: NavConfigSection[] = [
     sectionLabelKey: 'nav.sections.scheduling',
     items: [
       { id: 'board', labelKey: 'nav.board', path: '/scheduling/board', icon: CalendarClock },
+      { id: 'work-list', labelKey: 'nav.workList', path: '/scheduling/work-list', icon: ClipboardList },
       { id: 'exceptions', labelKey: 'nav.exceptions', path: '/scheduling/exceptions', icon: ListChecks },
       { id: 'scorecard', labelKey: 'nav.scorecard', path: '/scorecard', icon: Gauge },
       { id: 'workforce', labelKey: 'nav.workforce', path: '/workforce', icon: UserCheck },

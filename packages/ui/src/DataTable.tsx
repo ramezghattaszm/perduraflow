@@ -69,6 +69,7 @@ export function DataTable<T extends { id: string }>({
   emptyMessage,
   minRowWidth = 720,
   stackOnSmall = false,
+  rowsMatchHeader = false,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -81,7 +82,13 @@ export function DataTable<T extends { id: string }>({
   /** Narrow tables (few columns): on `small`, stack each row as a card (vertical
    *  scroll only, no horizontal scroll) — PHASE-3-POLISH item 1 "tables by width". */
   stackOnSmall?: boolean
+  /** Default `false`: data rows sit on `$background` and lift to `$surface` on hover. Set `true`
+   *  for a flat table whose rows share the header's `$surface` and invert to `$background` on hover
+   *  (used when the table sits directly on the page, with no surrounding card). */
+  rowsMatchHeader?: boolean
 }) {
+  const rowBg = rowsMatchHeader ? '$surface' : '$background'
+  const rowHoverBg = rowsMatchHeader ? '$background' : '$surface'
   const small = Boolean(useMedia()['max-md'])
   const [sort, setSort] = useState<SortState>(null)
 
@@ -113,19 +120,30 @@ export function DataTable<T extends { id: string }>({
     const flexCols = columns.filter((c) => !c.width)
     const fixedTotal = columns.reduce((sum, c) => sum + (c.width ?? 0), 0)
     const flexTotal = flexCols.reduce((sum, c) => sum + (c.flex ?? 1), 0) || 1
-    const free = Math.max(0, tableWidth - BORDER * 2 - PAD_X * 2 - GAP * (columns.length - 1) - fixedTotal)
+    const free = Math.max(
+      0,
+      tableWidth - BORDER * 2 - PAD_X * 2 - GAP * (columns.length - 1) - fixedTotal
+    )
     return columns.map((c) => c.width ?? (free * (c.flex ?? 1)) / flexTotal)
   }, [columns, tableWidth])
 
   if (isLoading) {
     return (
-      <YStack padding="$6" alignItems="center">
+      <YStack
+        padding="$6"
+        alignItems="center"
+      >
         <Spinner color="$primary" />
       </YStack>
     )
   }
   if (rows.length === 0) {
-    return <EmptyState title={emptyTitle} subtitle={emptyMessage} />
+    return (
+      <EmptyState
+        title={emptyTitle}
+        subtitle={emptyMessage}
+      />
+    )
   }
 
   // Narrow-table card mode on `small`: each row → a labelled card, vertical only
@@ -151,12 +169,26 @@ export function DataTable<T extends { id: string }>({
                 ? c.render(row)
                 : String((row as Record<string, unknown>)[c.key] ?? '—')
               return (
-                <XStack key={c.key} justifyContent="space-between" gap="$3" alignItems="center">
-                  <P size={5} weight="b" caps color="$textTertiary">
+                <XStack
+                  key={c.key}
+                  justifyContent="space-between"
+                  gap="$3"
+                  alignItems="center"
+                >
+                  <P
+                    size={5}
+                    weight="b"
+                    caps
+                    color="$textTertiary"
+                  >
                     {c.label}
                   </P>
                   {typeof content === 'string' || typeof content === 'number' ? (
-                    <P size={3} color="$textPrimary" style={{ textAlign: 'right' }}>
+                    <P
+                      size={3}
+                      color="$textPrimary"
+                      style={{ textAlign: 'right' }}
+                    >
                       {content}
                     </P>
                   ) : (
@@ -187,7 +219,11 @@ export function DataTable<T extends { id: string }>({
         borderRadius="$4"
         overflow="hidden"
       >
-        <XStack backgroundColor="$surface" paddingVertical="$3" paddingHorizontal={PAD_X}>
+        <XStack
+          backgroundColor="$surface"
+          paddingVertical="$3"
+          paddingHorizontal={PAD_X}
+        >
           {columns.map((c, i) => {
             const active = sort?.key === c.key
             const indicator = active ? (sort?.dir === 'asc' ? ' ↑' : ' ↓') : ''
@@ -202,7 +238,12 @@ export function DataTable<T extends { id: string }>({
                 hoverStyle={c.sortable ? { opacity: 0.7 } : undefined}
                 onPress={c.sortable ? () => toggleSort(c.key) : undefined}
               >
-                <P size={5} weight="b" caps color={active ? '$primary' : '$textTertiary'}>
+                <P
+                  size={5}
+                  weight="b"
+                  caps
+                  color={active ? '$primary' : '$textTertiary'}
+                >
                   {c.label}
                   {indicator}
                 </P>
@@ -218,9 +259,9 @@ export function DataTable<T extends { id: string }>({
             alignItems="center"
             borderTopWidth={1}
             borderTopColor="$borderColor"
-            backgroundColor="$background"
+            backgroundColor={rowBg}
             cursor={onRowPress ? 'pointer' : undefined}
-            hoverStyle={onRowPress ? { backgroundColor: '$surface' } : undefined}
+            hoverStyle={onRowPress ? { backgroundColor: rowHoverBg } : undefined}
             onPress={onRowPress ? () => onRowPress(row) : undefined}
           >
             {columns.map((c, i) => {
@@ -238,7 +279,11 @@ export function DataTable<T extends { id: string }>({
                 >
                   {/* Wrap raw text so a string-returning `render` never lands directly in a View. */}
                   {typeof content === 'string' || typeof content === 'number' ? (
-                    <P size={3} weight={isPrimary ? 'm' : 'r'} color="$textPrimary">
+                    <P
+                      size={3}
+                      weight={isPrimary ? 'm' : 'r'}
+                      color="$textPrimary"
+                    >
                       {content}
                     </P>
                   ) : (
