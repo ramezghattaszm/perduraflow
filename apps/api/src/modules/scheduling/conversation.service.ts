@@ -2,6 +2,8 @@ import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import {
   changeSetSchema,
   type BaselineSource,
+  type Change,
+  type ChangeSet,
   type CostedKpis,
   type ConversationDetailDto,
   type ConversationDto,
@@ -14,6 +16,8 @@ import {
   type WorkforceCoverageDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
+// Value imports (NOT `import type`): these are NestJS DI providers — type-only erases the runtime
+// class reference the injector resolves against, so the container can't construct ConversationService.
 import { LlmGateway, type ToolDispatch } from '../llm/llm.gateway'
 import type { LlmTool, LlmToolCall } from '../llm/llm.canonical'
 import type { Conversation, ConversationTurn } from './schema'
@@ -52,11 +56,57 @@ const COMPARE_OPTIONS_TOOL: LlmTool = {
  */
 const CHANGE_ITEM_SCHEMA = {
   oneOf: [
-    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['demand_qty'] }, demandLineId: { type: 'string' }, to: { type: 'integer', description: 'new required quantity' } }, required: ['kind', 'demandLineId', 'to'] },
-    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['demand_date'] }, demandLineId: { type: 'string' }, to: { type: 'string', description: 'new required date, ISO 8601' } }, required: ['kind', 'demandLineId', 'to'] },
-    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['resource_window'] }, resourceId: { type: 'string' }, downFrom: { type: 'string', description: 'ISO 8601' }, downTo: { type: 'string', description: 'ISO 8601' } }, required: ['kind', 'resourceId', 'downFrom', 'downTo'] },
-    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['overtime'] }, resourceId: { type: 'string' }, hours: { type: 'number', description: 'overtime hours to add on this resource' } }, required: ['kind', 'resourceId', 'hours'] },
-    { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['wear_remediation'] }, resourceId: { type: 'string' }, action: { type: 'string', enum: ['service', 'defer', 'ot'] } }, required: ['kind', 'resourceId', 'action'] },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['demand_qty'] },
+        demandLineId: { type: 'string' },
+        to: { type: 'integer', description: 'new required quantity' },
+      },
+      required: ['kind', 'demandLineId', 'to'],
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['demand_date'] },
+        demandLineId: { type: 'string' },
+        to: { type: 'string', description: 'new required date, ISO 8601' },
+      },
+      required: ['kind', 'demandLineId', 'to'],
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['resource_window'] },
+        resourceId: { type: 'string' },
+        downFrom: { type: 'string', description: 'ISO 8601' },
+        downTo: { type: 'string', description: 'ISO 8601' },
+      },
+      required: ['kind', 'resourceId', 'downFrom', 'downTo'],
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['overtime'] },
+        resourceId: { type: 'string' },
+        hours: { type: 'number', description: 'overtime hours to add on this resource' },
+      },
+      required: ['kind', 'resourceId', 'hours'],
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['wear_remediation'] },
+        resourceId: { type: 'string' },
+        action: { type: 'string', enum: ['service', 'defer', 'ot'] },
+      },
+      required: ['kind', 'resourceId', 'action'],
+    },
   ],
 }
 const EVALUATE_TOOL: LlmTool = {
@@ -71,7 +121,15 @@ const EVALUATE_TOOL: LlmTool = {
         type: 'object',
         additionalProperties: false,
         properties: {
-          origin: { type: 'object', additionalProperties: false, properties: { type: { type: 'string', enum: ['demand', 'prediction', 'collision', 'manual'] }, ref: { type: 'string' } }, required: ['type'] },
+          origin: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              type: { type: 'string', enum: ['demand', 'prediction', 'collision', 'manual'] },
+              ref: { type: 'string' },
+            },
+            required: ['type'],
+          },
           changes: { type: 'array', minItems: 1, items: CHANGE_ITEM_SCHEMA },
         },
         required: ['origin', 'changes'],
@@ -94,7 +152,12 @@ const FIND_ORDERS_TOOL: LlmTool = {
   parameters: {
     type: 'object',
     additionalProperties: false,
-    properties: { query: { type: 'string', description: 'order id, release reference, customer, or part — case-insensitive' } },
+    properties: {
+      query: {
+        type: 'string',
+        description: 'order id, release reference, customer, or part — case-insensitive',
+      },
+    },
     required: ['query'],
   },
 }
@@ -113,8 +176,16 @@ const RETRIEVE_BASELINE_TOOL: LlmTool = {
     additionalProperties: false,
     properties: {
       // Nullable (some models emit explicit null for omitted optionals; the dispatch falls back).
-      arm: { type: ['string', 'null'], enum: ['engine_lift', 'historical', null], description: "which baseline: 'engine_lift' (vs the engine with its intelligence off) or 'historical' (vs recorded outcomes)" },
-      scope: { type: ['string', 'null'], description: 'a resource/line id to scope to; omit for the whole plant' },
+      arm: {
+        type: ['string', 'null'],
+        enum: ['engine_lift', 'historical', null],
+        description:
+          "which baseline: 'engine_lift' (vs the engine with its intelligence off) or 'historical' (vs recorded outcomes)",
+      },
+      scope: {
+        type: ['string', 'null'],
+        description: 'a resource/line id to scope to; omit for the whole plant',
+      },
     },
   },
 }
@@ -136,8 +207,15 @@ const RETRIEVE_COVERAGE_TOOL: LlmTool = {
     properties: {
       // Nullable: some models emit explicit null for an omitted optional param; the dispatch treats
       // null/undefined the same (falls back to the screen selection / whole plant).
-      operator: { type: ['string', 'null'], description: 'an operator name to focus on; omit for the whole plant or the on-screen selection' },
-      station: { type: ['string', 'null'], description: 'a station/certification name to focus on (e.g. leak-test)' },
+      operator: {
+        type: ['string', 'null'],
+        description:
+          'an operator name to focus on; omit for the whole plant or the on-screen selection',
+      },
+      station: {
+        type: ['string', 'null'],
+        description: 'a station/certification name to focus on (e.g. leak-test)',
+      },
     },
   },
 }
@@ -155,7 +233,12 @@ const GOAL_SEEK_TOOL: LlmTool = {
   parameters: {
     type: 'object',
     additionalProperties: false,
-    properties: { resourceId: { type: ['string', 'null'], description: 'the line to add overtime on; omit to use the line selected on screen' } },
+    properties: {
+      resourceId: {
+        type: ['string', 'null'],
+        description: 'the line to add overtime on; omit to use the line selected on screen',
+      },
+    },
   },
 }
 
@@ -172,7 +255,12 @@ const EXPLAIN_LATENESS_TOOL: LlmTool = {
   parameters: {
     type: 'object',
     additionalProperties: false,
-    properties: { demandLineId: { type: ['string', 'null'], description: 'the order id (demandLineId) to explain; omit to use the on-screen selection' } },
+    properties: {
+      demandLineId: {
+        type: ['string', 'null'],
+        description: 'the order id (demandLineId) to explain; omit to use the on-screen selection',
+      },
+    },
   },
 }
 
@@ -185,10 +273,19 @@ const ORDER_SLICE_CAP = 24
 const FIND_ORDERS_LIMIT = 12
 
 /** Scheduling keywords/figures that mark a turn as making a *scheduling claim*. */
-const CLAIM_RX = /\d|otif|oee|changeover|displacement|overtime|cost\/unit|late order|option|reroute|defer/i
+const CLAIM_RX =
+  /\d|otif|oee|changeover|displacement|overtime|cost\/unit|late order|option|reroute|defer/i
 
 /** A demand order in the entity catalog (the conversation's resolution surface). */
-type CatalogOrder = { demandLineId: string; releaseReference: string | null; customer: string; part: string; qty: number; firmness: string; due: string }
+type CatalogOrder = {
+  demandLineId: string
+  releaseReference: string | null
+  customer: string
+  part: string
+  qty: number
+  firmness: string
+  due: string
+}
 
 /**
  * Conversational layer (phase 6) — language + orchestration over phase-5's engine,
@@ -208,18 +305,35 @@ export class ConversationService {
     private readonly scheduling: SchedulingService,
     private readonly whatIf: WhatIfService,
     private readonly planComparison: PlanComparisonService,
-    private readonly gateway: LlmGateway,
+    private readonly gateway: LlmGateway
   ) {}
 
   /** Start a conversation (auto-named) and process the first turn. */
-  async create(tenantId: string, plantId: string, message: string, userId: string | null, screenContext?: ScreenContext): Promise<ConversationDetailDto> {
-    const conv = await this.repo.createConversation({ tenantId, plantId, name: nameFrom(message), createdBy: userId })
+  async create(
+    tenantId: string,
+    plantId: string,
+    message: string,
+    userId: string | null,
+    screenContext?: ScreenContext
+  ): Promise<ConversationDetailDto> {
+    const conv = await this.repo.createConversation({
+      tenantId,
+      plantId,
+      name: nameFrom(message),
+      createdBy: userId,
+    })
     await this.processTurn(tenantId, conv, message, userId, screenContext)
     return this.get(tenantId, conv.id)
   }
 
   /** Add a user turn to an existing conversation; returns the assistant turn. */
-  async addTurn(tenantId: string, conversationId: string, message: string, userId: string | null, screenContext?: ScreenContext): Promise<ConversationTurnDto> {
+  async addTurn(
+    tenantId: string,
+    conversationId: string,
+    message: string,
+    userId: string | null,
+    screenContext?: ScreenContext
+  ): Promise<ConversationTurnDto> {
     const conv = await this.requireConversation(tenantId, conversationId)
     return this.processTurn(tenantId, conv, message, userId, screenContext)
   }
@@ -239,13 +353,29 @@ export class ConversationService {
   /** @throws CONVERSATION_NOT_FOUND */
   async rename(tenantId: string, id: string, name: string): Promise<ConversationDto> {
     const row = await this.repo.renameConversation(tenantId, id, name)
-    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Conversation not found', ERROR_CODES.CONVERSATION_NOT_FOUND)
+    if (!row)
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        'Conversation not found',
+        ERROR_CODES.CONVERSATION_NOT_FOUND
+      )
     return toConversationDto(row)
   }
 
   // --- the turn engine -------------------------------------------------------
-  private async processTurn(tenantId: string, conv: Conversation, message: string, userId: string | null, screenContext?: ScreenContext): Promise<ConversationTurnDto> {
-    await this.repo.createTurn({ tenantId, conversationId: conv.id, role: 'user', content: message })
+  private async processTurn(
+    tenantId: string,
+    conv: Conversation,
+    message: string,
+    userId: string | null,
+    screenContext?: ScreenContext
+  ): Promise<ConversationTurnDto> {
+    await this.repo.createTurn({
+      tenantId,
+      conversationId: conv.id,
+      role: 'user',
+      content: message,
+    })
     const prior = await this.repo.listTurns(conv.id) // includes the user turn just added (history)
     const plantId = conv.plantId ?? ''
 
@@ -258,11 +388,45 @@ export class ConversationService {
       (plantId ? (await this.repo.findLatestWhatIfResult(tenantId, plantId))?.id : undefined) ??
       null
 
-    const catalog = plantId ? await this.scheduling.entityCatalog(tenantId, plantId) : { orders: [], resources: [] }
+    const catalog = plantId
+      ? await this.scheduling.entityCatalog(tenantId, plantId)
+      : { orders: [], resources: [] }
     // Inline only the nearest-due slice (catalog is already due-sorted); find_orders covers the rest.
     const orderSlice = catalog.orders.slice(0, ORDER_SLICE_CAP)
     const screenLine = renderScreenContext(screenContext, catalog)
-    const system = buildSystemPrompt(orderSlice, catalog.resources, catalog.orders.length, screenLine)
+
+    // Context carry (Pass B): the change-set that produced the active analysis, so a follow-up that
+    // CONSTRUCTS an option ("give me a fourth option using overtime", "add 4h overtime to this")
+    // inherits the scenario instead of re-specifying it. The active result is the on-screen one (or
+    // the conversation's latest); its stored change-set is rendered into the prompt.
+    const activeResult = activeResultId
+      ? await this.repo.findWhatIfResult(tenantId, activeResultId)
+      : undefined
+    const scenarioLine = activeResult ? renderActiveScenario(activeResult.changeSet, catalog) : null
+
+    // Firm at-risk lines (committed plan) — the grounded default target for an unspecified overtime
+    // line, so "a fourth option using overtime" resolves the line itself. goal_seek validates it.
+    let atRiskResourceIds: string[] = []
+    if (plantId) {
+      try {
+        const sc = await this.scheduling.scorecard(tenantId, plantId)
+        atRiskResourceIds = [...new Set(sc.atRisk.map((a) => a.resourceId))]
+      } catch {
+        atRiskResourceIds = []
+      }
+    }
+    const atRiskLineNames = atRiskResourceIds.map(
+      (id) => catalog.resources.find((r) => r.id === id)?.name ?? id
+    )
+
+    const system = buildSystemPrompt(
+      orderSlice,
+      catalog.resources,
+      catalog.orders.length,
+      screenLine,
+      scenarioLine,
+      atRiskLineNames
+    )
     const messages = prior.map((t) => ({ role: t.role, content: t.content }))
 
     // The structure-derived change-set echo for a Type-2 turn — captured from the engine's ledger
@@ -278,83 +442,181 @@ export class ConversationService {
 
     const dispatch: ToolDispatch = async (call: LlmToolCall) => {
       if (call.name === 'retrieve_what_if') {
-        const r = activeResultId ? await this.repo.findWhatIfResult(tenantId, activeResultId) : undefined
-        if (!r) return { content: 'No stored what-if analysis exists for this plant yet — describe a scenario to evaluate, or say you cannot answer.', groundedRefs: [] }
-        return { content: JSON.stringify(compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])), groundedRefs: [r.id] }
+        const r = activeResultId
+          ? await this.repo.findWhatIfResult(tenantId, activeResultId)
+          : undefined
+        if (!r)
+          return {
+            content:
+              'No stored what-if analysis exists for this plant yet — describe a scenario to evaluate, or say you cannot answer.',
+            groundedRefs: [],
+          }
+        return {
+          content: JSON.stringify(
+            compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])
+          ),
+          groundedRefs: [r.id],
+        }
       }
       if (call.name === 'compare_options') {
-        const r = activeResultId ? await this.repo.findWhatIfResult(tenantId, activeResultId) : undefined
-        if (!r) return { content: 'No what-if analysis to compare yet — evaluate a scenario first, then compare.', groundedRefs: [] }
+        const r = activeResultId
+          ? await this.repo.findWhatIfResult(tenantId, activeResultId)
+          : undefined
+        if (!r)
+          return {
+            content:
+              'No what-if analysis to compare yet — evaluate a scenario first, then compare.',
+            groundedRefs: [],
+          }
         // Same artifact as retrieve; the structured side-by-side TABLE is rendered client-side from
         // the result (the tool name is the render signal). The model narrates the trade-off only.
-        return { content: JSON.stringify(compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])), groundedRefs: [r.id] }
+        return {
+          content: JSON.stringify(
+            compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])
+          ),
+          groundedRefs: [r.id],
+        }
       }
       if (call.name === 'evaluate_what_if') {
         const parsed = changeSetSchema.safeParse((call.input as { changeSet?: unknown }).changeSet)
-        if (!parsed.success) return { content: `Invalid change-set: ${parsed.error.issues.map((i) => i.message).join('; ')}`, isError: true }
+        if (!parsed.success)
+          return {
+            content: `Invalid change-set: ${parsed.error.issues.map((i) => i.message).join('; ')}`,
+            isError: true,
+          }
         try {
           const res = await this.whatIf.evaluate(tenantId, plantId, parsed.data, undefined, userId)
           activeResultId = res.id
           lastLedger = res.requestedChanges
-          return { content: JSON.stringify(compactArtifact(res.id, res.recommendedOptionId, res.baseKpis, res.options, res.requestedChanges)), groundedRefs: [res.id], resultId: res.id }
+          return {
+            content: JSON.stringify(
+              compactArtifact(
+                res.id,
+                res.recommendedOptionId,
+                res.baseKpis,
+                res.options,
+                res.requestedChanges
+              )
+            ),
+            groundedRefs: [res.id],
+            resultId: res.id,
+          }
         } catch (e) {
           const code = e instanceof AppException ? e.code : 'error'
-          return { content: `The engine could not evaluate that change (${code}). Ask the planner to clarify or decline.`, isError: true }
+          return {
+            content: `The engine could not evaluate that change (${code}). Ask the planner to clarify or decline.`,
+            isError: true,
+          }
         }
       }
       if (call.name === 'retrieve_baseline') {
         const input = call.input as { arm?: string; scope?: string }
         // arm: named override → scorecard's published arm (view) → default engine-lift.
-        const armRaw = input.arm ?? (screenContext?.screen === 'scorecard' ? screenContext.view : undefined)
-        const arm: BaselineSource = armRaw === 'historical' || armRaw === 'measured_historical' ? 'measured_historical' : 'frozen_engine_snapshot'
+        const armRaw =
+          input.arm ?? (screenContext?.screen === 'scorecard' ? screenContext.view : undefined)
+        const arm: BaselineSource =
+          armRaw === 'historical' || armRaw === 'measured_historical'
+            ? 'measured_historical'
+            : 'frozen_engine_snapshot'
         // scope: named line → screen-context scope → whole plant.
         const scope = input.scope ?? screenContext?.selectedResourceId ?? undefined
         const dto = await this.planComparison.compare(tenantId, plantId, arm, scope)
-        const resName = scope ? catalog.resources.find((r) => r.id === scope)?.name ?? scope : null
+        const resName = scope
+          ? (catalog.resources.find((r) => r.id === scope)?.name ?? scope)
+          : null
         return {
           content: JSON.stringify(compactBaseline(dto, resName)),
           groundedRefs: dto.scheduleVersionId ? [dto.scheduleVersionId] : [],
         }
       }
       if (call.name === 'goal_seek') {
-        const resourceId = (call.input as { resourceId?: string }).resourceId ?? screenContext?.selectedResourceId
-        if (!resourceId) return { content: JSON.stringify({ needResource: true, note: 'Ask the planner which line to add overtime on.' }), groundedRefs: [] }
+        // Line resolution: named line → screen-selected line → the single firm at-risk line (carried
+        // context, so "a fourth option using overtime" needn't name it). Ask only when ambiguous.
+        const resourceId =
+          (call.input as { resourceId?: string }).resourceId ??
+          screenContext?.selectedResourceId ??
+          (atRiskResourceIds.length === 1 ? atRiskResourceIds[0] : undefined)
+        if (!resourceId)
+          return {
+            content: JSON.stringify({
+              needResource: true,
+              note: 'Ask the planner which line to add overtime on.',
+            }),
+            groundedRefs: [],
+          }
         const gs = await this.whatIf.goalSeek(tenantId, plantId, resourceId, userId)
         lastGoalSeek = gs
         goalSeekNoResultFlag = !gs.resultId
         if (gs.resultId) activeResultId = gs.resultId
-        return { content: JSON.stringify(compactGoalSeek(gs)), groundedRefs: gs.resultId ? [gs.resultId] : [plantId], resultId: gs.resultId ?? undefined }
+        return {
+          content: JSON.stringify(compactGoalSeek(gs)),
+          groundedRefs: gs.resultId ? [gs.resultId] : [plantId],
+          resultId: gs.resultId ?? undefined,
+        }
       }
       if (call.name === 'explain_lateness') {
         // Named order → screen-selected order (deictic "why is this late"). Resolve a ref via the catalog.
-        const raw = (call.input as { demandLineId?: string }).demandLineId ?? screenContext?.selectedOrderId
+        const raw =
+          (call.input as { demandLineId?: string }).demandLineId ?? screenContext?.selectedOrderId
         const match = raw
-          ? catalog.orders.find((o: CatalogOrder) => o.demandLineId.toLowerCase() === raw.toLowerCase() || (o.releaseReference ?? '').toLowerCase() === raw.toLowerCase())
+          ? catalog.orders.find(
+              (o: CatalogOrder) =>
+                o.demandLineId.toLowerCase() === raw.toLowerCase() ||
+                (o.releaseReference ?? '').toLowerCase() === raw.toLowerCase()
+            )
           : undefined
         const demandLineId = match?.demandLineId ?? raw
-        if (!demandLineId) return { content: JSON.stringify({ needOrder: true, note: 'Ask the planner which order to explain.' }), groundedRefs: [] }
+        if (!demandLineId)
+          return {
+            content: JSON.stringify({
+              needOrder: true,
+              note: 'Ask the planner which order to explain.',
+            }),
+            groundedRefs: [],
+          }
         const chains = await this.scheduling.latenessForOrder(tenantId, plantId, demandLineId)
-        return { content: JSON.stringify(compactLateness(demandLineId, chains)), groundedRefs: [plantId] }
+        return {
+          content: JSON.stringify(compactLateness(demandLineId, chains)),
+          groundedRefs: [plantId],
+        }
       }
       if (call.name === 'retrieve_coverage') {
         const input = call.input as { operator?: string; station?: string }
         const cov = await this.scheduling.coverage(tenantId, plantId)
         // Focus: named operator/station → screen-context selected operator (deictic) → whole plant.
-        const opByName = input.operator ? cov.operators.find((o) => o.label.toLowerCase().includes(input.operator!.toLowerCase())) : undefined
-        const opById = !input.operator && screenContext?.selectedOperatorId ? cov.operators.find((o) => o.id === screenContext.selectedOperatorId) : undefined
-        const station = input.station ? cov.stations.find((s) => s.label.toLowerCase().includes(input.station!.toLowerCase())) : undefined
-        const focus = opByName ?? opById ? { type: 'operator' as const, id: (opByName ?? opById)!.id, label: (opByName ?? opById)!.label } : station ? { type: 'station' as const, id: station.id, label: station.label } : null
+        const opByName = input.operator
+          ? cov.operators.find((o) => o.label.toLowerCase().includes(input.operator!.toLowerCase()))
+          : undefined
+        const opById =
+          !input.operator && screenContext?.selectedOperatorId
+            ? cov.operators.find((o) => o.id === screenContext.selectedOperatorId)
+            : undefined
+        const station = input.station
+          ? cov.stations.find((s) => s.label.toLowerCase().includes(input.station!.toLowerCase()))
+          : undefined
+        const focus =
+          (opByName ?? opById)
+            ? {
+                type: 'operator' as const,
+                id: (opByName ?? opById)!.id,
+                label: (opByName ?? opById)!.label,
+              }
+            : station
+              ? { type: 'station' as const, id: station.id, label: station.label }
+              : null
         return { content: JSON.stringify(compactCoverage(cov, focus)), groundedRefs: [plantId] }
       }
       if (call.name === 'find_orders') {
-        const q = String((call.input as { query?: unknown }).query ?? '').toLowerCase().trim()
+        const q = String((call.input as { query?: unknown }).query ?? '')
+          .toLowerCase()
+          .trim()
         const matches = q
           ? catalog.orders.filter(
               (o: CatalogOrder) =>
                 o.demandLineId.toLowerCase().includes(q) ||
                 (o.releaseReference ?? '').toLowerCase().includes(q) ||
                 o.customer.toLowerCase().includes(q) ||
-                o.part.toLowerCase().includes(q),
+                o.part.toLowerCase().includes(q)
             )
           : []
         const note =
@@ -363,19 +625,45 @@ export class ConversationService {
             : matches.length === 1
               ? 'Exactly one match — safe to use its demandLineId.'
               : 'Multiple orders match — ASK the planner which one (name the customer/part/due); never guess.'
-        return { content: JSON.stringify({ matchCount: matches.length, orders: matches.slice(0, FIND_ORDERS_LIMIT), note }), groundedRefs: [] }
+        return {
+          content: JSON.stringify({
+            matchCount: matches.length,
+            orders: matches.slice(0, FIND_ORDERS_LIMIT),
+            note,
+          }),
+          groundedRefs: [],
+        }
       }
       return { content: 'Unknown tool.', isError: true }
     }
 
     try {
-      const loop = await this.gateway.runToolLoop({ system, messages, tools: [RETRIEVE_TOOL, COMPARE_OPTIONS_TOOL, EVALUATE_TOOL, GOAL_SEEK_TOOL, FIND_ORDERS_TOOL, RETRIEVE_BASELINE_TOOL, RETRIEVE_COVERAGE_TOOL, EXPLAIN_LATENESS_TOOL] }, dispatch)
+      const loop = await this.gateway.runToolLoop(
+        {
+          system,
+          messages,
+          tools: [
+            RETRIEVE_TOOL,
+            COMPARE_OPTIONS_TOOL,
+            EVALUATE_TOOL,
+            GOAL_SEEK_TOOL,
+            FIND_ORDERS_TOOL,
+            RETRIEVE_BASELINE_TOOL,
+            RETRIEVE_COVERAGE_TOOL,
+            EXPLAIN_LATENESS_TOOL,
+          ],
+        },
+        dispatch
+      )
       let content = loop.text || 'I could not produce a response.'
       let status: 'ok' | 'degraded' = 'ok'
       // Detectable non-fabrication violation: a scheduling claim with no grounding/tool call.
       if (loop.groundedRefs.length === 0 && loop.toolCalls.length === 0 && CLAIM_RX.test(content)) {
-        this.logger.warn(`grounding violation in conversation ${conv.id}: scheduling claim without groundedRefs`)
-        content = 'I can only answer from the computed analysis and I do not have a grounded result for that — ask about the current options, or describe a scenario to evaluate.'
+        this.logger.warn(
+          `grounding violation in conversation ${conv.id}: scheduling claim without groundedRefs`
+        )
+        content =
+          'I can only answer from the computed analysis and I do not have a grounded result for that — ask about the current options, or describe a scenario to evaluate.'
         status = 'degraded'
       }
       // Never silently drop: a Type-2 turn always leads with the structure-derived echo of what
@@ -411,7 +699,8 @@ export class ConversationService {
         tenantId,
         conversationId: conv.id,
         role: 'assistant',
-        content: 'I could not process that just now — the analysis and options are still available alongside.',
+        content:
+          'I could not process that just now — the analysis and options are still available alongside.',
         groundedRefs: [],
         toolCalls: [],
         resultId: activeResultId,
@@ -423,7 +712,12 @@ export class ConversationService {
 
   private async requireConversation(tenantId: string, id: string): Promise<Conversation> {
     const conv = await this.repo.findConversation(tenantId, id)
-    if (!conv) throw new AppException(HttpStatus.NOT_FOUND, 'Conversation not found', ERROR_CODES.CONVERSATION_NOT_FOUND)
+    if (!conv)
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        'Conversation not found',
+        ERROR_CODES.CONVERSATION_NOT_FOUND
+      )
     return conv
   }
 }
@@ -441,14 +735,25 @@ const CONSTRAINT_LABEL: Record<string, string> = {
  * labels, never internal ids/keys (`protect_delivery`, `displacement`, `firm_delivery`),
  * so the model's prose reads naturally and can't leak an identifier.
  */
-function compactArtifact(id: string, recommendedOptionId: string | null, baseKpis: unknown, options: WhatIfOption[], requestedChanges?: RequestedChange[]) {
-  const labelOf = (optId: string) => optionLabelEn(options.find((o) => o.id === optId)?.labelKey ?? optId)
+function compactArtifact(
+  id: string,
+  recommendedOptionId: string | null,
+  baseKpis: unknown,
+  options: WhatIfOption[],
+  requestedChanges?: RequestedChange[]
+) {
+  const labelOf = (optId: string) =>
+    optionLabelEn(options.find((o) => o.id === optId)?.labelKey ?? optId)
   return {
     resultId: id,
     recommendedOption: recommendedOptionId ? labelOf(recommendedOptionId) : null,
     // What the engine actually did with each requested change (Type-2 only) — so the model's prose
     // can speak to anything not fully applied. The planner-facing echo is rendered separately.
-    requestedChanges: requestedChanges?.map((c) => ({ change: c.summary, status: c.status, note: c.note })),
+    requestedChanges: requestedChanges?.map((c) => ({
+      change: c.summary,
+      status: c.status,
+      note: c.note,
+    })),
     baseKpis,
     options: options.map((o) => ({
       option: optionLabelEn(o.labelKey),
@@ -457,12 +762,25 @@ function compactArtifact(id: string, recommendedOptionId: string | null, baseKpi
       infeasibleReason: o.infeasibleReasonKey ? 'no feasible schedule for this change' : null,
       score: o.score,
       kpis: o.kpis,
-      factors: o.rationale.factors.map((f) => ({ factor: factorLabelEn(f.key), value: f.rawValue, unit: f.unit, contribution: f.contribution, direction: f.direction })),
-      constraints: o.rationale.constraints.map((c) => ({ constraint: CONSTRAINT_LABEL[c.key] ?? c.key, binding: c.binding, slack: c.slack })),
+      factors: o.rationale.factors.map((f) => ({
+        factor: factorLabelEn(f.key),
+        value: f.rawValue,
+        unit: f.unit,
+        contribution: f.contribution,
+        direction: f.direction,
+      })),
+      constraints: o.rationale.constraints.map((c) => ({
+        constraint: CONSTRAINT_LABEL[c.key] ?? c.key,
+        binding: c.binding,
+        slack: c.slack,
+      })),
       comparatives: o.rationale.comparatives.map((c) => ({
         versus: labelOf(c.vsOptionId),
         verdict: c.verdict,
-        decidingFactors: c.decidingFactors.map((d) => ({ factor: factorLabelEn(d.key), delta: d.delta })),
+        decidingFactors: c.decidingFactors.map((d) => ({
+          factor: factorLabelEn(d.key),
+          delta: d.delta,
+        })),
       })),
     })),
   }
@@ -470,7 +788,11 @@ function compactArtifact(id: string, recommendedOptionId: string | null, baseKpi
 
 const round4 = (n: number): number => Number(n.toFixed(4))
 /** Per-KPI live/baseline/delta + direction, deterministic — the model translates, never computes. */
-function kpiDelta(live: number | null, base: number | null, lowerIsBetter: boolean): { delta: number | null; direction: 'better' | 'worse' | 'flat' } {
+function kpiDelta(
+  live: number | null,
+  base: number | null,
+  lowerIsBetter: boolean
+): { delta: number | null; direction: 'better' | 'worse' | 'flat' } {
   if (live == null || base == null) return { delta: null, direction: 'flat' }
   const d = round4(live - base)
   if (Math.abs(d) < 1e-9) return { delta: 0, direction: 'flat' }
@@ -484,7 +806,10 @@ function kpiDelta(live: number | null, base: number | null, lowerIsBetter: boole
  * carries an explicit instruction so an absent historical baseline is never fabricated.
  */
 export function compactBaseline(dto: PlanComparisonDto, scopeName: string | null) {
-  const comparison = dto.source === 'measured_historical' ? 'measured-historical (vs recorded outcomes)' : 'engine-lift (vs the engine with its intelligence off)'
+  const comparison =
+    dto.source === 'measured_historical'
+      ? 'measured-historical (vs recorded outcomes)'
+      : 'engine-lift (vs the engine with its intelligence off)'
   const scope = scopeName ?? 'the whole plant'
   if (dto.emptyState || !dto.live || !dto.baseline) {
     return {
@@ -499,10 +824,25 @@ export function compactBaseline(dto: PlanComparisonDto, scopeName: string | null
   }
   const live = dto.live
   const base = dto.baseline
-  const rows: Array<{ kpi: string; live: number | null; baseline: number | null; lowerIsBetter: boolean }> = [
+  const rows: Array<{
+    kpi: string
+    live: number | null
+    baseline: number | null
+    lowerIsBetter: boolean
+  }> = [
     { kpi: 'OTIF', live: live.otif, baseline: base.otif, lowerIsBetter: false },
-    { kpi: 'cost per unit', live: live.costPerUnit, baseline: base.costPerUnit, lowerIsBetter: true },
-    { kpi: 'OEE', live: live.oee?.oee ?? null, baseline: base.oee?.oee ?? null, lowerIsBetter: false },
+    {
+      kpi: 'cost per unit',
+      live: live.costPerUnit,
+      baseline: base.costPerUnit,
+      lowerIsBetter: true,
+    },
+    {
+      kpi: 'OEE',
+      live: live.oee?.oee ?? null,
+      baseline: base.oee?.oee ?? null,
+      lowerIsBetter: false,
+    },
     { kpi: 'late orders', live: live.lateOrders, baseline: base.lateOrders, lowerIsBetter: true },
     { kpi: 'throughput', live: live.throughput, baseline: base.throughput, lowerIsBetter: false },
   ]
@@ -512,7 +852,12 @@ export function compactBaseline(dto: PlanComparisonDto, scopeName: string | null
     emptyState: false,
     kpis: rows
       .filter((r) => !(r.live == null && r.baseline == null))
-      .map((r) => ({ kpi: r.kpi, live: r.live, baseline: r.baseline, ...kpiDelta(r.live, r.baseline, r.lowerIsBetter) })),
+      .map((r) => ({
+        kpi: r.kpi,
+        live: r.live,
+        baseline: r.baseline,
+        ...kpiDelta(r.live, r.baseline, r.lowerIsBetter),
+      })),
   }
 }
 
@@ -523,20 +868,35 @@ export function compactBaseline(dto: PlanComparisonDto, scopeName: string | null
  * **advisory** (`note`): certs are soft (C3) — being short a certified operator is an observation,
  * not a schedule blocker. Explain-only; nothing here assigns labor.
  */
-export function compactCoverage(cov: WorkforceCoverageDto, focus: { type: 'operator' | 'station'; id: string; label: string } | null) {
+export function compactCoverage(
+  cov: WorkforceCoverageDto,
+  focus: { type: 'operator' | 'station'; id: string; label: string } | null
+) {
   if (cov.stations.length === 0 || cov.operators.length === 0) {
-    return { focus: 'the whole plant', emptyState: true, note: 'No workforce coverage data for this plant — say so; do NOT invent operators or certifications.' }
+    return {
+      focus: 'the whole plant',
+      emptyState: true,
+      note: 'No workforce coverage data for this plant — say so; do NOT invent operators or certifications.',
+    }
   }
   const stations = cov.stations.map((s, j) => {
     const qualified = cov.operators.filter((_, i) => cov.cells[i]?.[j] === 'qualified')
     const present = qualified.filter((o) => !o.out).map((o) => o.label)
     const out = qualified.filter((o) => o.out).map((o) => o.label)
-    return { station: s.label, covered: present.length > 0, gap: present.length === 0, qualifiedPresent: present, qualifiedOut: out }
+    return {
+      station: s.label,
+      covered: present.length > 0,
+      gap: present.length === 0,
+      qualifiedPresent: present,
+      qualifiedOut: out,
+    }
   })
   const operators = cov.operators.map((o, i) => ({
     operator: o.label,
     available: !o.out,
-    qualifiedFor: cov.stations.filter((_, j) => cov.cells[i]?.[j] === 'qualified').map((s) => s.label),
+    qualifiedFor: cov.stations
+      .filter((_, j) => cov.cells[i]?.[j] === 'qualified')
+      .map((s) => s.label),
   }))
   return {
     focus: focus ? `${focus.type} ${focus.label}` : 'the whole plant',
@@ -545,10 +905,15 @@ export function compactCoverage(cov: WorkforceCoverageDto, focus: { type: 'opera
     certGapCount: cov.certGapCount,
     // A gap is ADVISORY — certs are soft (C3): the plant is short a certified operator for the
     // station; it does NOT block or delay the schedule. Do not overstate what a gap does.
-    gapMeaning: 'advisory: short a certified operator for the station; certifications are soft and do NOT block the schedule',
+    gapMeaning:
+      'advisory: short a certified operator for the station; certifications are soft and do NOT block the schedule',
     stations,
     operators,
-    proposals: cov.proposals.map((p) => ({ station: p.station, suggestedCallIn: p.operatorName, reason: p.reason })),
+    proposals: cov.proposals.map((p) => ({
+      station: p.station,
+      suggestedCallIn: p.operatorName,
+      reason: p.reason,
+    })),
   }
 }
 
@@ -560,7 +925,11 @@ export function compactCoverage(cov: WorkforceCoverageDto, focus: { type: 'opera
  */
 export function compactLateness(demandLineId: string, chains: LatenessChainDto[]) {
   if (chains.length === 0) {
-    return { order: demandLineId, late: false, note: 'This order is not at-risk in the committed plan — say it is on track; do NOT invent a cause.' }
+    return {
+      order: demandLineId,
+      late: false,
+      note: 'This order is not at-risk in the committed plan — say it is on track; do NOT invent a cause.',
+    }
   }
   return {
     order: demandLineId,
@@ -568,7 +937,14 @@ export function compactLateness(demandLineId: string, chains: LatenessChainDto[]
     chains: chains.map((c) => ({
       root: c.root,
       truncated: c.truncated,
-      hops: c.hops.map((h) => ({ order: h.demandLineId, op: h.opSeq, resource: h.resourceName, part: h.partNo, kind: h.kind, detail: h.detail })),
+      hops: c.hops.map((h) => ({
+        order: h.demandLineId,
+        op: h.opSeq,
+        resource: h.resourceName,
+        part: h.partNo,
+        kind: h.kind,
+        detail: h.detail,
+      })),
     })),
     note: 'Narrate the hops IN ORDER as the causal chain (op held by → its blocker → … → root). Every hop is a computed engine fact; NEVER add or infer a blocker not in this list. If truncated, say the chain was truncated.',
   }
@@ -579,7 +955,10 @@ export function compactLateness(demandLineId: string, chains: LatenessChainDto[]
  * selected order rendered by its human release reference and the selected line by name. Returns
  * null when there's no screen context (→ pure Pass A behavior). Used only to resolve deictic refs.
  */
-export function renderScreenContext(sc: ScreenContext | undefined, catalog: { orders: CatalogOrder[]; resources: { id: string; name: string }[] }): string | null {
+export function renderScreenContext(
+  sc: ScreenContext | undefined,
+  catalog: { orders: CatalogOrder[]; resources: { id: string; name: string }[] }
+): string | null {
   if (!sc) return null
   const orderRef = (id: string): string => {
     const o = catalog.orders.find((x) => x.demandLineId === id)
@@ -589,16 +968,22 @@ export function renderScreenContext(sc: ScreenContext | undefined, catalog: { or
   // Per-screen natural phrasing of the deictic referent (Pass C).
   if (sc.screen === 'scorecard') {
     const arm = sc.view === 'measured_historical' ? 'measured-historical' : 'engine-lift'
-    const scope = sc.selectedResourceId ? `scope ${resName(sc.selectedResourceId)}` : 'scope the whole plant'
+    const scope = sc.selectedResourceId
+      ? `scope ${resName(sc.selectedResourceId)}`
+      : 'scope the whole plant'
     return `the scorecard — the ${arm} comparison, ${scope}`
   }
   if (sc.screen === 'exception') {
-    return sc.selectedOrderId ? `the exception queue — at-risk order ${orderRef(sc.selectedOrderId)} selected` : 'the exception queue (no order selected)'
+    return sc.selectedOrderId
+      ? `the exception queue — at-risk order ${orderRef(sc.selectedOrderId)} selected`
+      : 'the exception queue (no order selected)'
   }
   if (sc.screen === 'workforce') {
     // The operator name lives in the coverage data (resolved by retrieve_coverage), so the line
     // just flags that a selection exists — "this operator / gap" → retrieve_coverage uses the id.
-    return sc.selectedOperatorId ? 'the workforce coverage view, an operator selected (its id is the deictic referent)' : 'the workforce coverage view (no operator selected)'
+    return sc.selectedOperatorId
+      ? 'the workforce coverage view, an operator selected (its id is the deictic referent)'
+      : 'the workforce coverage view (no operator selected)'
   }
   // Board (and any other screen) — the generic selection rendering.
   const parts: string[] = [`screen ${sc.screen}${sc.view ? ` (${sc.view} view)` : ''}`]
@@ -608,8 +993,57 @@ export function renderScreenContext(sc: ScreenContext | undefined, catalog: { or
   return parts.join(', ')
 }
 
+/**
+ * Render the active analysis's change-set as human-readable lines (the CURRENT SCENARIO block) so a
+ * follow-up that constructs a new option inherits it. Orders read by release reference, lines by name.
+ */
+export function renderActiveScenario(
+  changeSet: ChangeSet,
+  catalog: { orders: CatalogOrder[]; resources: { id: string; name: string }[] }
+): string {
+  const orderRef = (id: string): string => {
+    const o = catalog.orders.find((x) => x.demandLineId === id)
+    return o?.releaseReference ? `${o.demandLineId} (${o.releaseReference})` : id
+  }
+  const resName = (id: string): string => catalog.resources.find((x) => x.id === id)?.name ?? id
+  const describe = (c: Change): string => {
+    switch (c.kind) {
+      case 'demand_qty':
+        return `set ${orderRef(c.demandLineId)} quantity to ${c.to}`
+      case 'demand_date':
+        return `move ${orderRef(c.demandLineId)} due date to ${c.to}`
+      case 'resource_window':
+        return `take ${resName(c.resourceId)} down (${c.downFrom}–${c.downTo})`
+      case 'overtime':
+        return `add ${c.hours}h overtime on ${resName(c.resourceId)}`
+      case 'wear_remediation':
+        return `${c.action} on ${resName(c.resourceId)}`
+      case 'material_arrival':
+        return `material ${c.componentPartId} arrives ${c.availableAt}`
+    }
+  }
+  return changeSet.changes.map(describe).join('; ')
+}
+
 /** The ground-never-fabricate + routing system prompt, with a near-horizon entity slice inlined. */
-export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown[], totalOrders: number, screenLine: string | null): string {
+export function buildSystemPrompt(
+  orderSlice: CatalogOrder[],
+  resources: unknown[],
+  totalOrders: number,
+  screenLine: string | null,
+  scenarioLine?: string | null,
+  atRiskLineNames?: string[]
+): string {
+  const scenarioBlock = scenarioLine
+    ? [
+        '',
+        `CURRENT SCENARIO (the analysis on screen / just produced) was generated by this change-set: ${scenarioLine}.`,
+        'A follow-up that asks for ANOTHER/A FOURTH option, or to ADD/TRY a lever ("give me a fourth option using overtime", "what if I also take Press B down", "add 4h overtime to this change") is SCENARIO CONSTRUCTION, not retrieval. Build a NEW change-set = the current scenario\'s changes ABOVE plus the planner\'s new lever (a compound), and call evaluate_what_if. The stored option set is fixed — you cannot retrieve an option that was never computed.',
+        atRiskLineNames && atRiskLineNames.length > 0
+          ? `Firm at-risk in the committed plan is on: ${atRiskLineNames.join(', ')}. For an overtime lever with no line named, default to it (goal_seek / the overtime change-item) — ask only if more than one line is at-risk.`
+          : '',
+      ].filter(Boolean)
+    : []
   const screenBlock = screenLine
     ? [
         '',
@@ -638,6 +1072,8 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     '- A question about the existing analysis → call retrieve_what_if, then answer from what it returns.',
     '- "compare these options / side by side / which is best across the KPIs" → call compare_options (a table renders); then narrate the trade-off WITHOUT repeating the numbers.',
     '- A new scenario with a GIVEN value ("add 4h overtime", "set qty to 500") → evaluate_what_if.',
+    '- "give me / add / generate / try another (or a fourth) option" WITH a new lever (overtime, take a line down, change a qty/date) → SCENARIO CONSTRUCTION → evaluate_what_if (build a change-set; if a scenario is on screen, a compound that augments it). The word "option" does NOT mean retrieve when a NEW lever is named — retrieve_what_if is only for the options ALREADY computed.',
+    '- A new lever named WITHOUT a value — "using/with overtime" (no hours) → goal_seek (the engine finds the hours). Never decline for a missing number and never invent one; if the line is unknown and not derivable from context, ask which line.',
     '- A "how much / what value" question ("how much overtime to clear the at-risk", "add overtime until it clears") → goal_seek (the engine finds the value). NEVER pick the value yourself.',
     '- A question about the baseline / the lift / vs-baseline / a KPI delta → call retrieve_baseline, then explain the returned numbers.',
     '- A question about workforce coverage / readiness / qualifications / a cert gap → call retrieve_coverage, then explain it (a gap is advisory, not a schedule blocker).',
@@ -649,6 +1085,7 @@ export function buildSystemPrompt(orderSlice: CatalogOrder[], resources: unknown
     `LINES: ${JSON.stringify(resources)}`,
     'Resolution: match a reference to an order by demandLineId OR releaseReference OR customer/part. If the order is NOT in the list above, call find_orders. DISAMBIGUATION: if a reference matches more than one order (in the list or via find_orders), ASK the planner which one — name the distinguishing customer/part/due. Never guess an id, and never call evaluate_what_if on a guessed order.',
     ...screenBlock,
+    ...scenarioBlock,
     'A change-set is { origin:{type}, changes:[ … ] }. If a request cannot map to the change kinds, say you cannot evaluate it.',
     '',
     'Faithfulness: evaluate_what_if returns `requestedChanges` — what the engine did with EACH change you asked for (applied / partial / unapplied, with a note). A plain-language summary of these is shown to the planner automatically, so do NOT repeat the list verbatim. But you MUST NOT imply a change took effect if its status is partial or unapplied — explain the consequence (e.g. "the overtime could not be added because that resource has no overtime allowance"). Never present a half-applied scenario as fully done.',
@@ -674,7 +1111,8 @@ export function renderChangeEcho(ledger: RequestedChange[]): string {
   const unapplied = ledger.filter((c) => c.status === 'unapplied')
   const lines: string[] = []
   if (applied.length > 0) lines.push(`**Applied:** ${applied.join('; ')}.`)
-  if (unapplied.length > 0) lines.push(`**Not applied:** ${unapplied.map((c) => `${c.summary} — ${c.note}`).join('; ')}.`)
+  if (unapplied.length > 0)
+    lines.push(`**Not applied:** ${unapplied.map((c) => `${c.summary} — ${c.note}`).join('; ')}.`)
   return lines.join('\n')
 }
 
@@ -717,7 +1155,13 @@ function nameFrom(message: string): string {
 }
 
 function toConversationDto(c: Conversation): ConversationDto {
-  return { id: c.id, plantId: c.plantId, name: c.name, status: c.status, createdAt: c.createdAt.toISOString() }
+  return {
+    id: c.id,
+    plantId: c.plantId,
+    name: c.name,
+    status: c.status,
+    createdAt: c.createdAt.toISOString(),
+  }
 }
 function toTurnDto(t: ConversationTurn): ConversationTurnDto {
   return {
