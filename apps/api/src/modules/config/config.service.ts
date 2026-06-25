@@ -1,0 +1,216 @@
+import { HttpStatus, Injectable } from '@nestjs/common'
+import {
+  type ConfigFieldView,
+  type ConfigGroupKey,
+  type ConfigGroupView,
+  type ConfigLevel,
+  type ConfigValue,
+  ERROR_CODES,
+} from '@perduraflow/contracts'
+import { AppException } from '../../common/exceptions/app.exception'
+import { getGroupDescriptor } from './config.groups'
+import { ConfigRepository } from './config.repository'
+import type { ConfigOverride } from './schema'
+
+/** A resolved group: the effective values + the level each field resolved from. */
+export interface ResolvedConfig<T extends Record<string, ConfigValue> = Record<string, ConfigValue>> {
+  values: T
+  provenance: Record<string, ConfigLevel>
+  /** The winning override's revision per level (for the version token / audit display). */
+  revisions: { tenant: number | null; plant: number | null }
+}
+
+/**
+ * Config framework service (CONFIG-FRAMEWORK-DESIGN). The generic resolve → cascade → reset →
+ * audit mechanism every setting group plugs into. Resolution is **plant → tenant → global** per
+ * field (most specific wins; `global` is the in-code descriptor default). Overrides are stored
+ * **sparse** so each field's provenance is exact. Tenant/plant writes are audited (who/when/
+ * group/field/old→new) and bump a revision (versioning). No group-specific code lives here —
+ * groups contribute a {@link ConfigGroupDescriptor} (defaults + fields + optional guard).
+ */
+@Injectable()
+export class ConfigService {
+  constructor(private readonly repo: ConfigRepository) {}
+
+  private descriptorOrThrow(group: ConfigGroupKey) {
+    const d = getGroupDescriptor(group)
+    if (!d) {
+      throw new AppException(HttpStatus.BAD_REQUEST, `Unknown or unregistered config group: ${group}`, ERROR_CODES.VALIDATION_ERROR)
+    }
+    return d
+  }
+
+  /**
+   * Resolve a group's effective settings for a tenant (+ optional plant), with per-field
+   * provenance. Cascade: plant override → tenant override → global default.
+   * @throws AppException VALIDATION_ERROR - the group is not registered.
+   */
+  async resolve<T extends Record<string, ConfigValue> = Record<string, ConfigValue>>(
+    group: ConfigGroupKey,
+    tenantId: string,
+    plantId?: string,
+  ): Promise<ResolvedConfig<T>> {
+    const d = this.descriptorOrThrow(group)
+    const tenantRow = await this.repo.findActive(tenantId, group, 'tenant', tenantId)
+    const plantRow = plantId ? await this.repo.findActive(tenantId, group, 'plant', plantId) : undefined
+
+    const values: Record<string, ConfigValue> = {}
+    const provenance: Record<string, ConfigLevel> = {}
+    for (const f of d.fields) {
+      const plantV = plantRow?.payload?.[f.key]
+      const tenantV = tenantRow?.payload?.[f.key]
+      if (plantV !== undefined) {
+        values[f.key] = plantV
+        provenance[f.key] = 'plant'
+      } else if (tenantV !== undefined) {
+        values[f.key] = tenantV
+        provenance[f.key] = 'tenant'
+      } else {
+        values[f.key] = d.defaults[f.key]!
+        provenance[f.key] = 'global'
+      }
+    }
+    return {
+      values: values as T,
+      provenance,
+      revisions: { tenant: tenantRow?.revision ?? null, plant: plantRow?.revision ?? null },
+    }
+  }
+
+  /** The config UI view of a group — per-field cascade columns (global/tenant/plant) + provenance. */
+  async getGroupView(group: ConfigGroupKey, tenantId: string, plantId?: string): Promise<ConfigGroupView> {
+    const d = this.descriptorOrThrow(group)
+    const tenantRow = await this.repo.findActive(tenantId, group, 'tenant', tenantId)
+    const plantRow = plantId ? await this.repo.findActive(tenantId, group, 'plant', plantId) : undefined
+    const resolved = await this.resolve(group, tenantId, plantId)
+
+    const fields: ConfigFieldView[] = d.fields.map((f) => ({
+      key: f.key,
+      value: resolved.values[f.key]!,
+      provenance: resolved.provenance[f.key]!,
+      global: d.defaults[f.key]!,
+      tenant: tenantRow?.payload?.[f.key] ?? null,
+      plant: plantRow?.payload?.[f.key] ?? null,
+      kind: f.kind,
+      ...(f.min !== undefined ? { min: f.min } : {}),
+      ...(f.max !== undefined ? { max: f.max } : {}),
+    }))
+    return {
+      group,
+      scopePlantId: plantId ?? null,
+      fields,
+      revisions: { tenant: tenantRow?.revision ?? null, plant: plantRow?.revision ?? null },
+    }
+  }
+
+  /**
+   * Set a sparse override at a level (the rest cascade from the parent). Validates the resulting
+   * resolved set against the group guard, persists the merged payload (bumping the revision), and
+   * audits each changed field. `scopeId` is the tenantId (tenant level) or plantId (plant level).
+   * @throws AppException VALIDATION_ERROR - unknown group / field, or the group guard rejects the set.
+   */
+  async setOverride(
+    group: ConfigGroupKey,
+    level: 'tenant' | 'plant',
+    scopeId: string,
+    tenantId: string,
+    fields: Record<string, ConfigValue>,
+    userId: string | null,
+  ): Promise<ConfigGroupView> {
+    const d = this.descriptorOrThrow(group)
+    const known = new Set(d.fields.map((f) => f.key))
+    for (const k of Object.keys(fields)) {
+      if (!known.has(k)) {
+        throw new AppException(HttpStatus.BAD_REQUEST, `Unknown field for group ${group}: ${k}`, ERROR_CODES.VALIDATION_ERROR)
+      }
+    }
+
+    const existing = await this.repo.findActive(tenantId, group, level, scopeId)
+    const prevPayload = existing?.payload ?? {}
+    const nextPayload = { ...prevPayload, ...fields }
+
+    // Guard: validate the EFFECTIVE values this scope produces (defaults ← parent overrides ← this).
+    if (d.validate) {
+      const parentPlant = level === 'plant' ? undefined : scopeId // plant resolves against tenant below
+      const parentResolved = await this.resolve(group, tenantId, level === 'plant' ? undefined : parentPlant)
+      const effective = { ...parentResolved.values, ...nextPayload }
+      const verdict = d.validate(effective)
+      if (!verdict.ok) {
+        throw new AppException(HttpStatus.BAD_REQUEST, verdict.warnings.join('; ') || 'Config guard rejected this set', ERROR_CODES.VALIDATION_ERROR)
+      }
+    }
+
+    const revision = (existing?.revision ?? 0) + 1
+    if (existing) {
+      await this.repo.update(existing.id, nextPayload, revision, userId)
+    } else {
+      await this.repo.insert({ tenantId, settingGroup: group, level, scopeId, payload: nextPayload, revision })
+    }
+    await this.auditChanges(group, level, scopeId, tenantId, prevPayload, nextPayload, revision, userId)
+
+    return this.getGroupView(group, tenantId, level === 'plant' ? scopeId : undefined)
+  }
+
+  /**
+   * Reset-to-parent: clear one field (or the whole level when `field` is omitted) so it cascades
+   * from the parent again. Audits the cleared field(s) as old→null.
+   * @throws AppException VALIDATION_ERROR - unknown group.
+   */
+  async resetToParent(
+    group: ConfigGroupKey,
+    level: 'tenant' | 'plant',
+    scopeId: string,
+    tenantId: string,
+    field: string | undefined,
+    userId: string | null,
+  ): Promise<ConfigGroupView> {
+    this.descriptorOrThrow(group)
+    const existing = await this.repo.findActive(tenantId, group, level, scopeId)
+    if (existing) {
+      const prevPayload = existing.payload ?? {}
+      if (field) {
+        const nextPayload = { ...prevPayload }
+        delete nextPayload[field]
+        const revision = existing.revision + 1
+        if (Object.keys(nextPayload).length === 0) {
+          await this.repo.deactivate(existing.id, userId)
+        } else {
+          await this.repo.update(existing.id, nextPayload, revision, userId)
+        }
+        await this.auditChanges(group, level, scopeId, tenantId, prevPayload, nextPayload, revision, userId)
+      } else {
+        await this.repo.deactivate(existing.id, userId)
+        await this.auditChanges(group, level, scopeId, tenantId, prevPayload, {}, existing.revision + 1, userId)
+      }
+    }
+    return this.getGroupView(group, tenantId, level === 'plant' ? scopeId : undefined)
+  }
+
+  /** Emit one audit row per field whose value changed between two payloads. */
+  private async auditChanges(
+    group: ConfigGroupKey,
+    level: 'tenant' | 'plant',
+    scopeId: string,
+    tenantId: string,
+    prev: Record<string, ConfigValue>,
+    next: Record<string, ConfigValue>,
+    revision: number,
+    userId: string | null,
+  ): Promise<void> {
+    const keys = new Set([...Object.keys(prev), ...Object.keys(next)])
+    const rows = [...keys]
+      .filter((k) => prev[k] !== next[k])
+      .map((k) => ({
+        tenantId,
+        settingGroup: group,
+        level,
+        scopeId,
+        field: k,
+        oldValue: prev[k] ?? null,
+        newValue: next[k] ?? null,
+        revision,
+        changedBy: userId,
+      }))
+    await this.repo.appendAudit(rows)
+  }
+}

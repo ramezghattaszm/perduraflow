@@ -223,8 +223,8 @@ export function BoardContent() {
     : undefined
 
   // Per-resource behind-plan chip (BOARD-SIGNALS item 2): the variance is about the
-  // resource, so it lives on the lane. Threshold-gated + settled; per the selected
-  // version's actuals (a clean version → none).
+  // resource, so it lives on the lane. Threshold-gated + settled; reads the CONTINUOUS
+  // per-resource attainment (executed-past, Reporting-Policy window) so it holds across a re-solve.
   const behindByResource = new Map(
     (variance?.resources ?? [])
       .filter((r) => r.behindPlanPct >= BEHIND_PCT)
@@ -279,7 +279,9 @@ export function BoardContent() {
     kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
   ).size
   const plantUtil = variance?.utilizationPct ?? null
-  const tputPct = variance?.throughputAttainment ?? null
+  // The KPI strip is a plant-state surface → CONTINUOUS throughput (executed-past, Reporting-Policy
+  // window), which holds across a re-solve. The per-version attainment is the scorecard's retrospective.
+  const tputPct = variance?.plantThroughputAttainment ?? null
 
   // Detected conditions (selected plant vs its committed plan) → reviewable cards.
   const plannedQtyByLine = useMemo(

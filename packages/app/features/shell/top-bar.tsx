@@ -91,7 +91,7 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onO
       {!isSmall && breadcrumb && breadcrumb.length > 0 ? (
         <XStack alignItems="center" gap="$1.5">
           {breadcrumb.map((seg, i) => (
-            <XStack key={seg} alignItems="center" gap="$1.5">
+            <XStack key={`${i}-${seg}`} alignItems="center" gap="$1.5">
               {i > 0 ? <ChevronRight size={14} color="$textSecondary" /> : null}
               <P size={3} weight={i === breadcrumb.length - 1 ? 'b' : 'r'} color={i === breadcrumb.length - 1 ? '$textPrimary' : '$textSecondary'}>
                 {seg}

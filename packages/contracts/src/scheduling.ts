@@ -178,6 +178,13 @@ export interface ResourceVarianceDto {
   throughputAttainment: number
   /** 1 − attainment (the "Line A running N% behind" chip); 0 when on/ahead of plan. */
   behindPlanPct: number
+  /**
+   * CONTINUOUS executed-past attainment for this resource — Σ good ÷ Σ planned-at-execution over the
+   * Reporting-Policy window, aggregated across executing versions (stable across re-solve). `null`
+   * when the resource executed nothing in the window. Drives the lane "behind plan" chip; distinct
+   * from {@link throughputAttainment} (this version's ops only — the plan-quality retrospective).
+   */
+  continuousAttainment: number | null
   /** Ops started within tolerance of planned_start / executed ops. */
   scheduleAdherence: number
   /**
@@ -193,8 +200,19 @@ export interface ResourceVarianceDto {
 export interface PerformanceVarianceDto {
   scheduleVersionId: string
   resources: ResourceVarianceDto[]
-  /** Blended throughput attainment; **null when the version has no actuals yet** (no data ≠ 100%). */
+  /** Blended throughput attainment; **null when the version has no actuals yet** (no data ≠ 100%).
+   * PER-VERSION (this committed plan's executed ops) — the plan-quality retrospective (scorecard). */
   throughputAttainment: number | null
+  /**
+   * CONTINUOUS plant-performance throughput — Σ good ÷ Σ planned-at-execution over the
+   * Reporting-Policy window, aggregating real actuals across executing versions (each measured
+   * against the plan that was live when it ran). A fact about the plant's executed past, so it does
+   * NOT reset on a re-solve. `null` when nothing executed in the window. The KPI strip reads THIS.
+   */
+  plantThroughputAttainment: number | null
+  /** The continuous reporting window (ISO) — `today − reportingWindowDays` → start-of-today. */
+  reportingWindowStart: string
+  reportingWindowEnd: string
   /**
    * Plant capacity utilization over the forward window (D-util) — Σ busy ÷ Σ available across the
    * plant's resources, the capacity-weighted average of the per-resource figures (reconciles by
@@ -278,6 +296,7 @@ export interface ScorecardPreviousDto {
   otif: number
   costPerUnit: number | null
   oee: OeeDto | null
+  throughputAttainment: number | null
 }
 
 /** View 2 · Service–Cost Scorecard (plant manager) — phase-3-computable metrics. */

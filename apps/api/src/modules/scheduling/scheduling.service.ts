@@ -5,6 +5,7 @@ import {
   type CalendarDto,
   type CoverageAxisDto,
   type CoverageCell,
+  type ConfigReadContract,
   type CoverageProposalDto,
   type LatenessChainDto,
   type LearnedParameterDto,
@@ -34,6 +35,7 @@ import { EVENTS } from '../../events'
 import { BindingResolver } from '../binding/binding.resolver'
 import { EventBus } from '../eventbus/event-bus'
 import { LEARNING_READ } from '../learning/learning-read.service'
+import { CONFIG_READ } from '../config/config-read.service'
 import { ORG_READ } from '../org/org-read.service'
 import {
   toDemandInputDto,
@@ -130,6 +132,7 @@ export class SchedulingService {
     private readonly bindings: BindingResolver,
     @Inject(ORG_READ) private readonly org: OrgReadContract,
     @Inject(LEARNING_READ) private readonly learning: LearningReadContract,
+    @Inject(CONFIG_READ) private readonly config: ConfigReadContract,
     private readonly events: EventBus,
   ) {}
 
@@ -781,6 +784,11 @@ export class SchedulingService {
     let plantBusy = 0
     let plantAvail = 0
 
+    // CONTINUOUS plant-performance throughput (Reporting-Policy window, cross-version) — a fact about
+    // the executed past, stable across re-solve. Feeds the KPI strip headline + the lane "behind plan"
+    // chip (per-resource continuous attainment). Distinct from the per-version attainment below.
+    const cont = await this.computePlantThroughput(tenantId, version.plantId)
+
     const byResource = new Map<string, typeof ops>()
     for (const op of ops) {
       const list = byResource.get(op.resourceId) ?? []
@@ -811,11 +819,15 @@ export class SchedulingService {
           return Math.abs(new Date(a.actualStart).getTime() - o.plannedStart.getTime()) <= ADHERENCE_TOLERANCE_MIN * 60_000
         }).length
         const attainment = planned > 0 ? good / planned : 1
+        // The lane "behind plan" chip reads the CONTINUOUS attainment (executed-past, cross-version) so
+        // it doesn't reset on a re-solve; behindPlanPct = 1 − continuous (0 when nothing ran in window).
+        const continuousAttainment = cont.byResource.get(resourceId) ?? null
         return {
           resourceId,
           resourceName: nameById.get(resourceId) ?? resourceId,
           throughputAttainment: attainment,
-          behindPlanPct: Math.max(0, 1 - attainment),
+          continuousAttainment,
+          behindPlanPct: continuousAttainment != null ? Math.max(0, 1 - continuousAttainment) : 0,
           scheduleAdherence: withActual.length > 0 ? onTime / withActual.length : 1,
           utilizationPct,
         }
@@ -855,8 +867,12 @@ export class SchedulingService {
     return {
       scheduleVersionId: versionId,
       resources,
-      // null when no actuals yet — the board hides the chip (no data ≠ 100%).
+      // PER-VERSION attainment (this committed plan) — null when no actuals yet (no data ≠ 100%).
       throughputAttainment: hasActuals && totalPlanned > 0 ? totalGood / totalPlanned : null,
+      // CONTINUOUS plant throughput (cross-version, Reporting-Policy window) — the KPI-strip headline.
+      plantThroughputAttainment: cont.plant,
+      reportingWindowStart: new Date(cont.windowStartMs).toISOString(),
+      reportingWindowEnd: new Date(cont.windowEndMs).toISOString(),
       utilizationPct: plantAvail > 0 ? plantBusy / plantAvail : null,
       utilizationWindowStart: new Date(utilWindowStart).toISOString(),
       utilizationWindowEnd: new Date(utilWindowEnd).toISOString(),
@@ -864,6 +880,77 @@ export class SchedulingService {
       learnedParamCount,
       opCount: ops.length,
     }
+  }
+
+  /**
+   * Continuous plant-performance throughput over the **Reporting-Policy** window (CONFIG-driven,
+   * not hardcoded). Aggregates real execution actuals across the executed-past window, each measured
+   * against the plan that was live when it ran (planned-at-execution) — a fact about the plant's
+   * past that is **stable across re-solve** (a re-solve adds a planning version but no past actuals,
+   * and the window/authority are version-independent).
+   *
+   * - **Window:** `[startOfToday − reportingWindowDays, startOfToday)` from the resolved reporting policy.
+   * - **Authority:** per `(resource, routingOp, day)` keep the **latest-committed** executing version
+   *   present (double-count-proof if a day was ever re-executed under a newer version).
+   * - **Baseline:** planned = Σ `plannedQty` of each authoritative actual's executing op (exact-id join).
+   * - **Honesty:** a day that didn't execute contributes nothing; an empty window → `null` (dash).
+   * @returns plant attainment + per-resource attainment + the resolved window bounds.
+   */
+  private async computePlantThroughput(
+    tenantId: string,
+    plantId: string,
+  ): Promise<{ plant: number | null; byResource: Map<string, number | null>; windowStartMs: number; windowEndMs: number }> {
+    const MS_PER_DAY = 86_400_000
+    const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
+    const windowEndMs = startOfDayUtc(Date.now())
+    const windowStartMs = windowEndMs - reportingWindowDays * MS_PER_DAY
+
+    const md = await this.resolveMasterData(tenantId)
+    const resourceIds = (await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id)
+    const actuals = await this.learning.listActualsForResourcesInWindow(tenantId, resourceIds, windowStartMs, windowEndMs)
+    if (actuals.length === 0) return { plant: null, byResource: new Map(), windowStartMs, windowEndMs }
+
+    // Authority: latest-committed executing version per (resource, routingOp, day).
+    const versions = await this.repo.findVersionsByIds(tenantId, [...new Set(actuals.map((a) => a.scheduleVersionId))])
+    const createdAtById = new Map(versions.map((v) => [v.id, v.createdAt.getTime()]))
+    const groupKey = (a: { resourceId: string; routingOperationId: string; actualStart: string }) =>
+      `${a.resourceId}::${a.routingOperationId}::${startOfDayUtc(new Date(a.actualStart).getTime())}`
+    const bestVersionByGroup = new Map<string, string>()
+    for (const a of actuals) {
+      const k = groupKey(a)
+      const cur = bestVersionByGroup.get(k)
+      if (cur === undefined || (createdAtById.get(a.scheduleVersionId) ?? 0) > (createdAtById.get(cur) ?? 0)) {
+        bestVersionByGroup.set(k, a.scheduleVersionId)
+      }
+    }
+
+    // Keep only authoritative actuals; dedupe to ONE representative per executing op (actuals are
+    // seq-ordered, so the last cycle wins — mirrors the per-version metric's one-actual-per-op model).
+    const repByOp = new Map<string, (typeof actuals)[number]>()
+    for (const a of actuals) {
+      if (bestVersionByGroup.get(groupKey(a)) === a.scheduleVersionId) repByOp.set(a.scheduledOperationId, a)
+    }
+
+    // Planned-at-execution: the executing op's plannedQty (across versions, by exact id).
+    const plannedByOp = new Map((await this.repo.findOpsByIds([...repByOp.keys()])).map((o) => [o.id, o.plannedQty]))
+
+    let plantGood = 0
+    let plantPlanned = 0
+    const goodByRes = new Map<string, number>()
+    const plannedByRes = new Map<string, number>()
+    for (const a of repByOp.values()) {
+      const p = plannedByOp.get(a.scheduledOperationId) ?? 0
+      plantGood += a.goodQty
+      plantPlanned += p
+      goodByRes.set(a.resourceId, (goodByRes.get(a.resourceId) ?? 0) + a.goodQty)
+      plannedByRes.set(a.resourceId, (plannedByRes.get(a.resourceId) ?? 0) + p)
+    }
+    const byResource = new Map<string, number | null>()
+    for (const rid of resourceIds) {
+      const pl = plannedByRes.get(rid) ?? 0
+      byResource.set(rid, pl > 0 ? (goodByRes.get(rid) ?? 0) / pl : null)
+    }
+    return { plant: plantPlanned > 0 ? plantGood / plantPlanned : null, byResource, windowStartMs, windowEndMs }
   }
 
   /** Compute one version's metrics, optionally scoped to a single resource/line. */
@@ -976,6 +1063,7 @@ export class SchedulingService {
           otif: m.otif,
           costPerUnit: m.costPerUnit,
           oee: m.oee,
+          throughputAttainment: m.throughputAttainment,
         }))
       : null
 

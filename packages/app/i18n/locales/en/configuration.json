@@ -1,0 +1,57 @@
+{
+  "title": "Configuration",
+  "subtitle": "Hierarchical policy & preference settings — global → tenant → plant, with cascade, override and audit.",
+  "groups": {
+    "title": "Setting group",
+    "objective": "Objective Policy",
+    "reporting": "Reporting Policy",
+    "autonomy": "Autonomy"
+  },
+  "groupDesc": {
+    "objective": "The engine objective-function weights (lateness, changeover, overtime, …) — a scheduling policy.",
+    "reporting": "The trailing window over which continuous plant-performance KPIs are reported — a reporting policy.",
+    "autonomy": "The learning gate's confidence threshold + tier behavior + snooze thresholds."
+  },
+  "notLive": {
+    "badge": "Coming in a later stage",
+    "objective": "The Objective Policy weights (+ the firm-lateness-dominance guard) come through the framework next.",
+    "autonomy": "Autonomy config stays on its own screen for now (tenant-level); it migrates into the framework opportunistically. Edit it under Objective policy."
+  },
+  "cascade": {
+    "title": "Cascade — global → tenant → plant"
+  },
+  "scope": {
+    "global": "Global",
+    "tenant": "Tenant",
+    "plant": "Plant",
+    "pickPlant": "Pick a plant"
+  },
+  "scopeHint": {
+    "global": "The shipped default floor (read-only). Tenant and plant overrides cascade on top.",
+    "tenant": "Your tenant's house default — applies to every plant unless a plant overrides it.",
+    "plant": "This plant's own setting — the most specific; overrides the tenant and global."
+  },
+  "field": {
+    "reportingWindowDays": "Reporting window (days)"
+  },
+  "provenance": {
+    "global": "Default",
+    "tenant": "From tenant",
+    "plant": "From plant"
+  },
+  "row": {
+    "effective": "Effective: {{value}}",
+    "overrideAt": "Override at {{scope}}",
+    "inheritPlaceholder": "blank = inherit from parent",
+    "invalid": "Enter a whole number {{min}}–{{max}}",
+    "save": "Save",
+    "reset": "Reset to parent",
+    "globalReadOnly": "Global is the shipped default — read-only here."
+  },
+  "col": {
+    "global": "Global: {{value}}",
+    "tenant": "Tenant: {{value}}",
+    "plant": "Plant: {{value}}",
+    "inherited": "—"
+  }
+}

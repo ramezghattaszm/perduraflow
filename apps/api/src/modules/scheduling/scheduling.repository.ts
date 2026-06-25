@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type { NarrationMode } from '@perduraflow/contracts'
-import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { SCHEDULING_DB, type SchedulingDatabase } from './scheduling.db'
 import {
   conversation,
@@ -214,6 +214,21 @@ export class SchedulingRepository {
       .from(scheduledOperation)
       .where(eq(scheduledOperation.scheduleVersionId, versionId))
       .orderBy(asc(scheduledOperation.resourceId), asc(scheduledOperation.sequencePosition))
+  }
+
+  /** Versions by id (any status) — the continuous-KPI authority needs each executing version's createdAt. */
+  findVersionsByIds(tenantId: string, ids: string[]): Promise<ScheduleVersion[]> {
+    if (ids.length === 0) return Promise.resolve([])
+    return this.db
+      .select()
+      .from(scheduleVersion)
+      .where(and(eq(scheduleVersion.tenantId, tenantId), inArray(scheduleVersion.id, ids)))
+  }
+
+  /** Scheduled operations by id (across versions) — planned-at-execution lookup for continuous KPIs. */
+  findOpsByIds(ids: string[]): Promise<ScheduledOperation[]> {
+    if (ids.length === 0) return Promise.resolve([])
+    return this.db.select().from(scheduledOperation).where(inArray(scheduledOperation.id, ids))
   }
 
   /** Persists a version and its scheduled operations together. */

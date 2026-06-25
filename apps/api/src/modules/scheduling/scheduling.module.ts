@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { ConfigModule } from '../config/config.module'
 import { LearningModule } from '../learning/learning.module'
 import { OrgModule } from '../org/org.module'
 import { ConversationController } from './conversation.controller'
@@ -24,7 +25,7 @@ import { WorkforceController } from './workforce.controller'
  * variance/scorecard/workforce reads. The `BindingModule`/`EventBus` are `@Global`.
  */
 @Module({
-  imports: [OrgModule, LearningModule],
+  imports: [OrgModule, LearningModule, ConfigModule],
   controllers: [SchedulingController, SchedulingAdminController, WorkforceController, DevController, ConversationController],
   providers: [
     schedulingDbProvider,

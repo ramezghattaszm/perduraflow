@@ -148,6 +148,18 @@ export interface LearningReadContract {
   listLearnedParameters(tenantId: string): Promise<LearnedParameterDto[]>
   /** Persisted actuals for a schedule version — scheduling joins these for variance/OEE/cost (4.4↔4.3). */
   listActualsForVersion(tenantId: string, scheduleVersionId: string): Promise<ExecutionActualDto[]>
+  /**
+   * Actuals for a set of resources whose `actualStart` falls in `[startMs, endMs)` — the
+   * cross-version executed-past population for continuous plant KPIs (resolves actuals across
+   * versions by their own executing version, never moving them). Resource-scoped (the caller
+   * resolves the plant's resource ids).
+   */
+  listActualsForResourcesInWindow(
+    tenantId: string,
+    resourceIds: string[],
+    startMs: number,
+    endMs: number
+  ): Promise<ExecutionActualDto[]>
   /** The live forecast for one parameter, or null (phase 4). */
   getPrediction(
     tenantId: string,
@@ -162,6 +174,8 @@ export interface LearningReadContract {
 /** A persisted execution actual (4.3) returned to the variance/OEE/cost computation. */
 export interface ExecutionActualDto {
   id: string
+  /** The schedule version this actual executed under (audit binding; cross-version KPI authority). */
+  scheduleVersionId: string
   scheduledOperationId: string
   resourceId: string
   routingOperationId: string

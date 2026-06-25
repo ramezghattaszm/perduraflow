@@ -7,6 +7,7 @@ import { PoolModule } from './db/pool'
 import { AuthModule } from './modules/auth/auth.module'
 import { BindingModule } from './modules/binding/binding.module'
 import { BindingResolver } from './modules/binding/binding.resolver'
+import { ConfigModule as AppConfigModule } from './modules/config/config.module'
 import { EmailModule } from './modules/email/email.module'
 import { EventBusModule } from './modules/eventbus/eventbus.module'
 import { LearningModule } from './modules/learning/learning.module'
@@ -59,6 +60,7 @@ const BINDING_COUNTERPARTS: Provider = {
     AuthModule,
     MasterDataModule,
     PolicyModule,
+    AppConfigModule,
     LearningModule,
     SchedulingModule,
   ],

@@ -209,6 +209,23 @@ export function ScorecardContent() {
                   : undefined
               }
             />
+            {/* PER-VERSION throughput — the plan-quality retrospective ("this committed plan executed
+                at X%"). The continuous, plant-state number lives on the board KPI strip; this is the
+                per-plan breakdown that rolls up into it. */}
+            <KpiTile
+              value={sc.throughputAttainment != null ? pct(sc.throughputAttainment) : '—'}
+              label={t('kpi.throughput')}
+              caption={ppCaption(
+                sc.throughputAttainment,
+                prev?.throughputAttainment,
+                sc.throughputAttainment != null ? t('kpi.throughputCaption') : t('noActuals')
+              )}
+              trend={
+                prev && sc.throughputAttainment != null && prev.throughputAttainment != null
+                  ? trendOf(sc.throughputAttainment, prev.throughputAttainment)
+                  : undefined
+              }
+            />
           </KpiTileRow>
 
           <XStack

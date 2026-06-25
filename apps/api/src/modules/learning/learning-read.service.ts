@@ -51,6 +51,18 @@ export class LearningReadService implements LearningReadContract {
     return (await this.repo.listLearned(tenantId)).map(toLearnedParameterDto)
   }
 
+  /** Actuals for a set of resources whose `actualStart` falls in `[startMs, endMs)` — the
+   *  cross-version executed-past population for continuous plant KPIs (each row keeps its own
+   *  executing version; nothing is moved). The caller resolves the plant's resource ids. */
+  async listActualsForResourcesInWindow(
+    tenantId: string,
+    resourceIds: string[],
+    startMs: number,
+    endMs: number,
+  ): Promise<ExecutionActualDto[]> {
+    return (await this.repo.listActualsForResourcesInWindow(tenantId, resourceIds, startMs, endMs)).map(toExecutionActualDto)
+  }
+
   /** Persisted actuals for a version — scheduling's variance/OEE/cost join (4.4↔4.3). */
   async listActualsForVersion(tenantId: string, scheduleVersionId: string): Promise<ExecutionActualDto[]> {
     return (await this.repo.listActualsForVersion(tenantId, scheduleVersionId)).map(toExecutionActualDto)

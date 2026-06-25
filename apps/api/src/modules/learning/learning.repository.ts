@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm'
 import { LEARNING_DB, type LearningDatabase } from './learning.db'
 import {
   executionActual,
@@ -63,6 +63,32 @@ export class LearningRepository {
         and(
           eq(executionActual.tenantId, tenantId),
           eq(executionActual.scheduleVersionId, scheduleVersionId),
+        ),
+      )
+      .orderBy(asc(executionActual.seq))
+  }
+
+  /**
+   * Actuals for a set of resources with `actualStart` in `[startMs, endMs)` — the executed-past
+   * population for continuous plant KPIs, spanning every executing version (each row keeps its own
+   * `scheduleVersionId`; nothing is moved). Ordered by `seq` so the last-per-op is deterministic.
+   */
+  listActualsForResourcesInWindow(
+    tenantId: string,
+    resourceIds: string[],
+    startMs: number,
+    endMs: number,
+  ): Promise<ExecutionActual[]> {
+    if (resourceIds.length === 0) return Promise.resolve([])
+    return this.db
+      .select()
+      .from(executionActual)
+      .where(
+        and(
+          eq(executionActual.tenantId, tenantId),
+          inArray(executionActual.resourceId, resourceIds),
+          gte(executionActual.actualStart, new Date(startMs)),
+          lt(executionActual.actualStart, new Date(endMs)),
         ),
       )
       .orderBy(asc(executionActual.seq))

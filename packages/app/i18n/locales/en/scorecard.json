@@ -9,7 +9,9 @@
     "costPerUnit": "Cost / unit",
     "costCaption": "Tier-B, from seeded rates",
     "oee": "OEE",
-    "oeeCaption": "availability · performance · quality"
+    "oeeCaption": "availability · performance · quality",
+    "throughput": "Throughput",
+    "throughputCaption": "this plan: good vs planned"
   },
   "oee": {
     "title": "OEE breakdown — where the loss is",

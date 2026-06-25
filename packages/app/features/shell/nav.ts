@@ -75,6 +75,7 @@ export const ADMIN_NAV: NavConfigSection[] = [
     id: 'configuration',
     sectionLabelKey: 'nav.sections.configuration',
     items: [
+      { id: 'configuration', labelKey: 'nav.configuration', path: '/admin/config/settings', icon: SlidersHorizontal },
       { id: 'plants', labelKey: 'nav.plants', path: '/admin/config/plants', icon: Factory },
       { id: 'plant-groups', labelKey: 'nav.plantGroups', path: '/admin/config/plant-groups', icon: Network },
       { id: 'customers', labelKey: 'nav.customers', path: '/admin/config/customers', icon: Handshake },

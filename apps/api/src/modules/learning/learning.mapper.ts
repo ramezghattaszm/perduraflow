@@ -47,6 +47,7 @@ export const toLearnedParameterDto = (r: LearnedParameter): LearnedParameterDto 
 /** Map a persisted actual to the DTO scheduling joins for variance/OEE/cost. */
 export const toExecutionActualDto = (r: ExecutionActual): ExecutionActualDto => ({
   id: r.id,
+  scheduleVersionId: r.scheduleVersionId,
   scheduledOperationId: r.scheduledOperationId,
   resourceId: r.resourceId,
   routingOperationId: r.routingOperationId,
