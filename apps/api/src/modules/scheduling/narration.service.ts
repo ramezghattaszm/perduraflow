@@ -38,7 +38,9 @@ export class NarrationService {
     // without re-calling the model. Regeneration only happens when the prompt changes.
     const promptVersion = this.llm.narrationPromptVersion()
     const cached = await this.repo.findReadyNarration(tenantId, resultId, mode, optionId ?? null, promptVersion)
-    if (cached) {
+    // Only reuse a cached narration that actually has prose — a prior empty/blank `ready` (e.g. the
+    // model returned no content) must NOT be served as the answer; fall through and regenerate.
+    if (cached && cached.prose && cached.prose.trim()) {
       return {
         resultId,
         optionId: optionId ?? null,
@@ -53,6 +55,12 @@ export class NarrationService {
 
     try {
       const res = await this.llm.narrate(input)
+      // Empty prose is a soft failure, not a `ready` answer: caching it `ready` would render a blank
+      // box forever (it's translate-only — a no-op narration has no value). Treat it as `unavailable`
+      // so the UI shows the honest line and the next open retries (unavailable isn't cache-served).
+      if (!res.prose || !res.prose.trim()) {
+        throw new Error('narration returned empty prose')
+      }
       const row = await this.repo.createNarration({
         tenantId,
         resultId,

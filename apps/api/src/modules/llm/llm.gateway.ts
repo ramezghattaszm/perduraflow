@@ -132,8 +132,10 @@ export class LlmGateway implements LlmGatewayContract {
     const config = this.resolveConfig()
     const req: LlmRequest = {
       system: SYSTEM_PROMPT,
+      // Headroom for reasoning models (e.g. gpt-oss): the prose is short, but reasoning tokens share
+      // the budget — at 512 they starve the content, truncating or emptying it. 2048 leaves room.
       messages: [{ role: 'user', content: userContent }],
-      params: { maxTokens: 512, temperature: 0 },
+      params: { maxTokens: 2048, temperature: 0 },
       metadata: { surface: 'narration', mode: input.mode, promptVersion: PROMPT_VERSION },
     }
     const res = await this.complete(req, config)
