@@ -394,7 +394,9 @@ export class SchedulingService {
     // re-sequences to avoid starvation. Std where no trusted learned value exists.
     const items = ctx.items
     const demand = ctx.demand
-    const resolveEffective = await this.buildLearnedOverlay(tenantId, items)
+    // Forecast boundary = today's start: a pre-adopted forecast applies forward only, never to the
+    // rolling window's already-executed past (D44). Measured overlays are unaffected by this.
+    const resolveEffective = await this.buildLearnedOverlay(tenantId, items, startOfDayUtc(Date.now()))
     const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource)
     const run = await this.repo.createRun({
       tenantId,
@@ -694,13 +696,24 @@ export class SchedulingService {
   /**
    * Precompute the learned overlay (api-spec §12.5): per `(op, eligible resource)`,
    * fetch the held learned cycle/setup from `learning.read` and return a pure
-   * resolver the deterministic sequencer calls. Only `held` values clearing
-   * `LEARNED_CONF_USE` are used (A18 bounded); otherwise the std baseline. Public so
-   * the what-if engine reuses the identical overlay (determinism, phase 5).
+   * resolver the deterministic sequencer calls. `held` learned-from-actuals values
+   * clearing `LEARNED_CONF_USE` are used (A18 bounded); a pre-adopted forecast
+   * (`ml_predicted`) is used regardless of confidence but FORWARD-ONLY — gated by the
+   * op's start vs `forecastFromMs` so it never rewrites already-executed past ops (D44).
+   * Otherwise the std baseline. Public so the what-if engine reuses the identical overlay.
+   * @param forecastFromMs Forecast boundary (epoch ms); ops starting before it drop any
+   *   `ml_predicted` overlay. Omit (what-if/comparison) to apply overlays without a time gate.
    */
-  async buildLearnedOverlay(tenantId: string, items: SequencerItem[]): Promise<ResolveEffective> {
+  async buildLearnedOverlay(tenantId: string, items: SequencerItem[], forecastFromMs?: number): Promise<ResolveEffective> {
+    // A held overlay is applied when (a) it's a deliberate pre-adopt (`ml_predicted` — the human/system
+    // already decided to act on the forecast, so the confidence floor that guards AUTO-trusting
+    // learned-from-actuals values does NOT gate it), or (b) it's a learned-from-actuals value clearing
+    // `LEARNED_CONF_USE` (A18 bounded). The bypass is scoped narrowly to `ml_predicted` by design.
     const usable = (p: LearnedParameterDto | null): p is LearnedParameterDto =>
-      !!p && p.status === 'held' && p.learnedValue != null && (p.confidence ?? 0) >= LEARNED_CONF_USE
+      !!p &&
+      p.status === 'held' &&
+      p.learnedValue != null &&
+      (p.source === 'ml_predicted' || (p.confidence ?? 0) >= LEARNED_CONF_USE)
     const learned = new Map<string, { cycle: LearnedParameterDto | null; setup: LearnedParameterDto | null }>()
     const pairs = new Set<string>()
     for (const it of items) for (const rid of it.eligibleResourceIds) pairs.add(`${rid}::${it.routingOperationId}`)
@@ -711,17 +724,27 @@ export class SchedulingService {
         setup: await this.learning.getLearnedParameter(tenantId, rid, opId, 'setup'),
       })
     }
-    return (routingOperationId, resourceId, stdSetup, stdCycle): EffectiveTimes => {
+    // A pre-adopted forecast (`ml_predicted`) is FORWARD-ONLY (D44): it must not rewrite ops that
+    // already ran. When `forecastFromMs` is set (the persisted solve passes today's start) and the
+    // op starts before it, the forecast is dropped → the op falls back to std (or a measured value).
+    // Measured (`ml_adjusted`, learned from actuals) is retroactively consistent and never gated.
+    const forwardOK = (p: LearnedParameterDto | null, atMs?: number): boolean =>
+      !(p?.source === 'ml_predicted' && forecastFromMs != null && atMs != null && atMs < forecastFromMs)
+    return (routingOperationId, resourceId, stdSetup, stdCycle, atMs): EffectiveTimes => {
       const rec = learned.get(`${resourceId}::${routingOperationId}`)
       const c = rec?.cycle ?? null
       const s = rec?.setup ?? null
+      const applyC = usable(c) && forwardOK(c, atMs)
+      const applyS = usable(s) && forwardOK(s, atMs)
       return {
-        setupTime: usable(s) ? s.learnedValue! : stdSetup,
-        cycleTime: usable(c) ? c.learnedValue! : stdCycle,
-        setupSource: usable(s) ? 'ml_adjusted' : 'standard',
-        cycleSource: usable(c) ? 'ml_adjusted' : 'standard',
-        setupConfidence: usable(s) ? s.confidence : null,
-        cycleConfidence: usable(c) ? c.confidence : null,
+        setupTime: applyS ? s!.learnedValue! : stdSetup,
+        cycleTime: applyC ? c!.learnedValue! : stdCycle,
+        // Propagate the overlay's REAL source — a pre-adopted forecast (`ml_predicted`) must stay
+        // distinguishable from a learned-from-actuals value (`ml_adjusted`) at the op level (D44).
+        setupSource: applyS ? s!.source : 'standard',
+        cycleSource: applyC ? c!.source : 'standard',
+        setupConfidence: applyS ? s!.confidence : null,
+        cycleConfidence: applyC ? c!.confidence : null,
       }
     }
   }

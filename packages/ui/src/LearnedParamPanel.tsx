@@ -6,8 +6,10 @@ import { H, P } from './typography'
 const PERF_TONE = { ok: '$success', warn: '$warning', bad: '$danger' } as const
 
 /** Op-panel provenance — **operation-level only**. Line-level wear/forecast lives on
- *  the resource surface ({@link ResourceWearPanel}), never here (BAR-PANEL-FIX rewrite). */
-export type ParamProvenance = 'standard' | 'measured'
+ *  the resource surface ({@link ResourceWearPanel}), never here (BAR-PANEL-FIX rewrite).
+ *  `predicted` = a pre-adopted forecast (`ml_predicted`) applied to this op ahead of the
+ *  drift materialising — distinct from `measured` (`ml_adjusted`, learned from actuals). */
+export type ParamProvenance = 'standard' | 'measured' | 'predicted'
 
 /** A planned-vs-actual performance row — shown whenever the op has actuals. */
 export interface PerfRow {
@@ -28,6 +30,19 @@ export interface MeasuredDetail {
   settledText: string
 }
 
+/** Predicted (ml_predicted) — a pre-adopted forecast value applied to THIS op ahead of the
+ *  drift materialising. The std→predicted step is shown like {@link MeasuredDetail} but with
+ *  forecast vocabulary: not learned from actuals, reversible if it doesn't materialise. */
+export interface PredictedDetail {
+  standardText: string
+  predictedText: string
+  deltaText: string
+  /** "Pre-adopted forecast" — the basis (not actuals). */
+  basisText: string
+  /** "not yet measured — reversible". */
+  noteText: string
+}
+
 /** Props for {@link LearnedParamPanel} (the OPERATION panel). */
 export interface LearnedParamPanelProps {
   title: string
@@ -46,6 +61,8 @@ export interface LearnedParamPanelProps {
   secondary?: { label: string; value: string }
   // measured:
   measured?: MeasuredDetail
+  // predicted (pre-adopted forecast):
+  predicted?: PredictedDetail
   /** Performance (planned-vs-actual) — shown whenever the op has actuals, **independent of
    *  any line forecast**. Pass `rows` when actuals exist; `emptyText` otherwise. */
   performance?: { label: string; rows?: PerfRow[]; emptyText: string }
@@ -75,10 +92,12 @@ export function LearnedParamPanel({
   standardNote,
   secondary,
   measured,
+  predicted,
   performance,
   wearPointer,
 }: LearnedParamPanelProps) {
   const isMeasured = provenance === 'measured' && Boolean(measured)
+  const isPredicted = provenance === 'predicted' && Boolean(predicted)
   return (
     <YStack backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
       <YStack padding="$4" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
@@ -116,14 +135,48 @@ export function LearnedParamPanel({
           <P size={5} weight="b" caps color="$textTertiary">
             {metricLabel}
           </P>
-          <XStack backgroundColor={isMeasured ? '$mlSoft' : '$surfaceRaised'} borderRadius="$3" paddingHorizontal="$2" paddingVertical="$0.5">
-            <P size={5} weight="b" color={isMeasured ? '$ml' : '$textSecondary'}>
+          <XStack
+            backgroundColor={isMeasured ? '$mlSoft' : isPredicted ? '$warningSoft' : '$surfaceRaised'}
+            borderRadius="$3"
+            paddingHorizontal="$2"
+            paddingVertical="$0.5"
+          >
+            <P size={5} weight="b" color={isMeasured ? '$ml' : isPredicted ? '$warning' : '$textSecondary'}>
               {sourceText}
             </P>
           </XStack>
         </XStack>
 
-        {isMeasured && measured ? (
+        {isPredicted && predicted ? (
+          // predicted cycle: a pre-adopted forecast (std→predicted), acted on ahead of the drift.
+          // Amber (forecast) vocabulary — NOT the purple settled-measured step.
+          <>
+            <XStack alignItems="center" gap="$3" flexWrap="wrap">
+              <P size={3} color="$textSecondary" style={{ textDecorationLine: 'line-through' }}>
+                {predicted.standardText}
+              </P>
+              <P size={3} color="$warning">
+                →
+              </P>
+              <H level={3} color="$textPrimary">
+                {predicted.predictedText}
+              </H>
+              <XStack backgroundColor="$warningSoft" borderRadius="$3" paddingHorizontal="$2" paddingVertical="$0.5">
+                <P size={5} weight="b" color="$warning">
+                  {predicted.deltaText}
+                </P>
+              </XStack>
+            </XStack>
+            <XStack alignItems="center" gap="$2" flexWrap="wrap">
+              <P size={3} color="$textSecondary">
+                {predicted.basisText}
+              </P>
+              <P size={5} weight="m" color="$warning">
+                {predicted.noteText}
+              </P>
+            </XStack>
+          </>
+        ) : isMeasured && measured ? (
           // measured cycle: the settled std→learned step (this op's own cycle)
           <>
             <XStack alignItems="center" gap="$3" flexWrap="wrap">

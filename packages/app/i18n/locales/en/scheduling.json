@@ -44,6 +44,7 @@
       "lineSubtitle": "Tool wear & forecast",
       "wearPill": "Wear",
       "forecastPill": "Wear forecast",
+      "preAdjustPill": "Pre-adjusted",
       "confidence": "Confidence",
       "horizon": "Predicted to cross the wear line in {{horizon}} (~{{time}})",
       "horizonNone": "Predicted to cross within the horizon",
@@ -67,7 +68,9 @@
     "setup": "Setup",
     "changeover": "Changeover (attribute switch)",
     "atRisk": "At-risk (late vs due)",
-    "sourceNote": "std = standard time (ML overlay later)"
+    "measured": "Measured (learned from actuals)",
+    "predicted": "Pre-adopted forecast (not yet measured)",
+    "sourceNote": "std = standard time"
   },
   "status": { "draft": "Draft", "committed": "Committed", "superseded": "Superseded" },
   "runStatus": { "success": "Success", "infeasible": "Infeasible", "failed": "Failed" },
@@ -133,6 +136,9 @@
   "learned": {
     "cycle": "Learned cycle time",
     "cycleStd": "Cycle time",
+    "cyclePredicted": "Pre-adopted cycle time",
+    "predictedBasis": "Pre-adopted forecast",
+    "predictedNote": "not yet measured — reversible",
     "setup": "Learned setup time",
     "setupRow": "Setup",
     "basis": "Learned from {{count}} actuals.",
@@ -147,6 +153,8 @@
     "body": "{{resource}} — cycle drift {{pct}}% sustained past threshold.",
     "trigger": "Tool-wear signal",
     "triggerBody": "Cycle drift on {{resource}} crossed threshold — flagged. Schedule re-sequenced to protect downstream from starvation.",
+    "preadjust": "Tool-wear pre-adjusted",
+    "preadjustBody": "Cycle drift on {{resource}} — pre-emptively adjusted for the predicted wear and re-sequenced to protect downstream. Not yet crossed: acting on the forecast (reversible if it doesn't materialize).",
     "forecast": "Tool-wear forecast",
     "forecastBody": "Cycle drift on {{resource}} is approaching the wear line — advisory. Not yet crossed; the schedule still runs on standard."
   },

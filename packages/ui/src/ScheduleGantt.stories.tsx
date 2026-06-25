@@ -56,7 +56,9 @@ export const Learned: Story = {
         bars={[
           { id: '1', resourceId: 'press', label: 'FG-1001', sourceTag: 'ml', startMs: origin, endMs: origin + 95 * m, setupMin: 20, runMin: 75, atRisk: false, changeover: false, ml: true, confidence: 0.82 },
           { id: '2', resourceId: 'press', label: 'FG-1003', sourceTag: 'ml', startMs: origin + 100 * m, endMs: origin + 190 * m, setupMin: 30, runMin: 76, atRisk: false, changeover: true, ml: true, confidence: 0.86 },
-          { id: '3', resourceId: 'press', label: 'FG-1002', sourceTag: 'std', startMs: origin + 200 * m, endMs: origin + 325 * m, setupMin: 30, runMin: 95, atRisk: false, changeover: true },
+          // predicted (ml_predicted) = amber fill — a pre-adopted forecast, no confidence bar
+          { id: '3', resourceId: 'press', label: 'FG-1002', sourceTag: 'predicted', startMs: origin + 200 * m, endMs: origin + 295 * m, setupMin: 30, runMin: 65, atRisk: false, changeover: true, predicted: true },
+          { id: '4', resourceId: 'press', label: 'FG-1004', sourceTag: 'std', startMs: origin + 305 * m, endMs: origin + 420 * m, setupMin: 30, runMin: 85, atRisk: false, changeover: false },
         ]}
       />
     </YStack>

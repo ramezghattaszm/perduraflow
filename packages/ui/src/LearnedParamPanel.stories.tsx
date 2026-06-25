@@ -37,6 +37,30 @@ export const Measured: Story = {
   ),
 }
 
+/** Predicted (ml_predicted) — a pre-adopted forecast applied ahead of the drift: the std→predicted
+ *  step in amber (forecast) vocabulary, "not yet measured — reversible". Distinct from Measured. */
+export const Predicted: Story = {
+  render: () => (
+    <YStack maxWidth={400}>
+      <LearnedParamPanel
+        title="FG-1003 · Press Line A"
+        subtitle="op 30"
+        provenance="predicted"
+        metricLabel="Pre-adopted cycle time"
+        sourceText="predicted"
+        predicted={{
+          standardText: '0.30m',
+          predictedText: '0.32m',
+          deltaText: '+5%',
+          basisText: 'Pre-adopted forecast',
+          noteText: 'not yet measured — reversible',
+        }}
+        wearPointer={{ label: 'Press Line A predicted wear — see line', onPress: () => {} }}
+      />
+    </YStack>
+  ),
+}
+
 /** Standard (std) — standard times + an explicit "no learned adjustment yet" note. */
 export const Standard: Story = {
   render: () => (

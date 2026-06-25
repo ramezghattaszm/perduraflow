@@ -6,6 +6,7 @@ import type {
   GanttBar,
   MeasuredDetail,
   ParamProvenance,
+  PredictedDetail,
   VarianceChip,
   WearPrediction,
 } from '@perduraflow/ui'
@@ -177,6 +178,7 @@ export function BoardContent() {
     .filter((o) => !downResourceIds.has(o.resourceId))
     .map((o) => {
       const ml = o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted'
+      const predicted = o.cycleSource === 'ml_predicted' || o.setupSource === 'ml_predicted'
       return {
         id: o.id,
         resourceId: o.resourceId,
@@ -190,6 +192,7 @@ export function BoardContent() {
         atRisk: o.atRisk,
         changeover: changeoverIds.has(o.id),
         ml,
+        predicted,
         confidence: o.cycleConfidence ?? o.setupConfidence,
       }
     })
@@ -356,10 +359,18 @@ export function BoardContent() {
     return chips
   }, [variance, t])
 
-  // D56 tool-wear flag → toast (once per resource/op while crossed).
+  // D56 tool-wear flag → toast (once per resource/op when the wear actually CROSSES). Only fires on
+  // `ml_adjusted` (learned from observed actuals = materialized); a `ml_predicted` pre-adjust acts on
+  // the FORECAST and hasn't crossed, so it must NOT raise a "crossed / past threshold" toast.
   useEffect(() => {
     for (const l of learned) {
-      if (l.param !== 'cycle' || l.status !== 'held' || l.learnedValue == null) continue
+      if (
+        l.param !== 'cycle' ||
+        l.status !== 'held' ||
+        l.learnedValue == null ||
+        l.source !== 'ml_adjusted'
+      )
+        continue
       const dev = l.stdBaseline > 0 ? (l.learnedValue - l.stdBaseline) / l.stdBaseline : 0
       const key = `${l.resourceId}:${l.routingOperationId}`
       if (dev >= WEAR_PCT && !wearShown.current.has(key)) {
@@ -528,17 +539,18 @@ export function BoardContent() {
     min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`
 
   // ===== Operation panel (click a bar) — OPERATION-LEVEL ONLY =====
-  // Measured when this op adopted a learned cycle from actuals; else standard. No
-  // line-level wear/forecast/confidence here (that's the resource surface, below).
+  // Provenance reflects the cycle the SCHEDULE PLANNED THIS OP WITH — `selectedOp.cycleSource`,
+  // which is per-op and date-aware (the forward-only gate already reverted past ops to std). We do
+  // NOT read the line's live overlay row here: that single record is date-agnostic, so after a
+  // pre-adopt it would mislabel an already-run op (cycleSource=standard, with actuals) as
+  // "predicted". Actuals, when present, render in the Performance section below — independent of
+  // provenance (an executed op shows its planned source + its actuals, never "predicted").
+  const opSource = selectedOp?.cycleSource
   const opProvenance: ParamProvenance =
-    selectedLearned?.source === 'ml_adjusted' &&
-    selectedLearned.sampleCount > 0 &&
-    selectedLearned.learnedValue != null
-      ? 'measured'
-      : 'standard'
+    opSource === 'ml_predicted' ? 'predicted' : opSource === 'ml_adjusted' ? 'measured' : 'standard'
 
   let opMeasured: MeasuredDetail | undefined
-  if (opProvenance === 'measured' && selectedLearned && selectedLearned.learnedValue != null) {
+  if (opProvenance === 'measured' && selectedLearned?.source === 'ml_adjusted' && selectedLearned.learnedValue != null) {
     const std = selectedLearned.stdBaseline
     const lv = selectedLearned.learnedValue
     opMeasured = {
@@ -547,6 +559,19 @@ export function BoardContent() {
       deltaText: `${lv >= std ? '+' : ''}${Math.round(((lv - std) / std) * 100)}%`,
       basisText: t('learned.basis', { count: selectedLearned.sampleCount }),
       settledText: t('learned.settled'),
+    }
+  }
+
+  let opPredicted: PredictedDetail | undefined
+  if (opProvenance === 'predicted' && selectedLearned?.source === 'ml_predicted' && selectedLearned.learnedValue != null) {
+    const std = selectedLearned.stdBaseline
+    const pv = selectedLearned.learnedValue
+    opPredicted = {
+      standardText: `${r2(std)}m`,
+      predictedText: `${r2(pv)}m`,
+      deltaText: `${pv >= std ? '+' : ''}${Math.round(((pv - std) / std) * 100)}%`,
+      basisText: t('learned.predictedBasis'),
+      noteText: t('learned.predictedNote'),
     }
   }
 
@@ -612,8 +637,20 @@ export function BoardContent() {
             : undefined
         }
         scheduleRows={scheduleRows}
-        metricLabel={opProvenance === 'measured' ? t('learned.cycle') : t('learned.cycleStd')}
-        sourceText={opProvenance === 'measured' ? t('source.ml_adjusted') : t('source.standard')}
+        metricLabel={
+          opProvenance === 'measured'
+            ? t('learned.cycle')
+            : opProvenance === 'predicted'
+              ? t('learned.cyclePredicted')
+              : t('learned.cycleStd')
+        }
+        sourceText={
+          opProvenance === 'measured'
+            ? t('source.ml_adjusted')
+            : opProvenance === 'predicted'
+              ? t('source.ml_predicted')
+              : t('source.standard')
+        }
         provenance={opProvenance}
         standardText={`${r2(selectedOp.cycleTime)}m`}
         secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
@@ -623,6 +660,7 @@ export function BoardContent() {
             : t('learned.noAdjustment')
         }
         measured={opMeasured}
+        predicted={opPredicted}
         performance={
           selectedOp.actual
             ? { label: t('board.perf.title'), rows: perfRows, emptyText: t('board.perf.empty') }
@@ -727,11 +765,15 @@ export function BoardContent() {
       />
     ) : null
 
-  // `lineWear` (a real learned value materially above std) means the wear has CROSSED and the plan
-  // already reflects it (adopted / pre-emptively adjusted) → "crossed — re-sequenced" copy. A
-  // prediction with no such learned value is still APPROACHING → advisory/forecast copy only.
+  // Three wear states, keyed on the overlay SOURCE (an adopted value alone doesn't mean "crossed"):
+  //  (1) forecast-not-acted — a prediction, no held overlay → approaching/advisory.
+  //  (2) PRE-ADJUSTED — overlay source `ml_predicted` (approved / auto-committed off the FORECAST):
+  //      acted AHEAD of the crossing; NOT crossed — "pre-emptively adjusted, not yet crossed".
+  //  (3) CROSSED — overlay source `ml_adjusted` (learned from OBSERVED actuals): the drift materialised.
+  const wearCrossed = lineWear?.source === 'ml_adjusted'
+  const wearPreAdjusted = !!lineWear && !wearCrossed
   const wearSignal = linePred || lineWear
-  const wearActed = !!lineWear
+  const wearActed = !!lineWear // either acted state (drives the "kept fed by the adjustment" downstream copy)
   const resourcePanel =
     selectedResourceId && !selectedDown ? (
       <ResourceWearPanel
@@ -740,7 +782,13 @@ export function BoardContent() {
         status={
           wearSignal
             ? {
-                label: t(wearActed ? 'board.pred.wearPill' : 'board.pred.forecastPill'),
+                label: t(
+                  wearCrossed
+                    ? 'board.pred.wearPill'
+                    : wearPreAdjusted
+                      ? 'board.pred.preAdjustPill'
+                      : 'board.pred.forecastPill'
+                ),
                 tone: 'warning',
               }
             : undefined
@@ -748,10 +796,21 @@ export function BoardContent() {
         warning={
           wearSignal
             ? {
-                title: t(wearActed ? 'wear.trigger' : 'wear.forecast'),
-                body: t(wearActed ? 'wear.triggerBody' : 'wear.forecastBody', {
-                  resource: resName,
-                }),
+                title: t(
+                  wearCrossed
+                    ? 'wear.trigger'
+                    : wearPreAdjusted
+                      ? 'wear.preadjust'
+                      : 'wear.forecast'
+                ),
+                body: t(
+                  wearCrossed
+                    ? 'wear.triggerBody'
+                    : wearPreAdjusted
+                      ? 'wear.preadjustBody'
+                      : 'wear.forecastBody',
+                  { resource: resName }
+                ),
               }
             : undefined
         }
@@ -1381,6 +1440,30 @@ function GanttLegend() {
           />
         }
         label={t('legend.atRisk')}
+      />
+      {/* measured (ml_adjusted) = purple fill — the learned-from-actuals overlay */}
+      <Entry
+        swatch={
+          <YStack
+            width={22}
+            height={12}
+            borderRadius="$2"
+            backgroundColor="$ml"
+          />
+        }
+        label={t('legend.measured')}
+      />
+      {/* predicted (ml_predicted) = amber fill — a pre-adopted forecast, acted ahead of the drift */}
+      <Entry
+        swatch={
+          <YStack
+            width={22}
+            height={12}
+            borderRadius="$2"
+            backgroundColor="$warning"
+          />
+        }
+        label={t('legend.predicted')}
       />
       <P
         size={5}

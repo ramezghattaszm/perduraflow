@@ -164,8 +164,8 @@ export function ExceptionsContent() {
         />
         <KpiTile
           value={String(auto.length)}
-          label={t('autoHandled')}
-          caption={t('autoHandledCaption')}
+          label={t('adopted')}
+          caption={t('adoptedCaption')}
         />
       </KpiTileRow>
 
@@ -277,9 +277,11 @@ export function ExceptionsContent() {
         </Panel>
       ) : null}
 
-      {/* Auto-handled — Tier-1 ≥ threshold, pre-applied + logged (transparent). */}
+      {/* Handled / Adopted — the predicted value was adopted (pre-applied + logged). Both system
+          auto-commits and your approvals live here, but each row is badged with WHO decided —
+          "Auto" (system, ≥ threshold) vs "Approved" (you) — the graduated-autonomy split made visible. */}
       <Panel
-        title={t('autoHandled')}
+        title={t('adoptedTitle')}
         contentPadding="$0"
         contentGap="$0"
       >
@@ -289,23 +291,30 @@ export function ExceptionsContent() {
               size={3}
               color="$textSecondary"
             >
-              {t('autoHandledEmpty')}
+              {t('adoptedEmpty')}
             </P>
           </YStack>
         ) : (
-          auto.map((p, i) => (
-            <ExceptionRow
-              key={p.id}
-              divided={i > 0}
-              title={title(p)}
-              statement={t('pred.autoStatement', {
-                crossing: fmtTime(p.crossingAt),
-                conf: Math.round(p.confidence * 100),
-                horizon: fmtHorizon(p.horizonMinutes),
-              })}
-              badge={{ label: t('autoBadge'), tone: 'active' }}
-            />
-          ))
+          auto.map((p, i) => {
+            const byHuman = p.disposition === 'approved'
+            return (
+              <ExceptionRow
+                key={p.id}
+                divided={i > 0}
+                title={title(p)}
+                statement={t(byHuman ? 'pred.approvedStatement' : 'pred.autoStatement', {
+                  crossing: fmtTime(p.crossingAt),
+                  conf: Math.round(p.confidence * 100),
+                  horizon: fmtHorizon(p.horizonMinutes),
+                })}
+                badge={
+                  byHuman
+                    ? { label: t('approvedBadge'), tone: 'neutral' }
+                    : { label: t('autoBadge'), tone: 'active' }
+                }
+              />
+            )
+          })
         )}
       </Panel>
 
@@ -346,6 +355,19 @@ export function ExceptionsContent() {
             color="$textSecondary"
           >
             {t('legend.t3')}
+          </P>
+        </XStack>
+        <XStack
+          gap="$2"
+          alignItems="center"
+          flexWrap="wrap"
+        >
+          <StatusPill tone="neutral">{t('approvedBadge')}</StatusPill>
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('legend.approved')}
           </P>
         </XStack>
         <XStack

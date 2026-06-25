@@ -715,8 +715,8 @@ function dropResource(items: SequencerItem[], resourceId: string): SequencerItem
 
 /** Keep running worn: inflate the resource's cycle to its predicted value (ml_predicted). */
 function inflateCycle(base: ResolveEffective, resourceId: string, predicted: Map<string, number>): ResolveEffective {
-  return (opId, resId, stdSetup, stdCycle) => {
-    const eff = base(opId, resId, stdSetup, stdCycle)
+  return (opId, resId, stdSetup, stdCycle, atMs) => {
+    const eff = base(opId, resId, stdSetup, stdCycle, atMs)
     if (resId !== resourceId) return eff
     const pv = predicted.get(`${resId}::${opId}`)
     if (pv == null || pv <= eff.cycleTime) return eff

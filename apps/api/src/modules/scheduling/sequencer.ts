@@ -86,7 +86,15 @@ export interface EffectiveTimes {
  * and trusted, else the std baseline. **Pure** (precomputed by the service) so the
  * sequencer stays deterministic.
  */
-export type ResolveEffective = (routingOperationId: string, resourceId: string, stdSetup: number, stdCycle: number) => EffectiveTimes
+export type ResolveEffective = (
+  routingOperationId: string,
+  resourceId: string,
+  stdSetup: number,
+  stdCycle: number,
+  /** The op's planned start (epoch ms), resolved at placement. Lets a forward-only forecast
+   *  overlay (`ml_predicted`) gate itself by WHEN the op runs (D44 — not retroactive). */
+  atMs?: number,
+) => EffectiveTimes
 
 /**
  * Resolve the **operator performance factor** for the operator pinned to `resourceId` at the op's
@@ -196,8 +204,8 @@ export function sequence(
   // A resource's operating calendar (working windows / closures / OT). Resources without
   // one fall back to ALWAYS_ON (24/7) so existing callers and tests are unaffected.
   const calFor = (resourceId: string): WorkingCalendar => resourceCalendars?.get(resourceId) ?? ALWAYS_ON
-  const effectiveFor = (item: SequencerItem, resourceId: string): EffectiveTimes =>
-    resolveEffective?.(item.routingOperationId, resourceId, item.setupTime, item.cycleTime) ?? {
+  const effectiveFor = (item: SequencerItem, resourceId: string, atMs?: number): EffectiveTimes =>
+    resolveEffective?.(item.routingOperationId, resourceId, item.setupTime, item.cycleTime, atMs) ?? {
       setupTime: item.setupTime,
       cycleTime: item.cycleTime,
       setupSource: 'standard',
@@ -293,7 +301,6 @@ export function sequence(
 
     const item = bestItem! // at least one item is always ready (the lowest unplaced opSeq per line)
     const st = stateFor(bestRes)
-    const eff = effectiveFor(item, bestRes)
     const cal = calFor(bestRes)
     // The op can't start before its consumed buy-components are available (the D36 material
     // gate, resolved upstream into earliestStartMs) — a third floor on the cursor, alongside
@@ -304,6 +311,10 @@ export function sequence(
     const predEnd = predecessorEnd(item) // C3 precedence: can't start before the prior op ends
     const prevFree = st.freeMs
     const floor = Math.max(prevFree, origin, earliest, predEnd, release)
+    // Resolve the effective times AT the op's start floor — a forward-only forecast overlay
+    // (`ml_predicted`, D44) gates itself by when the op actually runs, so an op landing on a
+    // past day falls back to its std/measured cycle instead of carrying the pre-adopted forecast.
+    const eff = effectiveFor(item, bestRes, floor)
     // Operator performance (C5): the operator pinned to this resource at op start scales RUN time.
     // effectiveCycle = baseCycle / performanceFactor — a DELIBERATE DIVIDE (higher factor = faster);
     // setup is untouched. Point-resolved at the cursor floor (the op's start), like the material

@@ -90,6 +90,39 @@ describe('sequence — operator performance (C5)', () => {
   })
 })
 
+describe('sequence — effective-time resolution carries the op start (forward-only forecast gate)', () => {
+  it('passes the placed start (atMs) to resolveEffective so a time-gated overlay can branch on it', () => {
+    const seen: number[] = []
+    // Two back-to-back ops on R1 from the origin (60m each). The resolver records the atMs it
+    // receives and only applies a "predicted" cycle once the op starts at/after a boundary — the
+    // first op (origin) stays std, the second (origin + 1h) gets the overlay.
+    const boundary = at(MON, 0) + HOUR
+    const resolve = (_op: string, _res: string, stdSetup: number, stdCycle: number, atMs?: number) => {
+      seen.push(atMs ?? -1)
+      const applyPredicted = atMs != null && atMs >= boundary
+      return {
+        setupTime: stdSetup,
+        cycleTime: applyPredicted ? stdCycle * 2 : stdCycle,
+        setupSource: 'standard' as const,
+        cycleSource: applyPredicted ? ('ml_predicted' as const) : ('standard' as const),
+        setupConfidence: null,
+        cycleConfidence: null,
+      }
+    }
+    const items = [item('a', 'A', 60, 1), item('b', 'B', 60, 1)] // a→origin, b→origin+60m
+    const { placements } = sequence(items, resolve)
+    const a = placements.find((p) => p.demandLineId === 'a')!
+    const b = placements.find((p) => p.demandLineId === 'b')!
+    // The resolver received real start instants (not undefined) — the gate has the data it needs.
+    expect(seen.every((m) => m >= 0)).toBe(true)
+    expect(a.plannedStartMs).toBe(MON) // before the boundary → std, no overlay
+    expect(a.cycleSource).toBe('standard')
+    expect(b.plannedStartMs).toBe(at(MON, 1)) // at the boundary → predicted overlay applied
+    expect(b.cycleSource).toBe('ml_predicted')
+    expect(b.cycleTime).toBe(120) // std 60 doubled by the time-gated overlay
+  })
+})
+
 describe('sequence — minimum batch floor (C4)', () => {
   it('runs to the minimum batch when demand is below it (run qty + duration floored)', () => {
     const below = [item('a', 'A', 1, 10)] // demand 10 < min 100 → runs 100
