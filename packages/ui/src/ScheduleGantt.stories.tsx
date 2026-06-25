@@ -52,7 +52,8 @@ export const LineDownClosure: Story = {
     <YStack padding="$4">
       <ScheduleGantt
         resources={[
-          { id: 'press', label: 'Press Line A', subLabel: 'Stamping', down: true },
+          // A down lane still shows its (closure-adjusted) utilization beside the DOWN tag.
+          { id: 'press', label: 'Press Line A', subLabel: 'Stamping', down: true, util: { label: '38%', tone: 'info' } },
           { id: 'pressb', label: 'Press Line B', subLabel: 'Stamping', util: { label: '92%', tone: 'ok' } },
         ]}
         horizonStartMs={origin}

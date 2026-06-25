@@ -342,14 +342,17 @@ export function ScheduleGantt({ resources, bars, closures, horizonStartMs, horiz
             <P size={3} weight="m" numberOfLines={1} color={r.down ? '$textTertiary' : selectedResourceId === r.id ? '$primary' : '$textPrimary'}>
               {r.label}
             </P>
-            {r.down ? (
-              <XStack alignSelf="flex-start" backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
-                <P size={5} weight="b" caps color="$danger" numberOfLines={1}>
-                  down
-                </P>
-              </XStack>
-            ) : (
+            {(
               <XStack gap="$1" alignItems="center" flexWrap="wrap">
+                {/* DOWN tag (line-down / maintenance in effect). Sits alongside util — the lane is
+                    down AND its closure-adjusted capacity is still worth a glance. */}
+                {r.down ? (
+                  <XStack backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
+                    <P size={5} weight="b" caps color="$danger" numberOfLines={1}>
+                      down
+                    </P>
+                  </XStack>
+                ) : null}
                 {/* Utilization — always-on capacity badge; bad ≥100% = the red "overloaded" glance. */}
                 {r.util ? (
                   <XStack backgroundColor={UTIL_BG[r.util.tone]} borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
@@ -358,8 +361,9 @@ export function ScheduleGantt({ resources, bars, closures, horizonStartMs, horiz
                     </P>
                   </XStack>
                 ) : null}
-                {/* Anomaly signal alongside util (behind > predicted), else the plain sublabel. */}
-                {r.behind ? (
+                {/* Anomaly signal alongside util (behind > predicted), else the plain sublabel. SUPPRESSED
+                    on a DOWN lane — DOWN is the dominant signal and the longer text would wrap the header. */}
+                {r.down ? null : r.behind ? (
                   <XStack backgroundColor="$dangerSoft" borderRadius="$2" paddingHorizontal="$1.5" paddingVertical="$0.5">
                     <P size={5} weight="b" color="$danger" numberOfLines={1}>
                       {r.behind}

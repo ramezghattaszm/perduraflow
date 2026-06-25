@@ -260,14 +260,16 @@ export function BoardContent() {
   )
   const utilTone = (p: number): 'ok' | 'bad' | 'info' => (p > 1 ? 'bad' : p < 0.6 ? 'info' : 'ok')
   // Lane sub-label: don't echo the raw resource_type enum ("Line"); show the calm utilization badge
-  // (always), plus the behind chip (when present) or the predicted flag as the anomaly secondary.
+  // (always — variance subtracts the closure, so a down lane's util is the real reduced-capacity
+  // number) and the behind/predicted anomaly chips. The Gantt decides composition on a DOWN lane
+  // (shows DOWN + util; drops the longer behind/predicted text to keep the 62px header uncluttered).
   const ganttResources = resources.map((r) => {
-    const p = downResourceIds.has(r.id) ? null : utilByResource.get(r.id)
+    const p = utilByResource.get(r.id)
     return {
       id: r.id,
       label: r.name,
-      behind: downResourceIds.has(r.id) ? undefined : behindByResource.get(r.id),
-      predicted: downResourceIds.has(r.id) ? undefined : predByResource.get(r.id),
+      behind: behindByResource.get(r.id),
+      predicted: predByResource.get(r.id),
       down: downResourceIds.has(r.id),
       util: p != null ? { label: `${Math.round(p * 100)}%`, tone: utilTone(p) } : undefined,
     }
