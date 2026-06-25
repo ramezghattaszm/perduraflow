@@ -6,7 +6,7 @@
 RG builds PerduraFlow (client-agnostic manufacturing scheduling; demo client Magna Mexico — Saltillo Stamping = Press A + Press B; Ramos Welding = Weld Cell 1/2 + Leak-Test). Stack: Tamagui+Expo+Next+Solito+Zustand+TanStack; NestJS+Drizzle+Postgres; bun/Turborepo. **Propose-then-confirm gate** (Claude Code proposes/builds; RG reviews). Deterministic engine is authoritative; ML predicts/proposes within bounds; LLM explains, never fabricates; human confirms consequential changes; everything auditable (IATF).
 
 ## STATUS ANCHOR
-Engine ~`wi-11`, weights default `aps-w2` (now `OBJECTIVE_DEFAULTS` in contracts), migrations through **0016**. Branch in flight: `exception-queue-messaging`. **Confirm before continuing: commit + push everything; `git status` clean; `bun run check` green.**
+Engine ~`wi-11`, weights default `aps-w2` (now `OBJECTIVE_DEFAULTS` in contracts), migrations through **0017** (line-down `resource_downtime` + `binding_downtime_id`; dropped `calendar.maintenance_windows`). Branch in flight: `exception-queue-messaging`. **Confirm before continuing: commit + push everything; `git status` clean; `bun run check` green.**
 
 ---
 
@@ -64,22 +64,33 @@ demo:reset produces a today-anchored window: committed baseline −12…+9 days 
 
 ## OPEN THREADS (what's next)
 
-### Immediate next step — LINE-DOWN condition (in progress, NOT built)
-Walking conditions; material + goal-seek + tool-wear done. **Line-down is next.** Just surfaced: **the simulator line-down injection takes no duration.** Decided to ask Claude Code to:
-1. **Add a duration/window** to the line-down injection (lean: duration-from-now, e.g. "Press A down for the rest of today") — duration drives the whole beat (short→OT-extend, full-day→reroute-tomorrow).
-2. **Confirm line-down reuses the existing time-boxed CLOSURE/maintenance mechanism** (the working-calendar closures that `workingMinutesInRange` already subtracts and the scheduler already places around) — a line-down is an UNPLANNED CLOSURE for [start,end], same shape as maintenance. If it reuses that, utilization→DOWN, ops displace, etc. all work via existing wiring. Propose, stop for review.
-Then walk the chain: inject Press A down for a window → board shows closure + displaced ops at-risk → causal chain roots at line-down → what-if offers **reroute vs OT families** (C1, NOT wear/material families) → **cost differentiates** reroute vs OT (C6) → Copilot explains. Watch: utilization shows DOWN; causal chain has a clean line-down root; what-if families are right; cost differentiates.
+### Immediate next step — OPERATOR-PERFORMANCE condition (the LAST condition to walk)
+Conditions walked: material + goal-seek + tool-wear + **line-down (now COMPLETE)**. **Operator-performance is the last one.** The cycle-time effect: an operator's `performanceFactor` (C5, percent-of-standard) scales RUN time (`effectiveCycle = baseCycle / factor`; setup untouched; higher = faster). The simulator already has the operator scenario (set performance %, pin/swap operator on a line). Walk it: set an operator slow on a line (or swap a slower operator in) → re-solve the board → run times stretch on that line → at-risk where it tips → causal chain / what-if as appropriate → Copilot explains. Confirm the factor flows through the sequencer, the board reflects the longer runs, and the attribution is honest. (No new mechanism expected — the factor + assignment wiring already exists; this is a walk + verify, with seed/staging tuning to make the beat land.)
+
+### LINE-DOWN condition — BUILT & PROVEN (this session, committed across 6 staged steps)
+A line-down is a per-resource **`resource_downtime`** window — an unplanned CLOSURE for `[from,to)`, the SAME mechanism as maintenance (unified). Built end-to-end, propose-then-confirm per stage, verified against the running API:
+- **Schema (migration 0017):** new `master_data.resource_downtime` (`kind` line_down|maintenance, `planned`, `from/to`, `reason`, `isActive` soft-delete, `createdBy`); `binding_downtime_id` on `scheduled_operation`; **`calendar.maintenance_windows` DROPPED** (was plant-shared → couldn't target one line; always-empty, no UI). Maintenance now flows through the same per-resource table.
+- **Master-data:** repo/service/admin endpoints — open / "bring back up" (truncate-now) / retract (soft-delete); `listActiveDowntime` on `MasterDataReadContract` (the seam the engine binds to).
+- **Engine (the core):** `buildBaseContext`/`utilization` build the downtime map → `resolveResourceCalendars` → `closedIntervals` → **ops displace around the window (NOT excluded)**. The binder TAGS the delayed start `resource_downtime` + records the window id (recorded at the binder, never re-derived — Option B). Merge-dedupe in `buildWorkingCalendar` → a window in base + a duplicate change is subtracted ONCE (**no double-apply**, locked by a unit test).
+- **Causal chain:** new `resource_downtime` lateness root; narrates the stored window (kind + reason); Copilot `compactLateness` surfaces `downtimeKind`. Degrades gracefully (generic line-down label) if the window was brought-back-up/expired.
+- **Simulator:** duration-from-now presets — "rest of today" (→ reroute-tomorrow), "rest of this shift", "next Nh" (→ OT-extend) — create a `line_down` record; "bring back up" closes it. Replaced the old binary inactive/active toggle.
+- **Board/what-if:** DOWN + the lane **closure block** (new `ScheduleGantt` `closures` prop — hatched danger region showing the outage timing) + utilization DOWN all read the ONE window set. `runLineDownWhatIf` is **remediation-only**: sends a `line_down` marker (no window — it's in base), engine offers **reroute / OT** families (NOT wear/material), **cost differentiates** (reroute 1.67 vs OT 1.71). The window is the SITUATION (base, single source); the changeset is the RESPONSE — closes commit-gap & double-apply by construction.
+- **Verified (running API):** op count preserved 42→42 (displaced, not dropped); `MF-104 op10` bound to `resource_downtime` + the window id; reroute+OT families + cost; stored changeset carries NO `resource_window`; applied reroute draft honors the window via persisted base (0 ops in the window). `bun run check` green; 132/132 tests.
 
 ### Remaining conditions to walk
-- **Line-down** (next, needs the duration fix first).
-- **Operator-performance** (the cycle-time effect — last condition).
+- **Operator-performance** (next, the LAST — cycle-time effect; walk + verify, mechanism already wired).
 
 ### Seed-requirement notes (deferred — collect for the seed pass)
 - **Seed a line as already-ADOPTED** (`ml_adjusted`/measured/purple) so the demo shows all THREE provenance states at once (standard, predicted, measured). Press A is deliberately *predicting* (not adopted), so today there's no purple line.
 - **Forward-demand density:** month-fill is month-end-relative → board gets leaner near month-end (42 on Jun 25 vs 54+ early-month). Consider a **fixed rolling forward-window** so board density is stable regardless of demo date.
 - Ramos thin board (10% of Saltillo) — bump demand vs keep focused-on-collision (staging decision).
+- **Line-down at-risk tuning (NEW):** the line-down MECHANISM is proven, but a single-press outage on the healthy plant DISPLACES without necessarily going late — the SAME ~10% slack / press-group-spread property as the goal-seek finding. For the demo's at-risk beat, position an order (or choose the window) so a *plausible* line-down window **reliably tips it late — reproducibly, not by hand-hitting the exact right window**. A seed/staging item, not an engine gap.
+
+### Locale (deferred — before any Spanish/Magna-facing demo)
+- **Only `en` is populated.** New line-down strings (simulator presets, lateness `rootLineDown`/`rootMaintenance`/`rootDowntimeReason` + `lever.resource_downtime`, error codes) and everything else live in `en` only. **Populate `es` before any Spanish/Magna-facing run** (the i18n scaffolding is ready; it's a translation pass). Ties to the Copilot-rename open item (check Spanish reading).
 
 ### Other open items
+- **Applied-draft binding attribution (pre-existing, NEW note):** the what-if **apply** path (`WhatIfService.applyOption`) persists a draft WITHOUT binding attribution (`binding_kind`/`binding_downtime_id` null) — only `solve()` attributes. So the causal chain shows on the committed **solve** view (which has the condition + attribution), not on a what-if-applied/rerouted draft. Surfaced while building line-down; not introduced by it. Future cleanup: thread binding through the apply write path so a rerouted plan keeps its attribution.
 - **Weights build was greenlit and BUILT this session** (Stage 2) — the earlier "build-vs-document pending" is now resolved (built).
 - **Autonomy Stage 3** migration — deferred (above).
 - **Day-rollover / view-freshness** (production) — captured under deferred real-time-push in REMAINING-ITEMS.md.
@@ -99,4 +110,4 @@ Then walk the chain: inject Press A down for a window → board shows closure + 
 1. Commit Stage 2 + any uncommitted (design docs: decide repo vs outputs).
 2. **Push everything** (several commits accumulated unpushed across the session).
 3. `git status` clean; `bun run check` green.
-4. New Claude Code session: brief it from THIS note + `CLAUDE.md` + the docs above. Start with the line-down duration fix (propose, stop for review).
+4. New Claude Code session: brief it from THIS note + `CLAUDE.md` + the docs above. **Line-down is DONE** — start the **operator-performance** condition (the last; walk + verify, mechanism already wired).
