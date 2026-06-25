@@ -23,6 +23,8 @@ export const toParameterPredictionDto = (r: ParameterPrediction): ParameterPredi
   disposition: r.disposition,
   appliedLearnedValue: r.appliedLearnedValue,
   outcome: r.outcome,
+  dismissedAtConfidence: r.dismissedAtConfidence,
+  dismissedAtHorizonMinutes: r.dismissedAtHorizonMinutes,
   createdAt: r.createdAt.toISOString(),
 })
 

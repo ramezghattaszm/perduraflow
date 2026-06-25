@@ -38,6 +38,10 @@ export const parameterPrediction = learningSchema.table(
     disposition: text('disposition').$type<PredictionDisposition>().notNull(),
     /** What was written to the learned overlay on auto-commit/approve (reversibility/audit). */
     appliedLearnedValue: doublePrecision('applied_learned_value'),
+    /** Snooze breadcrumb: confidence + horizon at the LAST dismissal, carried onto the re-surfaced
+     *  row so the queue shows why it's back ("set aside at X%/Yh → now X'%/Y'h"). Null if not re-surfaced. */
+    dismissedAtConfidence: doublePrecision('dismissed_at_confidence'),
+    dismissedAtHorizonMinutes: integer('dismissed_at_horizon_minutes'),
     outcome: text('outcome').$type<PredictionOutcome>().notNull().default('pending'),
     /** The re-forecast that replaced this one (settled-step chain; null = live). */
     supersededBy: text('superseded_by'),
@@ -50,9 +54,9 @@ export const parameterPrediction = learningSchema.table(
       t.tenantId,
       t.resourceId,
       t.routingOperationId,
-      t.param,
+      t.param
     ),
-  }),
+  })
 )
 
 export type ParameterPrediction = typeof parameterPrediction.$inferSelect

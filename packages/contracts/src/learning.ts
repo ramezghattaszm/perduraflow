@@ -119,6 +119,14 @@ export interface ParameterPredictionDto {
   /** The value written on auto-commit/approve (reversibility/audit); null if not applied. */
   appliedLearnedValue: number | null
   outcome: PredictionOutcome
+  /**
+   * Snooze breadcrumb — confidence at the moment it was last dismissed (set aside); null if this
+   * prediction never re-surfaced from a snooze. Pairs with {@link dismissedAtHorizonMinutes} so the
+   * queue can show "you set this aside at {X}% / {Yh} — now {X'}% / {Y'h}".
+   */
+  dismissedAtConfidence: number | null
+  /** Snooze breadcrumb — horizon (minutes) at the moment it was last dismissed; null if not re-surfaced. */
+  dismissedAtHorizonMinutes: number | null
   createdAt: string
 }
 
@@ -134,7 +142,7 @@ export interface LearningReadContract {
     tenantId: string,
     resourceId: string,
     routingOperationId: string,
-    param: LearningParam,
+    param: LearningParam
   ): Promise<LearnedParameterDto | null>
   /** All learned overlays for the tenant (board/panel; consumer filters by resource). */
   listLearnedParameters(tenantId: string): Promise<LearnedParameterDto[]>
@@ -145,7 +153,7 @@ export interface LearningReadContract {
     tenantId: string,
     resourceId: string,
     routingOperationId: string,
-    param: LearningParam,
+    param: LearningParam
   ): Promise<ParameterPredictionDto | null>
   /** All live (non-superseded) forecasts for the tenant — Exception Queue + board flags (phase 4). */
   listPredictions(tenantId: string): Promise<ParameterPredictionDto[]>

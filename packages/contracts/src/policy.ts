@@ -26,6 +26,16 @@ export interface AutonomyConfigDto {
   tier2Mode: Tier2Mode
   /** The crossing-threshold band the predictor measures against (fraction over std); null = §12.7 default. */
   wearBand: number | null
+  /**
+   * Snooze re-surface — confidence delta (0–1): a dismissed prediction re-asks when its confidence
+   * rises ≥ this above the dismissal level. `null` → the `RULE.SNOOZE_CONF_DELTA` constant.
+   */
+  snoozeConfDelta: number | null
+  /**
+   * Snooze re-surface — urgency horizon (minutes): a dismissed prediction re-asks when its crossing
+   * enters this imminent band (and was outside it at dismissal). `null` → `RULE.SNOOZE_URGENCY_MINUTES`.
+   */
+  snoozeUrgencyMinutes: number | null
 }
 
 /** Safe defaults (D48 — conservative). The gate falls back to these when unconfigured. */
@@ -33,6 +43,8 @@ export const AUTONOMY_DEFAULTS: AutonomyConfigDto = {
   tier1AutoThreshold: 0.75,
   tier2Mode: 'advisory',
   wearBand: null,
+  snoozeConfDelta: null,
+  snoozeUrgencyMinutes: null,
 }
 
 /** PUT body for the Objective-Policy autonomy controls (View 5; ConfigureGuard, D42 audited). */
@@ -41,6 +53,8 @@ export const autonomyConfigUpdateSchema = z
     tier1AutoThreshold: z.number().min(0).max(1),
     tier2Mode: tier2ModeSchema,
     wearBand: z.number().positive().max(2).nullable().default(null),
+    snoozeConfDelta: z.number().min(0).max(1).nullable().default(null),
+    snoozeUrgencyMinutes: z.number().int().positive().nullable().default(null),
   })
   .strict()
 export type AutonomyConfigUpdate = z.infer<typeof autonomyConfigUpdateSchema>

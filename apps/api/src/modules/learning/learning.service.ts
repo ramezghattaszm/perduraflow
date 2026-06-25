@@ -13,8 +13,8 @@ import { EVENTS } from '../../events'
 import { EventBus } from '../eventbus/event-bus'
 import type { EventEnvelope } from '../eventbus/event-bus.types'
 import { POLICY_READ } from '../policy/policy-read.service'
-import { evaluate, RULE, type PriorState } from './learning.rule'
-import { predict, PREDICT } from './learning.predictor'
+import { evaluate, RULE, snoozeDecision, type PriorState } from './learning.rule'
+import { predict, PREDICT, type PredictionResult } from './learning.predictor'
 import { LearningRepository } from './learning.repository'
 import type { ExecutionActual } from './schema'
 
@@ -186,6 +186,9 @@ export class LearningService implements OnModuleInit {
       .map((a) => (param === 'cycle' ? a.actualCycleTime : a.actualSetupTime))
       .filter((v): v is number => v != null)
     const live = await this.repo.findLivePrediction(tenantId, resourceId, routingOperationId, param)
+    // A dismissed forecast is SNOOZED (not live) — looked up only when nothing is live, so it can be
+    // measured against a fresh forecast (D-snooze) and re-surfaced ONLY when materially worse.
+    const snoozed = live ? undefined : await this.repo.findSnoozed(tenantId, resourceId, routingOperationId, param)
 
     const cfg = await this.policy.getAutonomyConfig(tenantId)
     const wearBand = cfg.wearBand ?? RULE.STEP_BAND
@@ -193,21 +196,16 @@ export class LearningService implements OnModuleInit {
     const cadence = this.cadenceMinutes(actuals, std)
     const result = series.length >= PREDICT.MIN_SAMPLES ? predict(series, threshold, cadence) : null
 
-    // No honest forecast now → close out a stale live one. `materialized` = the
-    // observed value reached the threshold (the forecast came true); `corrected` =
-    // the trend reversed/flattened before crossing (the forecast was wrong).
+    // No honest FORWARD forecast now (already crossed, or trend reversed). `materialized` = the
+    // observed window reached the threshold (it came true); `corrected` = it flattened before crossing.
     if (!result) {
+      const window = series.slice(-PREDICT.WINDOW)
+      const windowMean = window.length > 0 ? window.reduce((a, b) => a + b, 0) / window.length : 0
+      const materialized = windowMean >= threshold
       if (live) {
-        const window = series.slice(-PREDICT.WINDOW)
-        const windowMean = window.length > 0 ? window.reduce((a, b) => a + b, 0) / window.length : 0
-        const materialized = windowMean >= threshold
-        await this.repo.updatePrediction(live.id, {
-          disposition: 'superseded',
-          outcome: materialized ? 'materialized' : 'corrected',
-        })
-        // Reversibility (proof #3): a pre-emptively-adopted forecast that did NOT
-        // materialise is corrected by the subsequent actuals — restore the observed
-        // overlay (re-derive from the real series, undoing the `ml_predicted` adopt).
+        await this.repo.updatePrediction(live.id, { disposition: 'superseded', outcome: materialized ? 'materialized' : 'corrected' })
+        // Reversibility (proof #3): a pre-emptively-adopted forecast that did NOT materialise is
+        // corrected by the subsequent actuals — restore the observed overlay (undo the ml_predicted adopt).
         if (!materialized && live.appliedLearnedValue != null) {
           const obs = evaluate(series, std, { learnedValue: null, status: 'learning' })
           await this.repo.upsertLearned({
@@ -228,6 +226,20 @@ export class LearningService implements OnModuleInit {
           })
           this.logger.log(`prediction corrected: ${resourceId}/${routingOperationId} ${param} reverted to observed (reversible, proof #3)`)
         }
+      } else if (snoozed && materialized) {
+        // Safety floor (D-snooze): the wear actually crossed while snoozed → re-surface immediately,
+        // regardless of the confidence/urgency triggers. Flip the snoozed row back to the queue, carry
+        // its dismissal snapshot as the breadcrumb, and mark it now (horizon 0).
+        const lastEnd = actuals[actuals.length - 1]?.actualEnd ?? null
+        await this.repo.updatePrediction(snoozed.id, {
+          disposition: 'queued',
+          dismissedAtConfidence: snoozed.confidence,
+          dismissedAtHorizonMinutes: snoozed.horizonMinutes,
+          horizonMinutes: 0,
+          crossingAt: lastEnd,
+        })
+        await this.events.publish(EVENTS.LEARNING_PREDICTION_QUEUED, { tenantId, resourceId, routingOperationId, param, confidence: snoozed.confidence, tier: snoozed.actionTier }, tenantId)
+        await this.events.publish(EVENTS.LEARNING_PREDICTION_UPDATED, { tenantId, predictionId: snoozed.id }, tenantId)
       }
       return
     }
@@ -236,8 +248,40 @@ export class LearningService implements OnModuleInit {
     const crossingAt = new Date(lastActual.actualEnd.getTime() + result.horizonMinutes * 60_000)
     const disposition = gateDisposition(result.actionTier, result.confidence, cfg.tier1AutoThreshold)
 
-    // Damped: keep the existing settled forecast unless it materially moved or the
-    // gate decision changed (convergence-not-motion, forward form — no live ticker).
+    // SNOOZED (no live): re-surface ONLY when materially worse than the dismissal snapshot (D-snooze).
+    // `stay` = remain set aside (the fix — no re-surface on the next actual). Re-anchoring is implicit:
+    // the breadcrumb is taken from the snoozed row, and a re-dismissal snapshots the new (worse) values.
+    if (snoozed) {
+      const confDelta = cfg.snoozeConfDelta ?? RULE.SNOOZE_CONF_DELTA
+      const urgencyMinutes = cfg.snoozeUrgencyMinutes ?? RULE.SNOOZE_URGENCY_MINUTES
+      const outcome = snoozeDecision({
+        tier: result.actionTier,
+        newConfidence: result.confidence,
+        newHorizonMinutes: result.horizonMinutes,
+        dismissedConfidence: snoozed.confidence,
+        dismissedHorizonMinutes: snoozed.horizonMinutes,
+        tier1AutoThreshold: cfg.tier1AutoThreshold,
+        confDelta,
+        urgencyMinutes,
+      })
+      if (outcome === 'stay') return
+      await this.writeSettledPrediction({
+        tenantId,
+        resourceId,
+        routingOperationId,
+        param,
+        std,
+        result,
+        crossingAt,
+        disposition: outcome === 'auto_commit' ? 'auto_committed' : 'queued',
+        priorId: snoozed.id,
+        breadcrumb: { confidence: snoozed.confidence, horizonMinutes: snoozed.horizonMinutes },
+      })
+      return
+    }
+
+    // Damped: keep the existing settled forecast unless it materially moved or the gate decision
+    // changed (convergence-not-motion, forward form — no live ticker).
     const moved =
       !live ||
       live.disposition !== disposition ||
@@ -245,8 +289,44 @@ export class LearningService implements OnModuleInit {
       Math.abs(crossingAt.getTime() - live.crossingAt.getTime()) > cadence * 60_000
     if (!moved) return
 
-    if (live) await this.repo.updatePrediction(live.id, { disposition: 'superseded' })
+    await this.writeSettledPrediction({
+      tenantId,
+      resourceId,
+      routingOperationId,
+      param,
+      std,
+      result,
+      crossingAt,
+      disposition,
+      priorId: live?.id ?? null,
+      // Sticky breadcrumb: once a forecast has re-surfaced from a snooze, carry the dismissal snapshot
+      // through subsequent damped re-forecasts so "you set this aside at …" persists until acted on.
+      breadcrumb:
+        live?.dismissedAtConfidence != null
+          ? { confidence: live.dismissedAtConfidence, horizonMinutes: live.dismissedAtHorizonMinutes ?? 0 }
+          : null,
+    })
+  }
 
+  /**
+   * Insert a settled prediction (supersede the prior live/snoozed row), then act per disposition:
+   * auto-commit pre-adopts the predicted overlay; queued just records. `breadcrumb` (the dismissal
+   * snapshot) is carried onto the row only when re-surfacing from a snooze (else null). One place so
+   * the normal forecast path and the snooze re-surface path can never drift.
+   */
+  private async writeSettledPrediction(args: {
+    tenantId: string
+    resourceId: string
+    routingOperationId: string
+    param: LearningParam
+    std: number
+    result: PredictionResult
+    crossingAt: Date
+    disposition: PredictionDisposition
+    priorId: string | null
+    breadcrumb: { confidence: number; horizonMinutes: number } | null
+  }): Promise<void> {
+    const { tenantId, resourceId, routingOperationId, param, std, result, crossingAt, disposition } = args
     const applied = disposition === 'auto_committed' ? result.predictedValue : null
     const created = await this.repo.insertPrediction({
       tenantId,
@@ -267,8 +347,10 @@ export class LearningService implements OnModuleInit {
       disposition,
       appliedLearnedValue: applied,
       outcome: 'pending',
+      dismissedAtConfidence: args.breadcrumb?.confidence ?? null,
+      dismissedAtHorizonMinutes: args.breadcrumb?.horizonMinutes ?? null,
     })
-    if (live) await this.repo.updatePrediction(live.id, { supersededBy: created.id })
+    if (args.priorId) await this.repo.updatePrediction(args.priorId, { disposition: 'superseded', supersededBy: created.id })
 
     if (disposition === 'auto_committed') {
       await this.preAdopt(tenantId, resourceId, routingOperationId, param, std, result.predictedValue, result.confidence)

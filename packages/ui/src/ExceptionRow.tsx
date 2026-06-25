@@ -9,6 +9,8 @@ export interface ExceptionRowProps {
   title: string
   /** The settled statement — e.g. "Predicted to cross ~14:00 · conf 0.82 · 2h horizon". */
   statement: string
+  /** Optional faint action-hint line under the statement — what the row's controls actually DO. */
+  note?: string
   /** Tier / severity pill (right of the identity). */
   badge?: { label: string; tone: StatusTone }
   /** Auto-handled rows render quiet (no action control); needs-you rows pass `actions`. */
@@ -28,7 +30,16 @@ export interface ExceptionRowProps {
  * shapes: **auto-handled** (no actions, quiet) and **needs-you** (Approve/Dismiss/
  * Sign-off). Presentational; the screen computes the strings + wires the actions.
  */
-export function ExceptionRow({ title, statement, badge, actions, divided, onPress, selected }: ExceptionRowProps) {
+export function ExceptionRow({
+  title,
+  statement,
+  note,
+  badge,
+  actions,
+  divided,
+  onPress,
+  selected,
+}: ExceptionRowProps) {
   return (
     <XStack
       gap="$3"
@@ -43,19 +54,44 @@ export function ExceptionRow({ title, statement, badge, actions, divided, onPres
       cursor={onPress ? 'pointer' : undefined}
       hoverStyle={onPress && !selected ? { backgroundColor: '$backgroundHover' } : undefined}
     >
-      <YStack flex={1} gap="$1">
-        <XStack gap="$2" alignItems="center" flexWrap="wrap">
-          <P size={3} weight="m" color="$textPrimary">
+      <YStack
+        flex={1}
+        gap="$1"
+      >
+        <XStack
+          gap="$2"
+          alignItems="center"
+          flexWrap="wrap"
+        >
+          <P
+            size={3}
+            weight="m"
+            color="$textPrimary"
+          >
             {title}
           </P>
           {badge ? <StatusPill tone={badge.tone}>{badge.label}</StatusPill> : null}
         </XStack>
-        <P size={3} color="$textSecondary">
+        <P
+          size={3}
+          color="$textSecondary"
+        >
           {statement}
         </P>
+        {note ? (
+          <P
+            size={5}
+            color="$textTertiary"
+          >
+            {note}
+          </P>
+        ) : null}
       </YStack>
       {actions ? (
-        <XStack gap="$2" alignItems="center">
+        <XStack
+          gap="$2"
+          alignItems="center"
+        >
           {actions}
         </XStack>
       ) : null}

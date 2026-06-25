@@ -8,6 +8,8 @@ const toDto = (r: AutonomyConfig): AutonomyConfigDto => ({
   tier1AutoThreshold: r.tier1AutoThreshold,
   tier2Mode: r.tier2Mode,
   wearBand: r.wearBandOverride,
+  snoozeConfDelta: r.snoozeConfDelta,
+  snoozeUrgencyMinutes: r.snoozeUrgencyMinutes,
 })
 
 /**
@@ -33,6 +35,8 @@ export class PolicyService {
       tier1AutoThreshold: body.tier1AutoThreshold,
       tier2Mode: body.tier2Mode,
       wearBandOverride: body.wearBand,
+      snoozeConfDelta: body.snoozeConfDelta,
+      snoozeUrgencyMinutes: body.snoozeUrgencyMinutes,
     })
     return toDto(row)
   }

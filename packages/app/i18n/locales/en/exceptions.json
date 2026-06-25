@@ -8,13 +8,15 @@
   "autoHandledCaption": "acted within the confidence×tier gate",
   "needYouEmpty": "Nothing needs you right now.",
   "autoHandledEmpty": "Nothing auto-handled yet.",
-  "approve": "Approve",
+  "preAdjust": "Pre-adjust",
   "dismiss": "Dismiss",
   "autoBadge": "Auto",
   "param": { "cycle": "cycle", "setup": "setup" },
   "tier": { "t1": "Tier 1", "t2": "Tier 2", "t3": "Tier 3" },
   "pred": {
     "statement": "Predicted to cross threshold ~{{crossing}} · confidence {{conf}}% · {{horizon}} horizon",
-    "autoStatement": "Pre-emptively adjusted for predicted wear · cross ~{{crossing}} · confidence {{conf}}% · {{horizon}} horizon"
+    "autoStatement": "Pre-emptively adjusted for predicted wear · cross ~{{crossing}} · confidence {{conf}}% · {{horizon}} horizon",
+    "resurfaced": "Back — you set this aside at {{wasConf}}% / {{wasHorizon}}; now {{conf}}% / {{horizon}} (cross ~{{crossing}})",
+    "action": "Pre-adjust: pre-emptively adopt the predicted cycle time in the next re-solve to protect downstream (current plan unchanged · reversible). Dismiss snoozes: keep standard times, re-ask only when more certain or imminent."
   }
 }

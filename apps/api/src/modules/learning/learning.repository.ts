@@ -148,6 +148,26 @@ export class LearningRepository {
       .orderBy(desc(parameterPrediction.createdAt))
   }
 
+  /** The current SNOOZED (dismissed, not-superseded) forecast for a key — the snooze anchor. */
+  findSnoozed(
+    tenantId: string,
+    resourceId: string,
+    routingOperationId: string,
+    param: LearningParam,
+  ): Promise<ParameterPrediction | undefined> {
+    return this.db.query.parameterPrediction.findFirst({
+      where: and(
+        eq(parameterPrediction.tenantId, tenantId),
+        eq(parameterPrediction.resourceId, resourceId),
+        eq(parameterPrediction.routingOperationId, routingOperationId),
+        eq(parameterPrediction.param, param),
+        isNull(parameterPrediction.supersededBy),
+        eq(parameterPrediction.disposition, 'dismissed'),
+      ),
+      orderBy: desc(parameterPrediction.createdAt),
+    })
+  }
+
   findPredictionById(tenantId: string, id: string): Promise<ParameterPrediction | undefined> {
     return this.db.query.parameterPrediction.findFirst({
       where: and(eq(parameterPrediction.tenantId, tenantId), eq(parameterPrediction.id, id)),
@@ -167,6 +187,10 @@ export class LearningRepository {
       outcome: PredictionOutcome
       appliedLearnedValue: number | null
       supersededBy: string | null
+      dismissedAtConfidence: number | null
+      dismissedAtHorizonMinutes: number | null
+      horizonMinutes: number
+      crossingAt: Date | null
     }>,
   ): Promise<void> {
     await this.db

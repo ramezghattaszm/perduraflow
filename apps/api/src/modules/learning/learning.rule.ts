@@ -1,4 +1,4 @@
-import type { LearnedStatus } from '@perduraflow/contracts'
+import type { ActionTier, LearnedStatus } from '@perduraflow/contracts'
 
 /**
  * The damped learned-parameter rule (api-spec §12.3 / AS14 — the load-bearing
@@ -34,6 +34,10 @@ export const RULE = {
   RESTEP_BAND: 0.08,
   /** Guardrail (A18 bounded): a learned value beyond this deviation from standard is rejected. */
   MAX_DEV: 0.5,
+  /** Snooze default: a dismissed forecast re-asks when confidence rises ≥ this above the dismissal level (0–1). */
+  SNOOZE_CONF_DELTA: 0.15,
+  /** Snooze default: a dismissed forecast re-asks when its crossing enters this imminent band (minutes). */
+  SNOOZE_URGENCY_MINUTES: 1440,
 } as const
 
 /** Prior settled state (from the persisted `learned_parameter` row). */
@@ -54,6 +58,37 @@ export interface RuleResult {
   status: LearnedStatus
   /** True when this evaluation took a decisive step/re-step (drives events + lastSteppedAt). */
   stepped: boolean
+}
+
+/** What to do with a snoozed (dismissed) forecast on a fresh forecast (pure — the "materially worse" rule). */
+export type SnoozeOutcome = 'auto_commit' | 'resurface' | 'stay'
+
+/**
+ * Decide whether a snoozed forecast should come back (D-snooze). Measured against the **dismissal
+ * snapshot** (confidence + horizon when it was set aside). Order:
+ *  1. escalation — Tier-1 confidence ≥ the auto-threshold → `auto_commit` (act, don't re-ask).
+ *  2. more confident — confidence rose ≥ `confDelta` above the dismissal level → `resurface`.
+ *  3. more urgent — crossing entered the imminent band (`≤ urgencyMinutes`) having been OUTSIDE it at
+ *     dismissal (the "was above" guard, so dismissing an already-imminent one doesn't instantly re-ask).
+ *  4. otherwise → `stay` snoozed (the fix: no re-surface on the next actual).
+ * Pure: same inputs → same outcome. The "materialized" safety floor lives in the service (it fires when
+ * there's no forward forecast at all, so it's outside this function).
+ */
+export function snoozeDecision(p: {
+  tier: ActionTier
+  newConfidence: number
+  newHorizonMinutes: number
+  dismissedConfidence: number
+  dismissedHorizonMinutes: number
+  tier1AutoThreshold: number
+  confDelta: number
+  urgencyMinutes: number
+}): SnoozeOutcome {
+  if (p.tier === 'tier1' && p.newConfidence >= p.tier1AutoThreshold) return 'auto_commit'
+  if (p.newConfidence >= p.dismissedConfidence + p.confDelta) return 'resurface'
+  if (p.newHorizonMinutes <= p.urgencyMinutes && p.dismissedHorizonMinutes > p.urgencyMinutes)
+    return 'resurface'
+  return 'stay'
 }
 
 const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x))

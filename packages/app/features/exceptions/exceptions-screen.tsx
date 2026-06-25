@@ -75,12 +75,22 @@ export function ExceptionsContent() {
 
   const title = (p: ParameterPredictionDto) =>
     `${resName.get(p.resourceId) ?? p.resourceId.slice(-5)} · ${t(`param.${p.param}`)}`
+  // A re-surfaced (previously snoozed) prediction leads with the breadcrumb — WHY it's back (it got
+  // more certain or imminent, exactly what the snooze promised); otherwise the plain forecast line.
   const statement = (p: ParameterPredictionDto) =>
-    t('pred.statement', {
-      crossing: fmtTime(p.crossingAt),
-      conf: Math.round(p.confidence * 100),
-      horizon: fmtHorizon(p.horizonMinutes),
-    })
+    p.dismissedAtConfidence != null
+      ? t('pred.resurfaced', {
+          wasConf: Math.round(p.dismissedAtConfidence * 100),
+          wasHorizon: fmtHorizon(p.dismissedAtHorizonMinutes ?? 0),
+          conf: Math.round(p.confidence * 100),
+          horizon: fmtHorizon(p.horizonMinutes),
+          crossing: fmtTime(p.crossingAt),
+        })
+      : t('pred.statement', {
+          crossing: fmtTime(p.crossingAt),
+          conf: Math.round(p.confidence * 100),
+          horizon: fmtHorizon(p.horizonMinutes),
+        })
 
   return (
     <>
@@ -135,6 +145,7 @@ export function ExceptionsContent() {
                 divided={i > 0}
                 title={title(p)}
                 statement={statement(p)}
+                note={t('pred.action')}
                 badge={{ label: t('tier.t1'), tone: 'warning' }}
                 actions={
                   canConfigure ? (
@@ -145,7 +156,7 @@ export function ExceptionsContent() {
                         loading={approve.isPending}
                         onPress={() => approve.mutate(p.id)}
                       >
-                        {t('approve')}
+                        {t('preAdjust')}
                       </AppButton>
                       <AppButton
                         variant="ghost"
