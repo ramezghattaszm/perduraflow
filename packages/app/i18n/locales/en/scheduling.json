@@ -25,7 +25,8 @@
       "resource": "Resource",
       "demandLine": "Demand line",
       "scheduled": "Scheduled",
-      "source": "Source"
+      "source": "Source",
+      "downWindow": "Line down"
     },
     "perf": {
       "title": "Performance — planned vs actual",
@@ -77,6 +78,7 @@
   "runStatus": { "success": "Success", "infeasible": "Infeasible", "failed": "Failed" },
   "atRisk": "At risk",
   "atRiskWithReason": "At risk: {{reason}}",
+  "strandedStatus": "Can't run — line down",
   "riskReason": {
     "material": "material",
     "late": "late vs due",

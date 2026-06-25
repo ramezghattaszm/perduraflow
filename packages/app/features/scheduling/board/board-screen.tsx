@@ -572,6 +572,21 @@ export function BoardContent() {
 
   // Self-contained bar detail (identity + learned/std + performance). Identity is
   // repeated so the panel/sheet stands alone (the tap target never assumes a hover).
+  // The active down-window overlapping THIS op's slot — why it's stranded (for the bar-detail card).
+  const selectedStrandedWindow =
+    selectedOp && selectedOp.stranded
+      ? (() => {
+          const s = new Date(selectedOp.plannedStart).getTime()
+          const e = new Date(selectedOp.plannedEnd).getTime()
+          return (windowsByResource.get(selectedOp.resourceId) ?? []).find((w) => s < w.to && e > w.from) ?? null
+        })()
+      : null
+  const selectedStrandedWindowLabel = selectedStrandedWindow
+    ? (() => {
+        const w = fmtWindow(selectedStrandedWindow.from, selectedStrandedWindow.to)
+        return `${w.from} – ${w.to}`
+      })()
+    : null
   const scheduleRows = selectedOp
     ? [
         {
@@ -583,6 +598,10 @@ export function BoardContent() {
           label: t('board.tooltip.scheduled'),
           value: `${fmtTime(new Date(selectedOp.plannedStart).getTime())} – ${fmtTime(new Date(selectedOp.plannedEnd).getTime())}`,
         },
+        // Stranded: the line is down across this op's slot → it can't run as planned.
+        ...(selectedStrandedWindowLabel
+          ? [{ label: t('board.tooltip.downWindow'), value: selectedStrandedWindowLabel }]
+          : []),
         { label: t('board.tooltip.setup'), value: `${Math.round(selectedOp.setupTime)} min` },
         {
           label: t('board.tooltip.run'),
@@ -702,7 +721,12 @@ export function BoardContent() {
                   : t('atRisk'),
                 tone: 'danger',
               }
-            : undefined
+            : selectedOp.stranded
+              ? // FACT, not a prediction: the line is down across this op's slot — it can't run as
+                // planned (re-sequence). Amber (warning), distinct from at-risk red. See the down-window
+                // row + the line-down condition card's options.
+                { label: t('strandedStatus'), tone: 'warning' as const }
+              : undefined
         }
         scheduleRows={scheduleRows}
         metricLabel={
