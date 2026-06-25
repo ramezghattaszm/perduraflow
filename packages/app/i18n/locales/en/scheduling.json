@@ -61,7 +61,7 @@
       "subtitle": "Line offline",
       "pill": "Down",
       "title": "This line is down",
-      "body": "{{count}} scheduled op(s) on {{resource}} are stranded — review options to reroute or add overtime."
+      "body": "Down {{from}}–{{to}} — {{count}} op(s) overlap the outage and need re-sequencing around it."
     }
   },
   "legend": {

@@ -1,7 +1,7 @@
 'use client'
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { TriangleAlert } from '@tamagui/lucide-icons'
+import { CircleCheck, TriangleAlert } from '@tamagui/lucide-icons'
 import type {
   GanttBar,
   MeasuredDetail,
@@ -279,6 +279,25 @@ export function BoardContent() {
         .map((d) => ({ resourceId: d.resourceId, startMs: Date.parse(d.from), endMs: Date.parse(d.to), label: t('board.down.pill') })),
     [downtime, t]
   )
+  // Active downtime windows by resource (epoch-ms) — drives the GENUINELY-affected count (ops that
+  // overlap the window, not the whole line) and the situation copy ({from}–{to}). Same source as DOWN.
+  const windowsByResource = useMemo(() => {
+    const m = new Map<string, Array<{ from: number; to: number }>>()
+    for (const d of downtime) {
+      if (!d.isActive) continue
+      const arr = m.get(d.resourceId) ?? []
+      arr.push({ from: Date.parse(d.from), to: Date.parse(d.to) })
+      m.set(d.resourceId, arr)
+    }
+    return m
+  }, [downtime])
+  // The representative window on a resource for copy — the one in effect now, else the earliest.
+  const repWindow = (resourceId: string): { from: number; to: number } | null => {
+    const wins = windowsByResource.get(resourceId) ?? []
+    if (wins.length === 0) return null
+    const now = Date.now()
+    return wins.find((w) => w.from <= now && now < w.to) ?? [...wins].sort((a, b) => a.from - b.from)[0]!
+  }
 
   // KPI strip (D-util headline) — all computed from the committed schedule, no literals. On-time +
   // At-risk derive from the ops (+ demand firmness); Utilization + Throughput come from the SAME
@@ -303,15 +322,22 @@ export function BoardContent() {
     () => new Map((detail?.operations ?? []).map((o) => [o.demandLineId, o.plannedQty])),
     [detail]
   )
-  // Show a line-down condition only while the selected plan still strands work on the
-  // down line; once rerouted (the applied draft has 0 ops there) it self-clears.
+  // A line-down condition surfaces only when committed ops actually OVERLAP the outage window
+  // (the genuinely-conflicting ops that need re-sequencing) — NOT the whole line's workload, and
+  // NOT a delivery verdict. `affected` is a planning fact; whether anything goes late is the
+  // what-if's verdict (absorbed vs at-risk). Self-clears once a re-solve moves the work.
   const lineDownConditions = resources
     .filter((r) => downResourceIds.has(r.id))
-    .map((r) => ({
-      resourceId: r.id,
-      name: r.name,
-      affected: (detail?.operations ?? []).filter((o) => o.resourceId === r.id).length,
-    }))
+    .map((r) => {
+      const wins = windowsByResource.get(r.id) ?? []
+      const win = repWindow(r.id)
+      const affected = (detail?.operations ?? []).filter(
+        (o) =>
+          o.resourceId === r.id &&
+          overlapsAnyWindow(new Date(o.plannedStart).getTime(), new Date(o.plannedEnd).getTime(), wins)
+      ).length
+      return { resourceId: r.id, name: r.name, affected, from: win?.from ?? null, to: win?.to ?? null }
+    })
     .filter((c) => c.affected > 0)
   const demandConditions = demand
     .map((d) => ({
@@ -764,8 +790,16 @@ export function BoardContent() {
     }
   }
 
+  // The down banner counts only ops OVERLAPPING the outage window (the genuinely-conflicting ones),
+  // and states the situation — the at-risk/absorbed verdict comes from the what-if, not here.
+  const selectedWindows = selectedResourceId ? (windowsByResource.get(selectedResourceId) ?? []) : []
+  const selectedWindow = selectedResourceId ? repWindow(selectedResourceId) : null
   const lineOpsN = selectedResourceId
-    ? (detail?.operations ?? []).filter((o) => o.resourceId === selectedResourceId).length
+    ? (detail?.operations ?? []).filter(
+        (o) =>
+          o.resourceId === selectedResourceId &&
+          overlapsAnyWindow(new Date(o.plannedStart).getTime(), new Date(o.plannedEnd).getTime(), selectedWindows)
+      ).length
     : 0
   const selectedDown = selectedResourceId ? downResourceIds.has(selectedResourceId) : false
 
@@ -778,7 +812,12 @@ export function BoardContent() {
         status={{ label: t('board.down.pill'), tone: 'danger' }}
         warning={{
           title: t('board.down.title'),
-          body: t('board.down.body', { count: lineOpsN, resource: resName }),
+          body: t('board.down.body', {
+            count: lineOpsN,
+            resource: resName,
+            from: selectedWindow ? fmtTime(selectedWindow.from) : '—',
+            to: selectedWindow ? fmtTime(selectedWindow.to) : '—',
+          }),
         }}
         action={
           readOnly
@@ -892,6 +931,19 @@ export function BoardContent() {
   const detailPanel = opPanel ?? downPanel ?? resourcePanel
   const conditionCount =
     lineDownConditions.length + demandConditions.length + materialConditions.length
+
+  // The line-down VERDICT (from the what-if, not the banner): the outage is ABSORBED when the best
+  // feasible re-solve adds NO new lateness vs the base — `option.lateOrders ≤ baseKpis.lateOrders`.
+  // (Delta, not zero: the demo plant carries a pre-existing material-gated at-risk that the outage
+  // doesn't touch; an absorbed outage must not be masked by — or blamed for — that.) Surface as a
+  // positive resilience result, distinct from the at-risk case (outage ADDS lateness → decide reroute/OT).
+  const lineDownAbsorbed = (() => {
+    if (!whatIfResult || !whatIfResult.changeSet.changes.some((c) => c.kind === 'line_down')) return false
+    const best =
+      whatIfResult.options.find((o) => o.id === whatIfResult.recommendedOptionId) ??
+      whatIfResult.options.find((o) => o.feasible)
+    return Boolean(best?.feasible && best.kpis.lateOrders <= whatIfResult.baseKpis.lateOrders)
+  })()
 
   return (
     <>
@@ -1044,7 +1096,11 @@ export function BoardContent() {
                   <ConditionCard
                     key={`down-${c.resourceId}`}
                     title={t('whatif:condition.lineDown', { resource: c.name })}
-                    detail={t('whatif:condition.lineDownDetail', { count: c.affected })}
+                    detail={t('whatif:condition.lineDownDetail', {
+                      count: c.affected,
+                      from: c.from != null ? fmtTime(c.from) : '—',
+                      to: c.to != null ? fmtTime(c.to) : '—',
+                    })}
                     cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
                     loading={whatIf.isPending && whatIfTrigger === `down-${c.resourceId}`}
                     disabled={readOnly}
@@ -1112,7 +1168,22 @@ export function BoardContent() {
             </XStack>
           ) : null}
           {whatIfResult ? (
-            <YStack marginTop="$3">
+            <YStack marginTop="$3" gap="$3">
+              {lineDownAbsorbed ? (
+                <XStack
+                  gap="$2"
+                  alignItems="center"
+                  backgroundColor="$successSoft"
+                  borderRadius="$4"
+                  paddingHorizontal="$3"
+                  paddingVertical="$2.5"
+                >
+                  <CircleCheck size={15} color="$success" />
+                  <P size={4} color="$success">
+                    {t('whatif:condition.lineDownAbsorbed')}
+                  </P>
+                </XStack>
+              ) : null}
               <WhatIfOptionSet
                 result={whatIfResult}
                 previewOnly={readOnly}
@@ -1410,6 +1481,11 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 function fmtTime(ms: number): string {
   const d = new Date(ms)
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+
+/** True if `[startMs, endMs)` overlaps any of the windows (half-open). */
+function overlapsAnyWindow(startMs: number, endMs: number, windows: Array<{ from: number; to: number }>): boolean {
+  return windows.some((w) => startMs < w.to && endMs > w.from)
 }
 
 /** Gantt legend — swatches match the bar visuals exactly; source lives here, not in bars. */

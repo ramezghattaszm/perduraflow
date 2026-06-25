@@ -67,7 +67,8 @@
   },
   "condition": {
     "lineDown": "{{resource}} is down",
-    "lineDownDetail": "{{count}} scheduled op(s) stranded — reroute or add overtime.",
+    "lineDownDetail": "Down {{from}}–{{to}} · {{count}} op(s) overlap the outage and need re-sequencing.",
+    "lineDownAbsorbed": "Outage absorbed — no added delivery risk; the affected work re-sequences around it.",
     "demand": "{{line}} demand changed",
     "demandDetail": "Order quantity {{from}} → {{to}} — re-evaluate the plan.",
     "material": "{{component}} arrives {{time}}",
