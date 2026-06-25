@@ -562,6 +562,17 @@ export function BoardContent() {
     }
   }
 
+  // Adopted-but-not-applied: a held learned value EXISTS for this op, yet the committed plan still
+  // runs it on standard (the plan is stale until re-solve). This is NOT "still accruing / not enough
+  // to adopt" — adoption already happened; the schedule just hasn't picked it up. Keep the two
+  // honestly distinct so the op panel never claims "not enough actuals" when the learner has adopted.
+  const opAdoptedStale =
+    opProvenance === 'standard' && selectedLearned?.status === 'held' && selectedLearned.learnedValue != null
+  const opLearnedDeltaPct =
+    selectedLearned && selectedLearned.learnedValue != null && selectedLearned.stdBaseline > 0
+      ? Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)
+      : 0
+
   let opPredicted: PredictedDetail | undefined
   if (opProvenance === 'predicted' && selectedLearned?.source === 'ml_predicted' && selectedLearned.learnedValue != null) {
     const std = selectedLearned.stdBaseline
@@ -655,9 +666,14 @@ export function BoardContent() {
         standardText={`${r2(selectedOp.cycleTime)}m`}
         secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
         standardNote={
-          selectedLearned && selectedLearned.sampleCount > 0
-            ? t('learned.accruing', { count: selectedLearned.sampleCount })
-            : t('learned.noAdjustment')
+          opAdoptedStale
+            ? t('learned.staleAdopted', {
+                delta: opLearnedDeltaPct,
+                count: selectedLearned?.sampleCount ?? 0,
+              })
+            : selectedLearned && selectedLearned.sampleCount > 0
+              ? t('learned.accruing', { count: selectedLearned.sampleCount })
+              : t('learned.noAdjustment')
         }
         measured={opMeasured}
         predicted={opPredicted}
@@ -773,7 +789,15 @@ export function BoardContent() {
   const wearCrossed = lineWear?.source === 'ml_adjusted'
   const wearPreAdjusted = !!lineWear && !wearCrossed
   const wearSignal = linePred || lineWear
-  const wearActed = !!lineWear // either acted state (drives the "kept fed by the adjustment" downstream copy)
+  // Is the adopted/pre-adopted overlay actually re-solved INTO this plan, or is the committed plan
+  // still STALE (a held value exists but the ops here run standard)? "Re-sequenced / kept fed" may
+  // only be claimed once applied — before a re-solve the protection is PENDING, not done. Keyed on
+  // whether this line's ops carry the overlay's source (mirrors the plan-stale banner, per resource).
+  const wearApplied =
+    !!lineWear &&
+    (detail?.operations ?? []).some(
+      (o) => o.resourceId === selectedResourceId && o.cycleSource === lineWear.source
+    )
   const resourcePanel =
     selectedResourceId && !selectedDown ? (
       <ResourceWearPanel
@@ -805,9 +829,13 @@ export function BoardContent() {
                 ),
                 body: t(
                   wearCrossed
-                    ? 'wear.triggerBody'
+                    ? wearApplied
+                      ? 'wear.triggerBody'
+                      : 'wear.triggerBodyStale'
                     : wearPreAdjusted
-                      ? 'wear.preadjustBody'
+                      ? wearApplied
+                        ? 'wear.preadjustBody'
+                        : 'wear.preadjustBodyStale'
                       : 'wear.forecastBody',
                   { resource: resName }
                 ),
@@ -821,10 +849,17 @@ export function BoardContent() {
                 maintenance: t('board.pred.maintenance'),
                 downstream:
                   lineOpsN > 0
-                    ? t(wearActed ? 'board.pred.downstream' : 'board.pred.downstreamForecast', {
-                        count: lineOpsN,
-                        resource: resName,
-                      })
+                    ? t(
+                        wearApplied
+                          ? 'board.pred.downstream' // applied → genuinely kept fed by the adjustment
+                          : lineWear
+                            ? 'board.pred.downstreamStale' // adopted but plan stale → protected once re-solved
+                            : 'board.pred.downstreamForecast', // pure forecast, no overlay → advisory
+                        {
+                          count: lineOpsN,
+                          resource: resName,
+                        }
+                      )
                     : t('board.pred.downstreamNone'),
               }
             : undefined

@@ -52,6 +52,7 @@
       "basis": "Forecast from the trend over {{count}} actuals — not yet measured",
       "maintenance": "Maintenance recommended",
       "downstream": "Downstream: {{count}} op(s) on {{resource}} — kept fed by the pre-emptive adjustment",
+      "downstreamStale": "Downstream: {{count}} op(s) on {{resource}} — protected once you re-solve to apply the learned cycle (plan stale)",
       "downstreamForecast": "Downstream: {{count}} op(s) on {{resource}} — at risk if the wear crosses (advisory)",
       "downstreamNone": "No downstream ops affected this horizon",
       "healthy": "No wear signal — running on standard."
@@ -145,6 +146,7 @@
     "settled": "settled — holding steady",
     "noAdjustment": "Running on standard times — not enough actuals to adopt a learned value.",
     "accruing": "Running on standard times — {{count}} actuals so far, not enough to adopt a learned value yet.",
+    "staleAdopted": "Learned cycle adopted (+{{delta}}% from {{count}} actuals), but this committed plan still runs standard — re-solve to apply it.",
     "selectHint": "Select a learned (ml) bar to see how it converged.",
     "none": "No learned values yet — run the simulator to feed actuals."
   },
@@ -153,8 +155,10 @@
     "body": "{{resource}} — cycle drift {{pct}}% sustained past threshold.",
     "trigger": "Tool-wear signal",
     "triggerBody": "Cycle drift on {{resource}} crossed threshold — flagged. Schedule re-sequenced to protect downstream from starvation.",
+    "triggerBodyStale": "Cycle drift on {{resource}} crossed threshold — flagged and a learned cycle adopted. This committed plan still runs standard: re-solve to apply it and re-sequence to protect downstream.",
     "preadjust": "Tool-wear pre-adjusted",
     "preadjustBody": "Cycle drift on {{resource}} — pre-emptively adjusted for the predicted wear and re-sequenced to protect downstream. Not yet crossed: acting on the forecast (reversible if it doesn't materialize).",
+    "preadjustBodyStale": "Cycle drift on {{resource}} — predicted wear pre-adopted, but this committed plan still runs standard. Re-solve to apply it and re-sequence to protect downstream. Not yet crossed (reversible if it doesn't materialize).",
     "forecast": "Tool-wear forecast",
     "forecastBody": "Cycle drift on {{resource}} is approaching the wear line — advisory. Not yet crossed; the schedule still runs on standard."
   },
