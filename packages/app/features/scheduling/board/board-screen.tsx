@@ -168,8 +168,8 @@ export function BoardContent() {
 
   // Conditions live in the DATA (not yet re-solved): a line down = a per-resource
   // resource_downtime window IN EFFECT NOW (`from ≤ now < to`); a demand change = a demand
-  // line whose qty ≠ the committed plan's qty. The board detects them, suppresses the down
-  // line's (now-stranded) bars, and offers costed options to review + apply (Apply→draft→commit).
+  // line whose qty ≠ the committed plan's qty. The board detects them, marks the lane DOWN +
+  // draws the closure block, and offers costed options to review + apply (Apply→draft→commit).
   // ONE source: the same windows the engine subtracts from capacity and roots the chain at.
   const downResourceIds = useMemo(() => {
     const now = Date.now()
@@ -180,8 +180,11 @@ export function BoardContent() {
     )
   }, [downtime])
 
+  // ALL committed bars render — injecting a window does NOT re-solve, so the down lane's existing
+  // plan is intact. Only the op OVERLAPPING [from,to) is affected; it renders under the closure
+  // block (a conflict to review), and moves only on a re-solve (apply reroute). Do NOT suppress the
+  // whole lane (that was the old binary-`status=inactive` model, which stranded morning ops too).
   const bars: GanttBar[] = (detail?.operations ?? [])
-    .filter((o) => !downResourceIds.has(o.resourceId))
     .map((o) => {
       const ml = o.cycleSource === 'ml_adjusted' || o.setupSource === 'ml_adjusted'
       const predicted = o.cycleSource === 'ml_predicted' || o.setupSource === 'ml_predicted'
