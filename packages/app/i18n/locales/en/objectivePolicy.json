@@ -17,6 +17,19 @@
     "read": "Always human, regardless of confidence — the trust-envelope floor.",
     "locked": "Locked"
   },
+  "tuning": {
+    "title": "Predictive tuning",
+    "subtitle": "Leave a field blank to use the safe default.",
+    "wearLabel": "Wear band — flag at % over standard (default 5)",
+    "wearRead": "Flag a tool-wear forecast when the cycle is predicted ≥ {{pct}}% over standard.",
+    "deltaLabel": "Snooze — re-ask on confidence rise, points (default 15)",
+    "deltaRead": "A snoozed forecast returns when confidence rises ≥ {{pts}} points above where it was set aside.",
+    "hoursLabel": "Snooze — re-ask on urgency, hours (default 24)",
+    "hoursRead": "A snoozed forecast returns when the predicted crossing falls within {{h}}h.",
+    "invalidWear": "Enter a positive % up to 200, or blank for the default.",
+    "invalidDelta": "Enter 0–100, or blank for the default.",
+    "invalidHours": "Enter a positive number of hours, or blank for the default."
+  },
   "save": "Save",
   "objectives": {
     "title": "Objective weights & priority",

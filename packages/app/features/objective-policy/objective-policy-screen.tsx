@@ -31,21 +31,50 @@ export function ObjectivePolicyContent() {
   const { data: cfg } = useAutonomyConfig()
   const update = useUpdateAutonomyConfig()
 
-  // Local edit state, hydrated from the loaded config (threshold shown as a percent).
+  // Local edit state, hydrated from the loaded config. Threshold/wear/delta show as percents,
+  // urgency as hours. The three tuning fields are NULLABLE — blank means "use the safe default".
   const [pct, setPct] = useState('75')
   const [boundedAuto, setBoundedAuto] = useState(false)
+  const [wearPct, setWearPct] = useState('')
+  const [snoozeDeltaPct, setSnoozeDeltaPct] = useState('')
+  const [snoozeHours, setSnoozeHours] = useState('')
+
+  // Hydrate the nullable fields to their display string ('' when unset → the default applies).
+  const wearStr = (c: typeof cfg) =>
+    c?.wearBand != null ? String(Math.round(c.wearBand * 100)) : ''
+  const deltaStr = (c: typeof cfg) =>
+    c?.snoozeConfDelta != null ? String(Math.round(c.snoozeConfDelta * 100)) : ''
+  const hoursStr = (c: typeof cfg) =>
+    c?.snoozeUrgencyMinutes != null ? String(Math.round(c.snoozeUrgencyMinutes / 60)) : ''
   useEffect(() => {
     if (cfg) {
       setPct(String(Math.round(cfg.tier1AutoThreshold * 100)))
       setBoundedAuto(cfg.tier2Mode === 'bounded_auto')
+      setWearPct(wearStr(cfg))
+      setSnoozeDeltaPct(deltaStr(cfg))
+      setSnoozeHours(hoursStr(cfg))
     }
   }, [cfg])
 
   const pctNum = Number(pct)
-  const valid = Number.isFinite(pctNum) && pctNum >= 0 && pctNum <= 100
+  const pctValid = Number.isFinite(pctNum) && pctNum >= 0 && pctNum <= 100
+  // Each nullable field: blank is valid (→ default); else it must parse in range.
+  const wearNum = wearPct.trim() === '' ? null : Number(wearPct)
+  const wearValid = wearNum === null || (Number.isFinite(wearNum) && wearNum > 0 && wearNum <= 200)
+  const deltaNum = snoozeDeltaPct.trim() === '' ? null : Number(snoozeDeltaPct)
+  const deltaValid =
+    deltaNum === null || (Number.isFinite(deltaNum) && deltaNum >= 0 && deltaNum <= 100)
+  const hoursNum = snoozeHours.trim() === '' ? null : Number(snoozeHours)
+  const hoursValid = hoursNum === null || (Number.isFinite(hoursNum) && hoursNum > 0)
+  const valid = pctValid && wearValid && deltaValid && hoursValid
+
+  // Dirty by comparing display strings to the hydrated config form (exact — avoids float wobble).
   const dirty = cfg
     ? pctNum !== Math.round(cfg.tier1AutoThreshold * 100) ||
-      boundedAuto !== (cfg.tier2Mode === 'bounded_auto')
+      boundedAuto !== (cfg.tier2Mode === 'bounded_auto') ||
+      wearPct.trim() !== wearStr(cfg) ||
+      snoozeDeltaPct.trim() !== deltaStr(cfg) ||
+      snoozeHours.trim() !== hoursStr(cfg)
     : false
 
   const onSave = () => {
@@ -53,10 +82,9 @@ export function ObjectivePolicyContent() {
     update.mutate({
       tier1AutoThreshold: pctNum / 100,
       tier2Mode: boundedAuto ? 'bounded_auto' : 'advisory',
-      wearBand: cfg?.wearBand ?? null,
-      // Preserve the snooze overrides (set via API/config; this screen doesn't edit them) — don't null on save.
-      snoozeConfDelta: cfg?.snoozeConfDelta ?? null,
-      snoozeUrgencyMinutes: cfg?.snoozeUrgencyMinutes ?? null,
+      wearBand: wearNum === null ? null : wearNum / 100,
+      snoozeConfDelta: deltaNum === null ? null : deltaNum / 100,
+      snoozeUrgencyMinutes: hoursNum === null ? null : Math.round(hoursNum * 60),
     })
   }
 
@@ -144,24 +172,82 @@ export function ObjectivePolicyContent() {
           </YStack>
           <StatusPill tone="inactive">{t('tier3.locked')}</StatusPill>
         </XStack>
-
-        {canConfigure ? (
-          <XStack
-            marginTop="$2"
-            opacity={valid && dirty ? 1 : 0.5}
-            pointerEvents={valid && dirty ? 'auto' : 'none'}
-          >
-            <AppButton
-              variant="primary"
-              size="$3"
-              loading={update.isPending}
-              onPress={onSave}
-            >
-              {t('save')}
-            </AppButton>
-          </XStack>
-        ) : null}
       </Panel>
+
+      {/* Predictive tuning — the wear-flag band + the snooze re-ask thresholds. Each is NULLABLE:
+          blank = the safe default (the wearBand / RULE.SNOOZE_* constants). Per-tenant (D42). */}
+      <Panel
+        title={t('tuning.title')}
+        maxWidth={620}
+      >
+        <P
+          size={4}
+          color="$textSecondary"
+        >
+          {t('tuning.subtitle')}
+        </P>
+        <YStack gap="$2">
+          <AppInput
+            label={t('tuning.wearLabel')}
+            value={wearPct}
+            onChangeText={setWearPct}
+            type="text"
+            error={wearValid ? undefined : t('tuning.invalidWear')}
+          />
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('tuning.wearRead', { pct: wearNum ?? 5 })}
+          </P>
+        </YStack>
+        <YStack gap="$2">
+          <AppInput
+            label={t('tuning.deltaLabel')}
+            value={snoozeDeltaPct}
+            onChangeText={setSnoozeDeltaPct}
+            type="text"
+            error={deltaValid ? undefined : t('tuning.invalidDelta')}
+          />
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('tuning.deltaRead', { pts: deltaNum ?? 15 })}
+          </P>
+        </YStack>
+        <YStack gap="$2">
+          <AppInput
+            label={t('tuning.hoursLabel')}
+            value={snoozeHours}
+            onChangeText={setSnoozeHours}
+            type="text"
+            error={hoursValid ? undefined : t('tuning.invalidHours')}
+          />
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('tuning.hoursRead', { h: hoursNum ?? 24 })}
+          </P>
+        </YStack>
+      </Panel>
+
+      {canConfigure ? (
+        <XStack
+          opacity={valid && dirty ? 1 : 0.5}
+          pointerEvents={valid && dirty ? 'auto' : 'none'}
+        >
+          <AppButton
+            variant="primary"
+            size="$3"
+            loading={update.isPending}
+            onPress={onSave}
+          >
+            {t('save')}
+          </AppButton>
+        </XStack>
+      ) : null}
 
       {/* Phase-5 seam — objective trade-off weights + priority tiers (not built). */}
       <Panel
