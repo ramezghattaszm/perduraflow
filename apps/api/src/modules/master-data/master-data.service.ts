@@ -4,12 +4,14 @@ import {
   type CreateCertificationRequest,
   type CreateOperatorRequest,
   type CreatePartRequest,
+  type CreateResourceDowntimeRequest,
   type CreateResourceGroupRequest,
   type CreateResourceRequest,
   type CreateRoutingRequest,
   type OperatorDto,
   type OrgReadContract,
   type PartDto,
+  type ResourceDowntimeDto,
   type ResourceDto,
   type ResourceGroupDto,
   type RoutingDto,
@@ -29,6 +31,7 @@ import {
   toCertificationDto,
   toOperatorDto,
   toPartDto,
+  toResourceDowntimeDto,
   toResourceDto,
   toResourceGroupDto,
   toRoutingDto,
@@ -118,6 +121,69 @@ export class MasterDataService {
     const row = await this.repo.updateResource(tenantId, id, dto)
     if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Resource not found', ERROR_CODES.RESOURCE_NOT_FOUND)
     return toResourceDto(row)
+  }
+
+  // --- resource downtime (line-down / maintenance closures) ------------------
+  /** Active downtime windows (line-down / maintenance), optionally plant-scoped. */
+  async listActiveDowntime(tenantId: string, plantId?: string): Promise<ResourceDowntimeDto[]> {
+    return (await this.repo.listActiveDowntime(tenantId, new Date(), plantId)).map(toResourceDowntimeDto)
+  }
+
+  /**
+   * Opens a per-resource downtime window (line-down / maintenance). `plantId` is
+   * derived from the resource; the window is a time-boxed closure the sequencer
+   * subtracts from capacity (ops displace around it). Emits `…resource_downtime.opened`.
+   * @throws AppException RESOURCE_NOT_FOUND - no such resource in the tenant
+   * @throws AppException INVALID_DOWNTIME_WINDOW - `to <= from` (zero/negative duration)
+   */
+  async createDowntime(tenantId: string, dto: CreateResourceDowntimeRequest, createdBy: string): Promise<ResourceDowntimeDto> {
+    const resourceRow = await this.repo.findResource(tenantId, dto.resourceId)
+    if (!resourceRow) throw new AppException(HttpStatus.NOT_FOUND, 'Resource not found', ERROR_CODES.RESOURCE_NOT_FOUND)
+    const from = new Date(dto.from)
+    const to = new Date(dto.to)
+    if (!(to.getTime() > from.getTime())) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'Downtime end must be after start', ERROR_CODES.INVALID_DOWNTIME_WINDOW)
+    }
+    const row = await this.repo.createDowntime({
+      tenantId,
+      resourceId: dto.resourceId,
+      plantId: resourceRow.plantId,
+      kind: dto.kind,
+      planned: dto.planned,
+      fromTs: from,
+      toTs: to,
+      reason: dto.reason,
+      createdBy,
+    })
+    await this.events.publish(EVENTS.RESOURCE_DOWNTIME_OPENED, { id: row.id, tenantId, resourceId: row.resourceId }, tenantId)
+    return toResourceDowntimeDto(row)
+  }
+
+  /**
+   * "Bring the line back up" — end an outage early. If the window is in effect,
+   * truncate `to = now` (honest history: it WAS down from→now); if it hasn't
+   * started yet, retract it (`isActive = false` — it never took effect); if it's
+   * already over, no-op. Idempotent.
+   * @throws AppException RESOURCE_DOWNTIME_NOT_FOUND - no such window in the tenant
+   */
+  async closeDowntimeNow(tenantId: string, id: string): Promise<ResourceDowntimeDto> {
+    const existing = await this.repo.findDowntime(tenantId, id)
+    if (!existing) throw new AppException(HttpStatus.NOT_FOUND, 'Downtime window not found', ERROR_CODES.RESOURCE_DOWNTIME_NOT_FOUND)
+    const now = new Date()
+    if (now.getTime() >= existing.toTs.getTime()) return toResourceDowntimeDto(existing) // already over
+    const patch = now.getTime() <= existing.fromTs.getTime() ? { isActive: false } : { toTs: now }
+    const row = await this.repo.updateDowntime(tenantId, id, patch)
+    return toResourceDowntimeDto(row!)
+  }
+
+  /**
+   * Retracts a downtime window (soft-delete) — a record opened in error.
+   * @throws AppException RESOURCE_DOWNTIME_NOT_FOUND - no such window in the tenant
+   */
+  async retractDowntime(tenantId: string, id: string): Promise<ResourceDowntimeDto> {
+    const row = await this.repo.updateDowntime(tenantId, id, { isActive: false })
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Downtime window not found', ERROR_CODES.RESOURCE_DOWNTIME_NOT_FOUND)
+    return toResourceDowntimeDto(row)
   }
 
   // --- resource group --------------------------------------------------------

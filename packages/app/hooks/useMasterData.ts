@@ -4,11 +4,13 @@ import type {
   CreateCertificationRequest,
   CreateOperatorRequest,
   CreatePartRequest,
+  CreateResourceDowntimeRequest,
   CreateResourceGroupRequest,
   CreateResourceRequest,
   CreateRoutingRequest,
   OperatorDto,
   PartDto,
+  ResourceDowntimeDto,
   ResourceDto,
   ResourceGroupDto,
   RoutingDto,
@@ -27,6 +29,7 @@ import { QUERY_KEYS } from '../lib/query-keys'
 const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
 const post = <T, B>(url: string, body: B) => apiClient.post<T>(url, body).then((r) => r.data)
 const patch = <T, B>(url: string, body: B) => apiClient.patch<T>(url, body).then((r) => r.data)
+const del = <T>(url: string) => apiClient.delete<T>(url).then((r) => r.data)
 
 // --- parts -------------------------------------------------------------------
 /** Lists the tenant's parts (`GET /master-data/parts`). */
@@ -173,4 +176,40 @@ export function useSetOperatorQualification() {
       patch<OperatorDto, SetOperatorQualificationRequest>(`/admin/master-data/operators/${operatorId}/qualifications`, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.masterData.operators() }),
   })
+}
+
+// --- resource downtime (line-down / maintenance closures) --------------------
+/** Active downtime windows for a plant (`GET /master-data/downtime?plantId=`). */
+export function useResourceDowntime(plantId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.masterData.downtime(plantId ?? ''),
+    queryFn: () => get<ResourceDowntimeDto[]>(`/master-data/downtime?plantId=${plantId}`),
+    enabled: !!plantId,
+  })
+}
+/**
+ * Open / bring-back-up a downtime window. Invalidates the downtime list AND the board's
+ * scheduling resources (so the lane reflects DOWN without a manual refresh — same source).
+ */
+export function useResourceDowntimeMutations(plantId: string | undefined) {
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.masterData.downtime(plantId ?? '') })
+    if (plantId) void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.resources(plantId) })
+  }
+  const open = useMutation({
+    mutationFn: (b: CreateResourceDowntimeRequest) =>
+      post<ResourceDowntimeDto, CreateResourceDowntimeRequest>('/admin/master-data/downtime', b),
+    onSuccess: invalidate,
+  })
+  /** Bring the line back up — ends the outage now (truncate / retract). */
+  const close = useMutation({
+    mutationFn: (id: string) => post<ResourceDowntimeDto, Record<string, never>>(`/admin/master-data/downtime/${id}/close`, {}),
+    onSuccess: invalidate,
+  })
+  /** Retract a window opened in error (soft-delete). */
+  const retract = useMutation({
+    mutationFn: (id: string) => del<ResourceDowntimeDto>(`/admin/master-data/downtime/${id}`),
+    onSuccess: invalidate,
+  })
+  return { open, close, retract }
 }

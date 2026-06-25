@@ -54,6 +54,9 @@ export const ERROR_CODES = {
   ROUTING_OPERATION_NOT_FOUND: 'ROUTING_OPERATION_NOT_FOUND',
   CERTIFICATION_NOT_FOUND: 'CERTIFICATION_NOT_FOUND',
   OPERATOR_NOT_FOUND: 'OPERATOR_NOT_FOUND',
+  RESOURCE_DOWNTIME_NOT_FOUND: 'RESOURCE_DOWNTIME_NOT_FOUND',
+  // a downtime window with `to <= from` (zero/negative duration)
+  INVALID_DOWNTIME_WINDOW: 'INVALID_DOWNTIME_WINDOW',
   // cross-module reference validation via org.read 1.1 (O4)
   INVALID_CALENDAR_REFERENCE: 'INVALID_CALENDAR_REFERENCE',
   // intra-module reference validation (resource-group members, op targets)

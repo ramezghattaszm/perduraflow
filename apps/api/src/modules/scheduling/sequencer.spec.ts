@@ -123,6 +123,49 @@ describe('sequence — effective-time resolution carries the op start (forward-o
   })
 })
 
+describe('sequence — resource downtime (line-down / maintenance) attribution + displacement', () => {
+  // R1 down the WHOLE Monday working span (a "rest of today" line-down): closed interval baked
+  // into the calendar (what displaces) + the id-bearing window passed for binder attribution.
+  const downAllMon = buildWorkingCalendar({
+    shiftPatterns: [{ start: '06:00', end: '14:00' }, { start: '14:00', end: '22:00' }],
+    closedIntervals: [[at(MON, 6), at(MON, 22)]],
+  })
+  const dt = new Map([['R1', [{ id: 'dt1', startMs: at(MON, 6), endMs: at(MON, 22) }]]])
+
+  it('displaces (not excludes): a down line pushes its ops past the window, op count preserved', () => {
+    const items = [item('a', 'A', 60, 2), item('b', 'B', 60, 2)] // two 2h ops
+    const cals = new Map([['R1', downAllMon]])
+    const { placements } = sequence(items, undefined, undefined, cals, undefined, undefined, dt)
+    // Nothing dropped — both ops still in the plan, just relocated past the outage.
+    expect(placements).toHaveLength(2)
+    for (const p of placements) expect(p.plannedStartMs).toBeGreaterThanOrEqual(at(MON + DAY, 6)) // Tuesday
+  })
+
+  it('binder roots a delayed start at resource_downtime + records the window id', () => {
+    const cals = new Map([['R1', downAllMon]])
+    const a = sequence([item('a', 'A', 60, 2)], undefined, undefined, cals, undefined, undefined, dt).placements[0]!
+    expect(a.bindingKind).toBe('resource_downtime')
+    expect(a.bindingDowntimeId).toBe('dt1')
+    expect(a.bindingBlockerDemandLineId).toBeNull() // a root: no blocking op
+    expect(a.atRisk).toBe(true) // due Mon 12:00, pushed to Tuesday
+    expect(a.atRiskReason).toBe('resource_down')
+  })
+
+  it('does NOT tag downtime when the op fits before the window (no false attribution)', () => {
+    // Afternoon-only outage; a 2h op floored at 06:00 runs 06:00–08:00, before the closure.
+    const pmDown = buildWorkingCalendar({
+      shiftPatterns: [{ start: '06:00', end: '14:00' }, { start: '14:00', end: '22:00' }],
+      closedIntervals: [[at(MON, 14), at(MON, 22)]],
+    })
+    const dtPm = new Map([['R1', [{ id: 'dt2', startMs: at(MON, 14), endMs: at(MON, 22) }]]])
+    const a = sequence([item('a', 'A', 60, 2)], undefined, undefined, new Map([['R1', pmDown]]), undefined, undefined, dtPm)
+      .placements[0]!
+    expect(a.plannedStartMs).toBe(at(MON, 6))
+    expect(a.bindingKind).not.toBe('resource_downtime')
+    expect(a.bindingDowntimeId).toBeNull()
+  })
+})
+
 describe('sequence — minimum batch floor (C4)', () => {
   it('runs to the minimum batch when demand is below it (run qty + duration floored)', () => {
     const below = [item('a', 'A', 1, 10)] // demand 10 < min 100 → runs 100

@@ -120,6 +120,13 @@
       "when": 1782394577383,
       "tag": "0016_exotic_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1782403979139,
+      "tag": "0017_nosy_bushwacker",
+      "breakpoints": true
     }
   ]
 }

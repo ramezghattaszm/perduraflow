@@ -235,7 +235,6 @@ export async function seed(): Promise<void> {
         { name: 'B', start: '14:00', end: '22:00' },
       ],
       holidays: [],
-      maintenanceWindows: [],
       workingDays: [1, 2, 3, 4, 5, 6],
     }
     const [calSaltillo] = await db

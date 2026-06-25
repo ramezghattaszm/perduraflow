@@ -92,12 +92,16 @@
     "rootWorking_window": "won't fit the working window",
     "rootCapacity": "resource at capacity",
     "rootDue_before_start": "due before it could start",
+    "rootLineDown": "line down",
+    "rootMaintenance": "maintenance window",
+    "rootDowntimeReason": "{{base}} ({{reason}})",
     "withLever": "{{base}} — {{lever}}",
     "lever": {
       "material": "expedite the material or move the date",
       "working_window": "add overtime or a shift, or move the date",
       "capacity": "reprioritize, add overtime, or move the date",
-      "due_before_start": "re-sequencing won't help; renegotiate the date or expedite"
+      "due_before_start": "re-sequencing won't help; renegotiate the date or expedite",
+      "resource_downtime": "reroute to another line, add overtime, or move the date"
     },
     "dueTimed": "due {{due}}, but the line can't start until {{start}} — re-sequencing won't help; renegotiate the date or expedite",
     "behindResource": "behind {{blocker}} on {{resource}}",
@@ -208,6 +212,17 @@
     "conditionDemand": "Condition set — order quantity changed.",
     "conditionDown": "Condition set — line marked down.",
     "conditionUp": "Restored — line back up.",
+    "downDuration": "Down for",
+    "restOfToday": "Rest of today",
+    "restOfShift": "Rest of this shift",
+    "nextHours": "Next {{n}}h",
+    "hours": "Hours",
+    "downReason": "Reason (optional)",
+    "reasonPlaceholder": "e.g. hydraulics failure",
+    "activeDowntime": "Active outages on this line",
+    "noActiveDowntime": "No active outage on this line.",
+    "conditionDownWindow": "Condition set — line down until {{until}}.",
+    "downWindowRow": "{{from}} → {{to}}",
     "goToBoard": "Open the Board (this plant) — it shows the condition with options to review and apply."
   }
 }

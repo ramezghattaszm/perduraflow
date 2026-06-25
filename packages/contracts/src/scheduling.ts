@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { NarrationMode } from './llm'
-import type { OperatorAbsenceReason } from './masterdata'
+import type { OperatorAbsenceReason, ResourceDowntimeKind } from './masterdata'
 import type { OrgPriority } from './org'
 
 /**
@@ -46,7 +46,8 @@ export type TimeSource = z.infer<typeof timeSourceSchema>
  * The floor component that set an op's start — the engine's computed cause of its placement, the
  * atom of causal-lateness attribution (D-late). `resource`/`predecessor` point at a blocking op
  * (followed for the chain); the rest are roots: `material` (buy-component gate), `release`/`origin`
- * (couldn't start before its day / the horizon), `working_window` (couldn't fit a working segment).
+ * (couldn't start before its day / the horizon), `working_window` (couldn't fit a working segment),
+ * `resource_downtime` (a line-down / maintenance closure on the resource delayed the start).
  */
 export const bindingKindSchema = z.enum([
   'resource',
@@ -55,6 +56,7 @@ export const bindingKindSchema = z.enum([
   'release',
   'origin',
   'working_window',
+  'resource_downtime',
 ])
 export type BindingKind = z.infer<typeof bindingKindSchema>
 
@@ -244,6 +246,7 @@ export const latenessRootSchema = z.enum([
   'working_window',
   'capacity',
   'due_before_start',
+  'resource_downtime',
 ])
 export type LatenessRoot = z.infer<typeof latenessRootSchema>
 
@@ -260,8 +263,11 @@ export interface LatenessHop {
   partNo: string
   /** Why THIS op was pushed (its binding). Terminal hop carries a LatenessRoot. */
   kind: 'predecessor' | 'resource' | LatenessRoot
-  /** Root specifics, e.g. the gating component part no ("PV-22") on a `material` hop; else null. */
+  /** Root specifics, e.g. the gating component part no ("PV-22") on a `material` hop, or the downtime
+   *  window's reason on a `resource_downtime` hop; else null. */
   detail: string | null
+  /** On a `resource_downtime` root hop: line-down vs maintenance (drives copy nuance); else null. */
+  downtimeKind?: ResourceDowntimeKind | null
 }
 
 /**
@@ -533,6 +539,14 @@ export const changeSchema = z.discriminatedUnion('kind', [
     resourceId: z.string().min(1),
     downFrom: z.string().min(1),
     downTo: z.string().min(1),
+  }),
+  // Line-down REMEDIATION marker: the resource is already down per a PERSISTED resource_downtime
+  // window (the situation lives in the base context's calendars). This change carries NO window
+  // times — it only signals "generate the reroute / overtime remediation for this down line." The
+  // window is the situation (base, single source); the change-set is the response (no double-apply).
+  z.object({
+    kind: z.literal('line_down'),
+    resourceId: z.string().min(1),
   }),
   z.object({
     kind: z.literal('overtime'),

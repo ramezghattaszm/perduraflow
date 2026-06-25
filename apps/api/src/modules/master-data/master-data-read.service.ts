@@ -6,6 +6,7 @@ import {
   type MasterDataRefValidation,
   type OperatorDto,
   type PartDto,
+  type ResourceDowntimeDto,
   type ResourceDto,
   type ResourceGroupDto,
   type ResourceTypeConfigDto,
@@ -15,6 +16,7 @@ import {
   toCertificationDto,
   toOperatorDto,
   toPartDto,
+  toResourceDowntimeDto,
   toResourceDto,
   toResourceGroupDto,
   toResourceTypeConfigDto,
@@ -124,5 +126,10 @@ export class MasterDataReadService implements MasterDataReadContract {
   /** Resource-type shift config (splittable / OT cap) — the calendar-aware sequencer (D-shift). */
   async listResourceTypeConfigs(tenantId: string): Promise<ResourceTypeConfigDto[]> {
     return (await this.repo.listResourceTypeConfigs(tenantId)).map(toResourceTypeConfigDto)
+  }
+
+  /** Active downtime windows (line-down / maintenance) the sequencer subtracts from capacity (1.3). */
+  async listActiveDowntime(tenantId: string, plantId?: string): Promise<ResourceDowntimeDto[]> {
+    return (await this.repo.listActiveDowntime(tenantId, new Date(), plantId)).map(toResourceDowntimeDto)
   }
 }

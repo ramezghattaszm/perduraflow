@@ -21,6 +21,7 @@ export const EVENTS = {
   ROUTING_CREATED: 'master_data.routing.created',
   CERTIFICATION_CREATED: 'master_data.certification.created',
   OPERATOR_CREATED: 'master_data.operator.created',
+  RESOURCE_DOWNTIME_OPENED: 'master_data.resource_downtime.opened',
   // scheduling module (phase 2)
   SCHEDULING_RUN_COMPLETED: 'scheduling.run.completed',
   SCHEDULING_VERSION_COMMITTED: 'scheduling.version.committed',

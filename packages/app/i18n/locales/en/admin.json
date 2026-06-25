@@ -98,8 +98,8 @@
   },
   "calendars": {
     "title": "Calendars",
-    "subtitle": "Shift patterns, holidays and maintenance windows.",
-    "fields": { "name": "Name", "plantId": "Plant", "workingDays": "Working days", "shiftPatterns": "Shift patterns (JSON)", "holidays": "Holidays (JSON)", "maintenanceWindows": "Maintenance windows (JSON)" }
+    "subtitle": "Shift patterns, holidays and working days.",
+    "fields": { "name": "Name", "plantId": "Plant", "workingDays": "Working days", "shiftPatterns": "Shift patterns (JSON)", "holidays": "Holidays (JSON)" }
   },
   "roles": {
     "title": "Roles",

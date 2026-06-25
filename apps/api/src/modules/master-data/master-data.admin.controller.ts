@@ -1,8 +1,9 @@
-import { Body, Controller, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Param, Patch, Post, UseGuards } from '@nestjs/common'
 import {
   createCertificationSchema,
   createOperatorSchema,
   createPartSchema,
+  createResourceDowntimeSchema,
   createResourceGroupSchema,
   createResourceSchema,
   createRoutingSchema,
@@ -16,6 +17,7 @@ import {
   type CreateCertificationRequest,
   type CreateOperatorRequest,
   type CreatePartRequest,
+  type CreateResourceDowntimeRequest,
   type CreateResourceGroupRequest,
   type CreateResourceRequest,
   type CreateRoutingRequest,
@@ -82,6 +84,28 @@ export class MasterDataAdminController {
     @Body(new ZodValidationPipe(updateResourceSchema)) dto: UpdateResourceRequest,
   ) {
     return this.md.updateResource(user.tenantId, id, dto)
+  }
+
+  // --- resource downtime (line-down / maintenance) ---------------------------
+  /** `POST /admin/master-data/downtime` — open a downtime window (the simulator line-down). */
+  @Post('downtime')
+  createDowntime(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(createResourceDowntimeSchema)) dto: CreateResourceDowntimeRequest,
+  ) {
+    return this.md.createDowntime(user.tenantId, dto, user.sub)
+  }
+
+  /** `POST /admin/master-data/downtime/:id/close` — bring the line back up (end the outage now). */
+  @Post('downtime/:id/close')
+  closeDowntime(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.md.closeDowntimeNow(user.tenantId, id)
+  }
+
+  /** `DELETE /admin/master-data/downtime/:id` — retract a window opened in error (soft-delete). */
+  @Delete('downtime/:id')
+  retractDowntime(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.md.retractDowntime(user.tenantId, id)
   }
 
   // --- resource group --------------------------------------------------------

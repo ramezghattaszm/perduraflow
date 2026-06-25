@@ -31,7 +31,8 @@ const parseJson = (text: string): unknown => {
 }
 const stringify = (v: unknown): string => JSON.stringify(v ?? [], null, 2)
 
-/** Calendars admin screen — shift patterns/holidays/maintenance windows (D17; JSON editors, SKIP-52). */
+/** Calendars admin screen — shift patterns/holidays/working days (D17; JSON editors, SKIP-52).
+ * Time-boxed closures (maintenance / line-down) live in per-resource resource_downtime, not here. */
 export function CalendarsScreen() {
   const { t } = useTranslation('admin')
   const canConfigure = useCanConfigure()
@@ -44,7 +45,6 @@ export function CalendarsScreen() {
   const [plantId, setPlantId] = useState<string | null>(null)
   const [shifts, setShifts] = useState('[]')
   const [holidays, setHolidays] = useState('[]')
-  const [maint, setMaint] = useState('[]')
   const [workingDays, setWorkingDays] = useState<number[]>([1, 2, 3, 4, 5, 6])
 
   const { show } = usePopup()
@@ -78,7 +78,6 @@ export function CalendarsScreen() {
     setPlantId(null)
     setShifts('[]')
     setHolidays('[]')
-    setMaint('[]')
     setWorkingDays([1, 2, 3, 4, 5, 6])
     setOpen(true)
   }
@@ -88,7 +87,6 @@ export function CalendarsScreen() {
     setPlantId(c.plantId)
     setShifts(stringify(c.shiftPatterns))
     setHolidays(stringify(c.holidays))
-    setMaint(stringify(c.maintenanceWindows))
     setWorkingDays(Array.isArray(c.workingDays) ? (c.workingDays as number[]) : [1, 2, 3, 4, 5, 6])
     setOpen(true)
   }
@@ -98,7 +96,6 @@ export function CalendarsScreen() {
       plantId,
       shiftPatterns: parseJson(shifts),
       holidays: parseJson(holidays),
-      maintenanceWindows: parseJson(maint),
       workingDays,
     }
     const onSuccess = () => setOpen(false)
@@ -188,12 +185,6 @@ export function CalendarsScreen() {
           label={t('calendars.fields.holidays')}
           value={holidays}
           onChangeText={setHolidays}
-        />
-        <AppInput
-          type="multiline"
-          label={t('calendars.fields.maintenanceWindows')}
-          value={maint}
-          onChangeText={setMaint}
         />
         {editingId ? (
           canConfigure ? (

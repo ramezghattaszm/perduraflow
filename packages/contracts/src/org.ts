@@ -80,8 +80,6 @@ export interface CalendarDto {
   name: string
   shiftPatterns: unknown
   holidays: unknown
-  /** Plant-level in phase 0; no resource_id reference yet (SKIP-52). */
-  maintenanceWindows: unknown
   /** UTC weekdays the calendar operates (0=Sun … 6=Sat); default Mon–Sat (D-shift). */
   workingDays: unknown
   /** Soft-delete flag. */
@@ -183,7 +181,6 @@ export const createCalendarSchema = z
     plantId: z.string().nullable().default(null),
     shiftPatterns: z.unknown().default([]),
     holidays: z.unknown().default([]),
-    maintenanceWindows: z.unknown().default([]),
     // UTC weekdays the calendar operates (0=Sun … 6=Sat); default Mon–Sat (D-shift).
     workingDays: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5, 6]),
   })

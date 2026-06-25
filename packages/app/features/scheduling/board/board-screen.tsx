@@ -36,7 +36,7 @@ import { getApiErrorCode } from '../../../utils/error'
 import { latenessLines, latenessSummary } from '../../../utils/lateness'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
-import { useParts } from '../../../hooks/useMasterData'
+import { useParts, useResourceDowntime } from '../../../hooks/useMasterData'
 import {
   useCommitSchedule,
   useDiscardDraft,
@@ -81,6 +81,7 @@ export function BoardContent() {
 
   const { data: versions = [] } = useScheduleVersions(plantId ?? undefined)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
+  const { data: downtime = [] } = useResourceDowntime(plantId ?? undefined)
   const { data: demand = [] } = useScheduleDemand(plantId ?? undefined)
   const { data: materialConditions = [] } = useMaterialConditions(
     plantId ?? undefined,
@@ -165,14 +166,19 @@ export function BoardContent() {
     return ids
   }, [detail, partColour])
 
-  // Conditions live in the DATA (not yet re-solved): a line down = an inactive
-  // resource; a demand change = a demand line whose qty ≠ the committed plan's qty.
-  // The board detects them, suppresses the down line's (now-stranded) bars, and offers
-  // costed options to review + apply (the real Apply→draft→commit, below).
-  const downResourceIds = useMemo(
-    () => new Set(resources.filter((r) => r.status !== 'active').map((r) => r.id)),
-    [resources]
-  )
+  // Conditions live in the DATA (not yet re-solved): a line down = a per-resource
+  // resource_downtime window IN EFFECT NOW (`from ≤ now < to`); a demand change = a demand
+  // line whose qty ≠ the committed plan's qty. The board detects them, suppresses the down
+  // line's (now-stranded) bars, and offers costed options to review + apply (Apply→draft→commit).
+  // ONE source: the same windows the engine subtracts from capacity and roots the chain at.
+  const downResourceIds = useMemo(() => {
+    const now = Date.now()
+    return new Set(
+      downtime
+        .filter((d) => d.isActive && Date.parse(d.from) <= now && now < Date.parse(d.to))
+        .map((d) => d.resourceId)
+    )
+  }, [downtime])
 
   const bars: GanttBar[] = (detail?.operations ?? [])
     .filter((o) => !downResourceIds.has(o.resourceId))
@@ -264,6 +270,15 @@ export function BoardContent() {
     }
   })
   const resourceName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
+  // Closures (line-down / maintenance) drawn on the lane track — every active window (in-effect or
+  // future-in-horizon), so the outage TIMING is legible. Same source as DOWN + the engine's capacity cut.
+  const ganttClosures = useMemo(
+    () =>
+      downtime
+        .filter((d) => d.isActive)
+        .map((d) => ({ resourceId: d.resourceId, startMs: Date.parse(d.from), endMs: Date.parse(d.to), label: t('board.down.pill') })),
+    [downtime, t]
+  )
 
   // KPI strip (D-util headline) — all computed from the committed schedule, no literals. On-time +
   // At-risk derive from the ops (+ demand firmness); Utilization + Throughput come from the SAME
@@ -480,20 +495,15 @@ export function BoardContent() {
       },
       `demand-${demandLineId}`
     )
+  // Remediation-only: the line-down WINDOW already lives in the persisted base (resource_downtime),
+  // so the what-if sends just the `line_down` marker (the response request) — the engine evaluates
+  // reroute / overtime against the base that already reflects the outage. No resource_window in the
+  // change-set → no double-apply; and the committed plan honors the window via base → no commit-gap.
   const runLineDownWhatIf = (resourceId: string) => {
-    const now = new Date()
-    const week = new Date(now.getTime() + 7 * 86_400_000)
     runWhatIf(
       {
         origin: { type: 'collision', ref: resourceId },
-        changes: [
-          {
-            kind: 'resource_window',
-            resourceId,
-            downFrom: now.toISOString(),
-            downTo: week.toISOString(),
-          },
-        ],
+        changes: [{ kind: 'line_down', resourceId }],
       },
       `down-${resourceId}`
     )
@@ -1195,6 +1205,7 @@ export function BoardContent() {
         <ScheduleGantt
           resources={ganttResources}
           bars={visibleBars}
+          closures={ganttClosures}
           horizon={horizonMode}
           viewDateMs={viewDate}
           onDaySelect={(d) => {

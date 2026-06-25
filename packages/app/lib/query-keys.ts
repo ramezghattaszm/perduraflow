@@ -21,6 +21,7 @@ export const QUERY_KEYS = {
     routing: (id: string) => ['master-data', 'routings', id] as const,
     certifications: () => ['master-data', 'certifications'] as const,
     operators: () => ['master-data', 'operators'] as const,
+    downtime: (plantId: string) => ['master-data', 'downtime', plantId] as const,
   },
   scheduling: {
     versions: (plantId: string) => ['scheduling', 'versions', plantId] as const,

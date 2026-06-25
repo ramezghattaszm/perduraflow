@@ -10,9 +10,15 @@ type TFn = (key: string, opts?: Record<string, unknown>) => string
 
 /** The root-cause label, e.g. "PV-22 material" / "due before it could start". */
 export function latenessRootLabel(chain: LatenessChainDto, t: TFn): string {
+  const rootHop = chain.hops[chain.hops.length - 1]
   if (chain.root === 'material') {
-    const component = chain.hops[chain.hops.length - 1]?.detail
+    const component = rootHop?.detail
     return component ? t('lateness.rootMaterial', { component }) : t('lateness.rootMaterialNoComp')
+  }
+  if (chain.root === 'resource_downtime') {
+    // Kind drives the copy nuance (line-down vs maintenance); the window reason (detail) refines it.
+    const base = rootHop?.downtimeKind === 'maintenance' ? t('lateness.rootMaintenance') : t('lateness.rootLineDown')
+    return rootHop?.detail ? t('lateness.rootDowntimeReason', { base, reason: rootHop.detail }) : base
   }
   // rootWorking_window / rootCapacity / rootDue_before_start
   return t(`lateness.root${chain.root.charAt(0).toUpperCase()}${chain.root.slice(1)}`)

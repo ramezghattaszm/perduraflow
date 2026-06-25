@@ -2,6 +2,7 @@ import type {
   CertificationDto,
   OperatorDto,
   PartDto,
+  ResourceDowntimeDto,
   ResourceDto,
   ResourceGroupDto,
   ResourceTypeConfigDto,
@@ -13,6 +14,7 @@ import type {
   Operator,
   Part,
   Resource,
+  ResourceDowntime,
   ResourceGroup,
   ResourceTypeConfig,
   Routing,
@@ -46,6 +48,19 @@ export const toResourceDto = (r: Resource): ResourceDto => ({
   overheadPerUnit: r.overheadPerUnit,
   otCapMinutes: r.otCapMinutes,
   status: r.status,
+})
+
+/** Map a resource-downtime row to its DTO (`from`/`to` as ISO; line-down / maintenance closure). */
+export const toResourceDowntimeDto = (d: ResourceDowntime): ResourceDowntimeDto => ({
+  id: d.id,
+  resourceId: d.resourceId,
+  plantId: d.plantId,
+  kind: d.kind,
+  planned: d.planned,
+  from: d.fromTs.toISOString(),
+  to: d.toTs.toISOString(),
+  reason: d.reason,
+  isActive: d.isActive,
 })
 
 /** Map a resource-type-config row to its DTO (D-shift). */

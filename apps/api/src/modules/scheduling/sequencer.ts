@@ -110,10 +110,11 @@ export type ResolveOperatorFactor = (resourceId: string, atMs: number) => number
  * Which floor component set this op's start — the immediate, computed cause of its placement (D-late).
  * `resource`/`predecessor` point at a blocking op (recurse for the causal chain); the rest are roots:
  * `material` (a buy-component gate), `release`/`origin` (couldn't start before its day / the horizon),
- * `working_window` (couldn't fit any working segment). Recorded for EVERY op so the chain can pass
- * through on-time blockers; null only when there is no binder (degenerate empty schedule).
+ * `working_window` (couldn't fit any working segment), `resource_downtime` (a per-resource line-down /
+ * maintenance closure delayed the start — carries the window id). Recorded for EVERY op so the chain
+ * can pass through on-time blockers; null only when there is no binder (degenerate empty schedule).
  */
-export type BindingKind = 'resource' | 'predecessor' | 'material' | 'release' | 'origin' | 'working_window'
+export type BindingKind = 'resource' | 'predecessor' | 'material' | 'release' | 'origin' | 'working_window' | 'resource_downtime'
 
 /** A placed operation (epoch-ms times; the service maps to rows). */
 export interface Placement {
@@ -139,6 +140,8 @@ export interface Placement {
   /** When `bindingKind` is `resource`/`predecessor`, the op that pushed this one (else null). */
   bindingBlockerDemandLineId: string | null
   bindingBlockerOpSeq: number | null
+  /** When `bindingKind` is `resource_downtime`, the closure window that delayed the start (else null). */
+  bindingDowntimeId: string | null
   /** Required date (epoch ms) — carried through for lateness/earliness scoring. */
   requiredDateMs: number
   firmness: 'firm' | 'forecast'
@@ -200,6 +203,13 @@ export function sequence(
   resourceCalendars?: Map<string, WorkingCalendar>,
   resolveOperatorFactor?: ResolveOperatorFactor,
   minBatchByResource?: Map<string, number>,
+  /**
+   * Per-resource downtime windows (line-down / maintenance) for binder attribution. The windows
+   * are ALSO baked into `resourceCalendars` as closed intervals (that's what displaces ops); this
+   * map only lets the binder name the closure that delayed a start (→ `resource_downtime` root +
+   * the window id). Omitted → no downtime tagging (placement is identical either way).
+   */
+  downtimeByResource?: Map<string, Array<{ id: string; startMs: number; endMs: number }>>,
 ): SequencerResult {
   // A resource's operating calendar (working windows / closures / OT). Resources without
   // one fall back to ALWAYS_ON (24/7) so existing callers and tests are unaffected.
@@ -361,6 +371,29 @@ export function sequence(
     } else {
       bindingKind = 'origin'
     }
+    // Resource-downtime tag (line-down / maintenance): when a per-resource closure delayed this op's
+    // start — it couldn't start at `floor` because the line was down — the closure IS the binder, not
+    // whichever floor component the cursor happened to sit on. The window also lives in the calendar
+    // (that's what displaced the op); this records WHICH window so the lateness chain narrates the
+    // stored closure (from/to/reason). A root: clears any blocking-op attribution.
+    let bindingDowntimeId: string | null = null
+    const dtWindows = downtimeByResource?.get(bestRes)
+    if (dtWindows && dtWindows.length > 0 && (placed === null || startMs > floor)) {
+      const upper = placed === null ? Number.POSITIVE_INFINITY : startMs
+      let bound: { id: string; startMs: number; endMs: number } | null = null
+      for (const w of dtWindows) {
+        // the window must overlap the delayed gap [floor, startMs) (or the no-fit horizon)
+        if (w.startMs < upper && w.endMs > floor) {
+          // attribute to the closure that ends latest (the dominant delay); ties by id for determinism
+          if (bound === null || w.endMs > bound.endMs || (w.endMs === bound.endMs && w.id < bound.id)) bound = w
+        }
+      }
+      if (bound) {
+        bindingKind = 'resource_downtime'
+        blocker = null
+        bindingDowntimeId = bound.id
+      }
+    }
     st.freeMs = endMs
     st.lastOpKey = { demandLineId: item.demandLineId, opSeq: item.opSeq }
     endByLineOp.set(`${item.demandLineId}:${item.opSeq}`, endMs) // precedence: successor floors on this
@@ -383,10 +416,19 @@ export function sequence(
       setupConfidence: eff.setupConfidence,
       cycleConfidence: eff.cycleConfidence,
       atRisk,
-      atRiskReason: !atRisk ? null : bindingKind === 'material' ? 'material' : bindingKind === 'working_window' ? 'exceeds_working_window' : 'late',
+      atRiskReason: !atRisk
+        ? null
+        : bindingKind === 'resource_downtime'
+          ? 'resource_down'
+          : bindingKind === 'material'
+            ? 'material'
+            : bindingKind === 'working_window'
+              ? 'exceeds_working_window'
+              : 'late',
       bindingKind,
       bindingBlockerDemandLineId: blocker?.demandLineId ?? null,
       bindingBlockerOpSeq: blocker?.opSeq ?? null,
+      bindingDowntimeId,
       requiredDateMs: item.requiredDate,
       firmness: item.firmness,
       changeoverValue: item.changeoverValue,

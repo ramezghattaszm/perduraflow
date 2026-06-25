@@ -49,7 +49,6 @@ export const toCalendarDto = (c: Calendar): CalendarDto => ({
   name: c.name,
   shiftPatterns: c.shiftPatterns,
   holidays: c.holidays,
-  maintenanceWindows: c.maintenanceWindows,
   workingDays: c.workingDays,
   isActive: c.isActive,
 })

@@ -45,6 +45,28 @@ export const Empty: Story = {
   ),
 }
 
+/** Line-down closure — a danger-tinted hatched region marks the outage window on the down lane,
+ *  which is tagged DOWN and shows no bars (its work displaced to the other lane). */
+export const LineDownClosure: Story = {
+  render: () => (
+    <YStack padding="$4">
+      <ScheduleGantt
+        resources={[
+          { id: 'press', label: 'Press Line A', subLabel: 'Stamping', down: true },
+          { id: 'pressb', label: 'Press Line B', subLabel: 'Stamping', util: { label: '92%', tone: 'ok' } },
+        ]}
+        horizonStartMs={origin}
+        horizonEndMs={end}
+        closures={[{ resourceId: 'press', startMs: origin + 120 * m, endMs: end, label: 'down' }]}
+        bars={[
+          { id: 'b1', resourceId: 'pressb', label: 'FG-1001', sourceTag: 'std', startMs: origin, endMs: origin + 130 * m, setupMin: 20, runMin: 110, atRisk: false, changeover: false },
+          { id: 'b2', resourceId: 'pressb', label: 'FG-1003', sourceTag: 'std', startMs: origin + 130 * m, endMs: origin + 300 * m, setupMin: 30, runMin: 140, atRisk: true, changeover: true },
+        ]}
+      />
+    </YStack>
+  ),
+}
+
 /** Learned (ml) bars — distinct $ml fill + a confidence bar (phase 3). */
 export const Learned: Story = {
   render: () => (

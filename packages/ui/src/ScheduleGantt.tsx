@@ -71,10 +71,25 @@ export interface GanttBar {
   confidence?: number | null
 }
 
+/**
+ * A time-boxed closure on a resource lane (a line-down / maintenance window) — rendered as a
+ * danger-tinted hatched region over `[startMs, endMs)`, so the OUTAGE TIMING is visible on the
+ * track even when the lane shows no bars. The same window the engine subtracts from capacity.
+ */
+export interface GanttClosure {
+  resourceId: string
+  startMs: number
+  endMs: number
+  /** Optional short label drawn in the region (e.g. "down"). */
+  label?: string
+}
+
 /** Props for {@link ScheduleGantt}. */
 export interface ScheduleGanttProps {
   resources: GanttResource[]
   bars: GanttBar[]
+  /** Time-boxed closures (line-down / maintenance) drawn as hatched regions on their lane. */
+  closures?: GanttClosure[]
   horizonStartMs: number
   horizonEndMs: number
   /**
@@ -165,7 +180,7 @@ interface DayCell {
  * @example
  * <ScheduleGantt resources={rows} bars={bars} horizonStartMs={s} horizonEndMs={e} onBarPress={open} />
  */
-export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, workingWindow, horizon = 'day', viewDateMs, onDaySelect, closedText, noWorkText, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
+export function ScheduleGantt({ resources, bars, closures, horizonStartMs, horizonEndMs, workingWindow, horizon = 'day', viewDateMs, onDaySelect, closedText, noWorkText, barDetail, onBarSelect, selectedBarId, onResourceSelect, selectedResourceId, emptyText }: ScheduleGanttProps) {
   const theme = useTheme()
   const [trackArea, setTrackArea] = useState(0)
   // Hover preview only (web). The selected/open bar is owned by the parent
@@ -427,6 +442,45 @@ export function ScheduleGantt({ resources, bars, horizonStartMs, horizonEndMs, w
                 ))}
               </>
             )}
+            {/* closures (line-down / maintenance): a danger-tinted hatched region on the lane over
+                [start, end), so the outage TIMING is visible on the track (the lane shows no bars). */}
+            {(closures ?? []).map((cl, ci) => {
+              const ri = rowIndex.get(cl.resourceId)
+              if (ri === undefined) return null
+              const x0 = Math.max(0, Math.min(xFor(cl.startMs), trackW))
+              const x1 = Math.max(0, Math.min(xFor(cl.endMs), trackW))
+              const w = x1 - x0
+              if (w <= 1) return null
+              const y = AXIS_H + ri * LANE_H
+              const step = 7
+              const hatch: ReactNode[] = []
+              for (let o = step; o < w + LANE_H; o += step) {
+                hatch.push(
+                  <Line
+                    key={`clh${ci}-${o}`}
+                    x1={x0 + Math.max(0, o - LANE_H)}
+                    y1={y + Math.min(o, LANE_H)}
+                    x2={x0 + Math.min(o, w)}
+                    y2={y + Math.max(0, o - w)}
+                    stroke={c.danger}
+                    strokeWidth={1}
+                    opacity={0.35}
+                  />,
+                )
+              }
+              return (
+                <G key={`cl${ci}`}>
+                  <Rect x={x0} y={y} width={w} height={LANE_H} fill={c.danger} opacity={0.1} />
+                  {hatch}
+                  <Line x1={x0} y1={y} x2={x0} y2={y + LANE_H} stroke={c.danger} strokeWidth={2} opacity={0.85} />
+                  {cl.label && w > 34 ? (
+                    <SvgText x={x0 + 6} y={y + LANE_H / 2 + 4} fontSize={11} fontWeight="600" fill={c.danger} opacity={0.9}>
+                      {cl.label}
+                    </SvgText>
+                  ) : null}
+                </G>
+              )
+            })}
             {/* bars (rounded all around; setup + top-stripe clipped to the rounded shape) */}
             {bars.map((b) => {
               const ri = rowIndex.get(b.resourceId)

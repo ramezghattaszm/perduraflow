@@ -244,7 +244,8 @@ const GOAL_SEEK_TOOL: LlmTool = {
 
 /**
  * Explain-lateness (causal attribution, D-late) — return an order's computed lateness chain: the
- * binding op at each hop down to a root (material / capacity / working_window / due_before_start).
+ * binding op at each hop down to a root (material / capacity / working_window / due_before_start /
+ * resource_downtime).
  * Every hop is a stored engine fact (the floor that set the start), so the Copilot narrates the chain
  * and NEVER infers a link. Type-1: retrieve + translate. `demandLineId` defaults to the screen selection.
  */
@@ -951,6 +952,8 @@ export function compactLateness(demandLineId: string, chains: LatenessChainDto[]
         part: h.partNo,
         kind: h.kind,
         detail: h.detail,
+        // line-down vs maintenance on a resource_downtime root (so the narration names the closure honestly)
+        ...(h.downtimeKind ? { downtimeKind: h.downtimeKind } : {}),
       })),
     })),
     note: 'Narrate the hops IN ORDER as the causal chain (op held by → its blocker → … → root). Every hop is a computed engine fact; NEVER add or infer a blocker not in this list. If truncated, say the chain was truncated.',
@@ -1021,6 +1024,8 @@ export function renderActiveScenario(
         return `move ${orderRef(c.demandLineId)} due date to ${c.to}`
       case 'resource_window':
         return `take ${resName(c.resourceId)} down (${c.downFrom}–${c.downTo})`
+      case 'line_down':
+        return `${resName(c.resourceId)} is down`
       case 'overtime':
         return `add ${c.hours}h overtime on ${resName(c.resourceId)}`
       case 'wear_remediation':

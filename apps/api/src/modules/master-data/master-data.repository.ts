@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm'
 import { MASTERDATA_DB, type MasterDataDatabase } from './master-data.db'
 import {
   certification,
@@ -7,6 +7,7 @@ import {
   operatorQualification,
   part,
   resource,
+  resourceDowntime,
   resourceGroup,
   resourceGroupMember,
   resourceTypeConfig,
@@ -17,12 +18,14 @@ import {
   type NewOperator,
   type NewPart,
   type NewResource,
+  type NewResourceDowntime,
   type NewResourceGroup,
   type NewRouting,
   type NewRoutingOperation,
   type Operator,
   type Part,
   type Resource,
+  type ResourceDowntime,
   type ResourceGroup,
   type ResourceTypeConfig,
   type Routing,
@@ -107,6 +110,51 @@ export class MasterDataRepository {
       .update(resource)
       .set({ ...patch, updatedAt: new Date() })
       .where(and(eq(resource.tenantId, tenantId), eq(resource.id, id)))
+      .returning()
+    return row
+  }
+
+  // --- resource downtime (line-down / maintenance closures) ------------------
+  async createDowntime(data: NewResourceDowntime): Promise<ResourceDowntime> {
+    const [row] = await this.db.insert(resourceDowntime).values(data).returning()
+    return row!
+  }
+
+  findDowntime(tenantId: string, id: string): Promise<ResourceDowntime | undefined> {
+    return this.db.query.resourceDowntime.findFirst({
+      where: and(eq(resourceDowntime.tenantId, tenantId), eq(resourceDowntime.id, id)),
+    })
+  }
+
+  /**
+   * Active downtime windows: `is_active` (not retracted) and not yet fully past
+   * (`to_ts > now`), optionally plant-scoped. Covers currently-in-effect + future
+   * closures — the set the sequencer subtracts and the board reads for DOWN.
+   */
+  listActiveDowntime(tenantId: string, now: Date, plantId?: string): Promise<ResourceDowntime[]> {
+    return this.db
+      .select()
+      .from(resourceDowntime)
+      .where(
+        and(
+          eq(resourceDowntime.tenantId, tenantId),
+          eq(resourceDowntime.isActive, true),
+          gt(resourceDowntime.toTs, now),
+          ...(plantId ? [eq(resourceDowntime.plantId, plantId)] : []),
+        ),
+      )
+      .orderBy(desc(resourceDowntime.fromTs))
+  }
+
+  async updateDowntime(
+    tenantId: string,
+    id: string,
+    patch: Partial<NewResourceDowntime>,
+  ): Promise<ResourceDowntime | undefined> {
+    const [row] = await this.db
+      .update(resourceDowntime)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(resourceDowntime.tenantId, tenantId), eq(resourceDowntime.id, id)))
       .returning()
     return row
   }

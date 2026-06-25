@@ -30,6 +30,8 @@
   "ROUTING_OPERATION_NOT_FOUND": "That operation no longer exists.",
   "CERTIFICATION_NOT_FOUND": "That certification no longer exists.",
   "OPERATOR_NOT_FOUND": "That operator no longer exists.",
+  "RESOURCE_DOWNTIME_NOT_FOUND": "That downtime window no longer exists.",
+  "INVALID_DOWNTIME_WINDOW": "Downtime end must be after its start.",
   "INVALID_CALENDAR_REFERENCE": "The selected calendar no longer exists.",
   "INVALID_RESOURCE_REFERENCE": "One or more selected resources no longer exist.",
   "INVALID_RESOURCE_GROUP_REFERENCE": "One or more selected resource groups no longer exist.",

@@ -5,6 +5,7 @@ const lk: LatenessLookups = {
   resourceName: (id) => `R:${id}`,
   partNo: (id) => `P:${id}`,
   materialComponent: (id) => (id === 'fg' ? 'PV-22' : null),
+  downtime: (id) => (id === 'dt1' ? { kind: 'line_down', reason: 'hydraulics' } : null),
 }
 
 const op = (over: Partial<LatenessOp> & Pick<LatenessOp, 'demandLineId' | 'opSeq' | 'bindingKind'>): LatenessOp => ({
@@ -13,6 +14,7 @@ const op = (over: Partial<LatenessOp> & Pick<LatenessOp, 'demandLineId' | 'opSeq
   atRisk: true,
   bindingBlockerDemandLineId: null,
   bindingBlockerOpSeq: null,
+  bindingDowntimeId: null,
   ...over,
 })
 
@@ -37,6 +39,33 @@ describe('lateness causal chain', () => {
       'ST-8830:10:material',
     ])
     expect(chain.hops.at(-1)!.detail).toBe('PV-22') // the gating component, resolved
+  })
+
+  it('roots at resource_downtime and narrates the stored window (kind + reason)', () => {
+    // A line-down delayed this op: the binder recorded resource_downtime + the window id; the chain
+    // resolves the stored window for grounded copy (never inferred).
+    const chain = buildLatenessChain(
+      op({ demandLineId: 'DL-9', opSeq: 10, resourceId: 'pressA', bindingKind: 'resource_downtime', bindingDowntimeId: 'dt1' }),
+      index([]),
+      lk,
+    )!
+    expect(chain.root).toBe('resource_downtime')
+    expect(chain.truncated).toBe(false)
+    const rootHop = chain.hops.at(-1)!
+    expect(rootHop.kind).toBe('resource_downtime')
+    expect(rootHop.detail).toBe('hydraulics') // the window reason
+    expect(rootHop.downtimeKind).toBe('line_down') // kind nuance for copy
+  })
+
+  it('a downtime root with an unresolved window degrades gracefully (generic, still grounded)', () => {
+    const chain = buildLatenessChain(
+      op({ demandLineId: 'DL-9', opSeq: 10, bindingKind: 'resource_downtime', bindingDowntimeId: 'gone' }),
+      index([]),
+      lk,
+    )!
+    expect(chain.root).toBe('resource_downtime')
+    expect(chain.hops.at(-1)!.detail).toBeNull()
+    expect(chain.hops.at(-1)!.downtimeKind).toBeNull()
   })
 
   it('a due-before-shift order is its own root (no spurious chain)', () => {

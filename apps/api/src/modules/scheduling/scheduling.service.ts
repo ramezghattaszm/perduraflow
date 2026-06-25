@@ -22,6 +22,7 @@ import {
   type OrgReadContract,
   type PartDto,
   type PerformanceVarianceDto,
+  type ResourceDowntimeDto,
   type ResourceDto,
   type ResourceVarianceDto,
   type ScheduleVersionDetailDto,
@@ -61,6 +62,10 @@ export interface BaseContext {
   partNoById: Map<string, string>
   /** Per-resource operating calendar (working windows / closures / OT) for the sequencer. */
   resourceCalendars: Map<string, WorkingCalendar>
+  /** Active downtime windows (line-down / maintenance) for this plant — same-source for solve + what-if. */
+  downtime: ResourceDowntimeDto[]
+  /** Per-resource downtime windows (id + epoch-ms bounds) for binder attribution (→ `resource_downtime` root). */
+  downtimeByResource: Map<string, Array<{ id: string; startMs: number; endMs: number }>>
   /** Operator performance (C5, §4.8): factor for the operator pinned to a resource at op start. */
   resolveOperatorFactor: ResolveOperatorFactor
   /** Minimum-batch floor (C4) per resource — run-quantity floor from the resource-type config. */
@@ -87,18 +92,28 @@ function asShiftPatterns(v: unknown): Array<{ start: string; end: string }> {
   if (!Array.isArray(v)) return []
   return v.filter((p): p is { start: string; end: string } => !!p && typeof p.start === 'string' && typeof p.end === 'string')
 }
-/** Maintenance windows (`{start,end}` ISO) → epoch-ms `[start,end]` closed intervals. */
-function maintenanceToIntervals(v: unknown): Array<[number, number]> {
-  if (!Array.isArray(v)) return []
-  const out: Array<[number, number]> = []
-  for (const w of v) {
-    const s = w && typeof w.start === 'string' ? Date.parse(w.start) : NaN
-    const e = w && typeof w.end === 'string' ? Date.parse(w.end) : NaN
-    if (Number.isFinite(s) && Number.isFinite(e) && e > s) out.push([s, e])
-  }
-  return out
-}
 
+/**
+ * Derive the per-resource downtime maps from active downtime windows. Returns BOTH the
+ * `closed` `[startMs,endMs)` intervals (baked into each resource's calendar — this is what
+ * DISPLACES ops) and the id-bearing `windows` (so the binder can name the closure that bound
+ * a start → the `resource_downtime` root). One source for the calendar math + the attribution.
+ */
+function downtimeMaps(downtime: ResourceDowntimeDto[]): {
+  closed: Map<string, Array<[number, number]>>
+  windows: Map<string, Array<{ id: string; startMs: number; endMs: number }>>
+} {
+  const closed = new Map<string, Array<[number, number]>>()
+  const windows = new Map<string, Array<{ id: string; startMs: number; endMs: number }>>()
+  for (const d of downtime) {
+    const startMs = Date.parse(d.from)
+    const endMs = Date.parse(d.to)
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue
+    ;(closed.get(d.resourceId) ?? closed.set(d.resourceId, []).get(d.resourceId)!).push([startMs, endMs])
+    ;(windows.get(d.resourceId) ?? windows.set(d.resourceId, []).get(d.resourceId)!).push({ id: d.id, startMs, endMs })
+  }
+  return { closed, windows }
+}
 /**
  * The daily working window spanning a set of resource calendars — the earliest shift
  * open to the latest shift close (minutes from midnight), for the Gantt axis (D-shift).
@@ -180,10 +195,18 @@ export class SchedulingService {
         compByPart.set(r.partId, partNo.get(r.componentPartId) ?? r.componentPartId)
       }
     }
+    // Downtime windows by id — so a `resource_downtime` root narrates the stored window (kind + reason).
+    // Active windows (in-effect / future) resolve fully; a window already retracted or expired (e.g. the
+    // line was brought back up) degrades to the generic line-down label — still a correct, grounded root.
+    const downtimeById = new Map((await md.listActiveDowntime(tenantId, plantId)).map((d) => [d.id, d]))
     const lk: LatenessLookups = {
       resourceName: (rid) => resName.get(rid) ?? rid,
       partNo: (pid) => partNo.get(pid) ?? pid,
       materialComponent: (pid) => compByPart.get(pid) ?? null,
+      downtime: (id) => {
+        const d = id ? downtimeById.get(id) : undefined
+        return d ? { kind: d.kind, reason: d.reason } : null
+      },
     }
     const latenessOps: LatenessOp[] = ops.map((o) => ({
       demandLineId: o.demandLineId,
@@ -194,6 +217,7 @@ export class SchedulingService {
       bindingKind: o.bindingKind ?? null,
       bindingBlockerDemandLineId: o.bindingBlockerDemandLineId ?? null,
       bindingBlockerOpSeq: o.bindingBlockerOpSeq ?? null,
+      bindingDowntimeId: o.bindingDowntimeId ?? null,
     }))
     return buildLatenessChains(latenessOps, lk)
   }
@@ -405,7 +429,7 @@ export class SchedulingService {
     // Forecast boundary = today's start: a pre-adopted forecast applies forward only, never to the
     // rolling window's already-executed past (D44). Measured overlays are unaffected by this.
     const resolveEffective = await this.buildLearnedOverlay(tenantId, items, startOfDayUtc(Date.now()))
-    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource)
+    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, ctx.downtimeByResource)
     const run = await this.repo.createRun({
       tenantId,
       plantId,
@@ -447,6 +471,7 @@ export class SchedulingService {
         bindingKind: p.bindingKind,
         bindingBlockerDemandLineId: p.bindingBlockerDemandLineId,
         bindingBlockerOpSeq: p.bindingBlockerOpSeq,
+        bindingDowntimeId: p.bindingDowntimeId,
       })),
     )
     // Auto-reap: soft-delete the plant's prior (uncommitted) drafts so re-solving doesn't pile up
@@ -623,7 +648,12 @@ export class SchedulingService {
       }
       if (infeasibleReason) break
     }
-    const resourceCalendars = await this.resolveResourceCalendars(tenantId, resources)
+    // Downtime closures (line-down / maintenance): per-resource time-boxed windows the calendar-aware
+    // sequencer subtracts from capacity (ops displace around them — NOT excluded). The SAME windows
+    // feed the binder so a delayed start roots at `resource_downtime` (with the window id). One source.
+    const downtime = await md.listActiveDowntime(tenantId, plantId)
+    const { closed: downtimeClosed, windows: downtimeByResource } = downtimeMaps(downtime)
+    const resourceCalendars = await this.resolveResourceCalendars(tenantId, resources, downtimeClosed)
 
     // Operator performance (C5, §4.8): the operator pinned to a resource scales the op's run time
     // when scheduled. Consumed input — the scheduler reads the assignment + the operator's factor,
@@ -659,16 +689,18 @@ export class SchedulingService {
     // the exact weights in force. The runtime guard ran on write, so a resolved set always dominates.
     const { weights, version: weightSetVersion } = await this.config.resolveObjective(tenantId, plantId)
 
-    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, resolveOperatorFactor, minBatchByResource, weights, weightSetVersion }
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, downtime, downtimeByResource, resolveOperatorFactor, minBatchByResource, weights, weightSetVersion }
   }
 
   /**
    * Resolve each resource's operating calendar into a normalized {@link WorkingCalendar}
    * for the calendar-aware sequencer (D-shift): the org calendar (working days / shift
-   * windows / holidays / maintenance) plus the resource-type shift config (splittable /
-   * OT cap, with a per-resource OT override). `extraClosedByResource` injects time-boxed
-   * closures (e.g. a what-if line-down window) as additional closed intervals. A resource
-   * whose calendar can't be resolved is omitted → the sequencer falls back to 24/7.
+   * windows / holidays) plus the resource-type shift config (splittable / OT cap, with a
+   * per-resource OT override). `extraClosedByResource` injects time-boxed closures (the
+   * per-resource line-down / maintenance windows from `resource_downtime`, or a what-if
+   * window) as closed intervals — merged + deduped by {@link buildWorkingCalendar}, so a
+   * window present in BOTH base and a what-if changeset is subtracted ONCE (no double-apply).
+   * A resource whose calendar can't be resolved is omitted → the sequencer falls back to 24/7.
    */
   async resolveResourceCalendars(
     tenantId: string,
@@ -694,7 +726,9 @@ export class SchedulingService {
           workingDays: asNumberArray(calDto.workingDays),
           shiftPatterns: asShiftPatterns(calDto.shiftPatterns),
           holidays: asStringArray(calDto.holidays),
-          closedIntervals: [...maintenanceToIntervals(calDto.maintenanceWindows), ...(extraClosedByResource?.get(r.id) ?? [])],
+          // Time-boxed closures (maintenance / line-down) come from per-resource resource_downtime
+          // via `extraClosedByResource` (Step 3 wires the read); merged + deduped by buildWorkingCalendar.
+          closedIntervals: [...(extraClosedByResource?.get(r.id) ?? [])],
           splittable: cfg?.splittable ?? false,
           // A normal solve spends NO overtime; the resource's OT cap is only the ceiling the
           // what-if overtime option may opt into (decision: OT is policy-only, never auto-spent).
@@ -788,7 +822,14 @@ export class SchedulingService {
     // (capacity-weighted average → reconciles by construction). > 1 = committed beyond regular capacity.
     const utilWindowStart = Math.max(startOfDayUtc(Date.now()), version.horizonStart.getTime())
     const utilWindowEnd = version.horizonEnd.getTime()
-    const utilCalendars = await this.resolveResourceCalendars(tenantId, allResources.filter((r) => r.plantId === version.plantId))
+    // Subtract downtime (line-down / maintenance) from available minutes — a down line's regular
+    // capacity drops over the window, so utilization reflects the outage (same source as the solve).
+    const { closed: utilDowntime } = downtimeMaps(await md.listActiveDowntime(tenantId, version.plantId))
+    const utilCalendars = await this.resolveResourceCalendars(
+      tenantId,
+      allResources.filter((r) => r.plantId === version.plantId),
+      utilDowntime,
+    )
     const availByResource = new Map<string, number>()
     for (const [rid, cal] of utilCalendars) availByResource.set(rid, workingMinutesInRange(cal, utilWindowStart, utilWindowEnd))
     let plantBusy = 0

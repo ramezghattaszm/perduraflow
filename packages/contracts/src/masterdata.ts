@@ -20,7 +20,11 @@ import { z } from 'zod'
 // owned reference data; the cost *calculation* lives in scheduling. `1.1` added
 // `listResources` / `getPrimaryRoutingForPart`. Every prior consumer keeps
 // compiling; bindings pin major `1` so this floats in (A12).
-export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.2' } as const
+// `1.3` (additive MINOR): adds `listActiveDowntime` + the `ResourceDowntimeDto` —
+// per-resource time-boxed closures (line-down / maintenance) the calendar-aware
+// sequencer subtracts from capacity. Every prior consumer keeps compiling; bindings
+// pin major `1` so this floats in (A12).
+export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.3' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -42,6 +46,15 @@ export type MasterDataStatus = z.infer<typeof masterDataStatusSchema>
  */
 export const changeoverAttributeKeySchema = z.enum(['colour', 'material', 'gauge'])
 export type ChangeoverAttributeKey = z.infer<typeof changeoverAttributeKeySchema>
+
+/**
+ * Why a resource is down for a time-boxed window: an **unplanned** `line_down`
+ * (a breakdown/outage) or a **planned** `maintenance` window. Both are the same
+ * closure mechanism (subtracted from available capacity); the kind drives copy and
+ * the `planned` flag. Distinct from `resource.status='inactive'` (permanent removal).
+ */
+export const resourceDowntimeKindSchema = z.enum(['line_down', 'maintenance'])
+export type ResourceDowntimeKind = z.infer<typeof resourceDowntimeKindSchema>
 
 // --- DTOs (the shapes masterdata.read returns) -------------------------------
 
@@ -78,6 +91,28 @@ export interface ResourceDto {
   /** Per-resource overtime-cap override (min/day); null → inherit the resource-type default. */
   otCapMinutes: number | null
   status: MasterDataStatus
+}
+
+/**
+ * A per-resource time-boxed closure (line-down / maintenance). `from`/`to` are ISO
+ * datetimes for `[from, to)`; the sequencer subtracts the window from available
+ * capacity so ops displace around it. "In effect at now" = `isActive && from ≤ now < to`.
+ */
+export interface ResourceDowntimeDto {
+  id: string
+  resourceId: string
+  /** → kernel Plant (denormalized for plant-scoped solve reads). */
+  plantId: string
+  kind: ResourceDowntimeKind
+  /** Planned (maintenance) vs unplanned (line-down breakdown). */
+  planned: boolean
+  /** ISO datetime — window start (inclusive). */
+  from: string
+  /** ISO datetime — window end (exclusive). */
+  to: string
+  reason: string | null
+  /** Soft-delete flag (`false` = retracted record); NOT the same as the window being over. */
+  isActive: boolean
 }
 
 /**
@@ -196,6 +231,12 @@ export interface MasterDataReadContract {
   listOperators(tenantId: string): Promise<OperatorDto[]>
   /** Resource-type shift config (splittable / OT cap) — the calendar-aware sequencer (D-shift). */
   listResourceTypeConfigs(tenantId: string): Promise<ResourceTypeConfigDto[]>
+  /**
+   * Active resource downtime windows (line-down / maintenance) — `isActive` and not yet
+   * fully past (`to > now`), so the set covers both currently-in-effect and future closures.
+   * Optionally plant-scoped for the solve. The sequencer subtracts these from capacity (1.3).
+   */
+  listActiveDowntime(tenantId: string, plantId?: string): Promise<ResourceDowntimeDto[]>
 }
 
 // --- admin CRUD request schemas (master-data screens) ------------------------
@@ -240,6 +281,23 @@ export const updateResourceSchema = createResourceSchema
   .extend({ status: masterDataStatusSchema.optional() })
   .strict()
 export type UpdateResourceRequest = z.infer<typeof updateResourceSchema>
+
+/**
+ * Open a resource downtime window. `plantId` is derived server-side from the resource;
+ * `createdBy` from the JWT. The service enforces `to > from`. Used by the dev simulator
+ * (line-down) and any maintenance-scheduling surface.
+ */
+export const createResourceDowntimeSchema = z
+  .object({
+    resourceId: z.string().min(1),
+    kind: resourceDowntimeKindSchema.default('line_down'),
+    planned: z.boolean().default(false),
+    from: z.string().datetime(),
+    to: z.string().datetime(),
+    reason: z.string().max(400).nullable().default(null),
+  })
+  .strict()
+export type CreateResourceDowntimeRequest = z.infer<typeof createResourceDowntimeSchema>
 
 export const createResourceGroupSchema = z
   .object({

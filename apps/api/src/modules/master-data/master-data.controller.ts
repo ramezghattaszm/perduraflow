@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common'
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import type { JwtPayload } from '../../common/types/jwt-payload.types'
@@ -30,6 +30,12 @@ export class MasterDataController {
   @Get('resource-groups')
   listResourceGroups(@CurrentUser() user: JwtPayload) {
     return this.md.listResourceGroups(user.tenantId)
+  }
+
+  /** `GET /master-data/downtime` — active downtime windows (line-down / maintenance), optional `?plantId=`. */
+  @Get('downtime')
+  listActiveDowntime(@CurrentUser() user: JwtPayload, @Query('plantId') plantId?: string) {
+    return this.md.listActiveDowntime(user.tenantId, plantId)
   }
 
   /** `GET /master-data/routings` — all routings (with operations). */

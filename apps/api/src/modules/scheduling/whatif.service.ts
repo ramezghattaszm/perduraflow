@@ -351,9 +351,10 @@ export class WhatIfService {
         }
         return items.map((i) => (i.demandLineId === change.demandLineId ? { ...i, requiredDate: ms } : i))
       }
-      // resource_window / overtime / material_arrival are option-level levers (handled by
+      // resource_window / line_down / overtime / material_arrival are option-level levers (handled by
       // option specs) and the material gate lives in the data — pass through unchanged.
       case 'resource_window':
+      case 'line_down':
       case 'overtime':
       case 'wear_remediation':
       case 'material_arrival':
@@ -376,10 +377,14 @@ export class WhatIfService {
   private optionSpecs(changeSet: ChangeSet, predicted: Map<string, number>): OptionSpec[] {
     const wearChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'wear_remediation' }> => c.kind === 'wear_remediation')
     const windowChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'resource_window' }> => c.kind === 'resource_window')
+    // `line_down` = the persisted-window line-down (the closure is already in base calendars); it selects
+    // the SAME reroute/overtime family as a hypothetical `resource_window`, but injects no closure here.
+    const lineDownChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'line_down' }> => c.kind === 'line_down')
     const materialChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'material_arrival' }> => c.kind === 'material_arrival')
     const demandChanges = changeSet.changes.filter((c) => c.kind === 'demand_qty' || c.kind === 'demand_date')
     const isWear = changeSet.origin.type === 'prediction' || wearChanges.length > 0
-    const downResources = [...wearChanges, ...windowChanges].map((c) => c.resourceId)
+    const isLineDown = windowChanges.length > 0 || lineDownChanges.length > 0
+    const downResources = [...wearChanges, ...windowChanges, ...lineDownChanges].map((c) => c.resourceId)
     const rid = downResources[0] ?? ''
 
     // ADDITIVE (conversation Pass A): a compound change-set composes the option families of
@@ -410,16 +415,17 @@ export class WhatIfService {
       add({ id: 'service', labelKey: 'whatif.option.service', overtimeHours: 0, itemTransform: (items) => downResources.reduce((acc, r) => dropResource(acc, r), items) })
       add({ id: 'defer', labelKey: 'whatif.option.defer', overtimeHours: 0, itemTransform: (items) => items, overlayWrap: (base) => inflateCycle(base, rid, predicted) })
       add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
-    } else if (windowChanges.length > 0) {
-      // Line down (bare resource_window): reroute / overtime — no defer (the line is down). The
-      // window is a time-boxed closure (optionCalendars), so the sequencer flows around it.
+    } else if (isLineDown) {
+      // Line down — reroute / overtime — no defer (the line is down). The closure that displaces work
+      // lives in the calendars (a hypothetical `resource_window` adds it in optionCalendars; a persisted
+      // `line_down` already has it in the base), so the sequencer flows around the down period either way.
       add({ id: 'reroute', labelKey: 'whatif.option.reroute', overtimeHours: 0, itemTransform: (items) => items })
       add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
     }
     // Base trade-off family: a demand change — or NO disruption at all — yields the sequencing
     // trade-off set. In a compound (e.g. "delay X and take line Y down") this composes WITH the
     // disruption menu above so neither the delay's rebalance nor the line-down coping is dropped.
-    if (demandChanges.length > 0 || (materialChanges.length === 0 && !isWear && windowChanges.length === 0)) {
+    if (demandChanges.length > 0 || (materialChanges.length === 0 && !isWear && !isLineDown)) {
       add({ id: 'balanced', labelKey: 'whatif.option.balanced', overtimeHours: 0, itemTransform: (i) => i })
       add({ id: 'protect_delivery', labelKey: 'whatif.option.protectDelivery', overtimeHours: 0, itemTransform: (i) => i, policy: { expediteDemandLineIds: new Set(firmLineIds(changeSet)) } })
       add({ id: 'minimize_changeover', labelKey: 'whatif.option.minimizeChangeover', overtimeHours: 0, itemTransform: (i) => i, policy: { changeoverBonusAllFirmness: true } })
@@ -505,6 +511,12 @@ export class WhatIfService {
           return { kind: c.kind, summary: `move ${orderRef(c.demandLineId)} due date to ${shortDate(c.to)}`, status: 'applied', note: null }
         case 'resource_window':
           return { kind: c.kind, summary: `take ${resName(c.resourceId)} down ${shortDate(c.downFrom)}–${shortDate(c.downTo)}`, status: 'applied', note: null }
+        case 'line_down': {
+          // The situation, sourced from the persisted window in base (not re-applied here).
+          const w = ctx.downtime.find((d) => d.resourceId === c.resourceId)
+          const when = w ? ` ${shortDate(w.from)}–${shortDate(w.to)}` : ''
+          return { kind: c.kind, summary: `${resName(c.resourceId)} down${when}`, status: 'applied', note: null }
+        }
         case 'wear_remediation':
           return { kind: c.kind, summary: `${c.action} on ${resName(c.resourceId)}`, status: 'applied', note: null }
         case 'material_arrival':
@@ -700,6 +712,8 @@ function basicLedger(changeSet: ChangeSet): RequestedChange[] {
         return { kind: c.kind, summary: `move ${c.demandLineId} due date to ${shortDate(c.to)}`, status: 'applied', note: null }
       case 'resource_window':
         return { kind: c.kind, summary: `take ${c.resourceId} down ${shortDate(c.downFrom)}–${shortDate(c.downTo)}`, status: 'applied', note: null }
+      case 'line_down':
+        return { kind: c.kind, summary: `${c.resourceId} down`, status: 'applied', note: null }
       case 'overtime':
         return { kind: c.kind, summary: `add ${c.hours}h overtime on ${c.resourceId}`, status: 'applied', note: null }
       case 'wear_remediation':

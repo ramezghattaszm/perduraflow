@@ -24,7 +24,12 @@ import {
   useSetResourceOperatorAssignment,
   useUpdateDemandQty,
 } from '../../../hooks/useScheduling'
-import { useOperators, useOperatorMutations, useResourceMutations } from '../../../hooks/useMasterData'
+import {
+  useOperators,
+  useOperatorMutations,
+  useResourceDowntime,
+  useResourceDowntimeMutations,
+} from '../../../hooks/useMasterData'
 import { useSimulateActuals } from '../../../hooks/useLearning'
 import { queryClient } from '../../../lib/query-client'
 import { QUERY_KEYS } from '../../../lib/query-keys'
@@ -40,6 +45,10 @@ const todayAt = (hhmm: string): string => {
   return new Date(day + (Number(h) || 0) * 3_600_000 + (Number(m) || 0) * 60_000).toISOString()
 }
 const hhmmOf = (iso: string): string => new Date(iso).toISOString().slice(11, 16)
+/** Seed shift ends (UTC): A 06:00–14:00, B 14:00–22:00. The current shift's end from now. */
+const restOfShiftEnd = (): string => (new Date().getUTCHours() < 14 ? todayAt('14:00') : todayAt('22:00'))
+/** ISO `to` = now + n hours (the OT-extend beat: a short outage). */
+const inHours = (n: number): string => new Date(Date.now() + n * 3_600_000).toISOString()
 
 /**
  * **Demo/dev-only scenario launcher** (SKIP-51). NOT in the operational/admin nav —
@@ -69,8 +78,10 @@ export function SimulatorContent() {
   // Demand-change controls
   const [orderId, setOrderId] = useState<string | null>(null)
   const [newQty, setNewQty] = useState('200')
-  // Line-down controls
+  // Line-down controls (duration-from-now → a resource_downtime window)
   const [downLine, setDownLine] = useState<string | null>(null)
+  const [downReason, setDownReason] = useState('')
+  const [downHours, setDownHours] = useState('4')
   // Material-arrival controls
   const { data: materials = [] } = useMaterialAvailability(plantId ?? undefined)
   const [matComponent, setMatComponent] = useState<string | null>(null)
@@ -85,7 +96,8 @@ export function SimulatorContent() {
   const simulate = useSimulateActuals()
   const updateDemandQty = useUpdateDemandQty()
   const setMaterial = useSetMaterialAvailability(plantId ?? undefined)
-  const { update: updateResource } = useResourceMutations()
+  const { data: downtime = [] } = useResourceDowntime(plantId ?? undefined)
+  const { open: openDowntime, close: closeDowntime } = useResourceDowntimeMutations(plantId ?? undefined)
   const { update: updateOperator } = useOperatorMutations()
   const setAssignment = useSetResourceOperatorAssignment(plantId ?? undefined)
   const [applying, setApplying] = useState(false)
@@ -154,17 +166,36 @@ export function SimulatorContent() {
       setApplying(false)
     }
   }
-  const setLineCondition = async (status: 'inactive' | 'active') => {
-    if (!downLine || !plantId) return
+  // Open a line-down window [now, toIso) — a resource_downtime closure the engine subtracts from
+  // capacity (ops displace, not excluded). Duration drives the beat: rest-of-today → reroute-tomorrow;
+  // next-N-hours → OT-extend. The hooks invalidate the board's resource read, so DOWN shows at once.
+  const setDownWindow = async (toIso: string) => {
+    if (!downLine) return
     setApplying(true)
     setApplied(null)
     try {
-      await updateResource.mutateAsync({ id: downLine, body: { status } })
-      // The board reads resources via the scheduling query (a different key than the
-      // master-data mutation invalidates) — invalidate it so the board reflects the
-      // condition without a manual refresh.
-      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.resources(plantId) })
-      setApplied(status === 'inactive' ? t('simulator.conditionDown') : t('simulator.conditionUp'))
+      await openDowntime.mutateAsync({
+        resourceId: downLine,
+        kind: 'line_down',
+        planned: false,
+        from: new Date().toISOString(),
+        to: toIso,
+        reason: downReason.trim() || null,
+      })
+      setApplied(t('simulator.conditionDownWindow', { until: hhmmOf(toIso) }))
+    } finally {
+      setApplying(false)
+    }
+  }
+  // Bring the line back up — end every active outage on the selected line now (truncate/retract).
+  const bringBackUp = async () => {
+    if (!downLine) return
+    setApplying(true)
+    setApplied(null)
+    try {
+      const active = downtime.filter((d) => d.resourceId === downLine && d.isActive)
+      for (const d of active) await closeDowntime.mutateAsync(d.id)
+      setApplied(t('simulator.conditionUp'))
     } finally {
       setApplying(false)
     }
@@ -288,11 +319,51 @@ export function SimulatorContent() {
             <FormField label={t('simulator.line')}>
               <AppSelect options={resourceOptions} value={downLine} onChange={setDownLine} placeholder={t('simulator.needLine')} />
             </FormField>
-            <XStack gap="$2" flexWrap="wrap">
-              <AppButton variant="primary" size="$3" loading={applying} onPress={() => setLineCondition('inactive')}>
-                {t('simulator.setCondition')}
-              </AppButton>
-              <AppButton variant="ghost" size="$3" loading={applying} onPress={() => setLineCondition('active')}>
+            <FormField label={t('simulator.downReason')}>
+              <AppInput value={downReason} onChangeText={setDownReason} placeholder={t('simulator.reasonPlaceholder')} />
+            </FormField>
+            <FormField label={t('simulator.downDuration')}>
+              <XStack gap="$2" flexWrap="wrap" alignItems="center">
+                <AppButton variant="primary" size="$3" loading={applying} onPress={() => setDownWindow(todayAt('22:00'))}>
+                  {t('simulator.restOfToday')}
+                </AppButton>
+                <AppButton variant="light" size="$3" loading={applying} onPress={() => setDownWindow(restOfShiftEnd())}>
+                  {t('simulator.restOfShift')}
+                </AppButton>
+                <AppButton
+                  variant="light"
+                  size="$3"
+                  loading={applying}
+                  onPress={() => setDownWindow(inHours(Math.max(1, Number(downHours) || 4)))}
+                >
+                  {t('simulator.nextHours', { n: Math.max(1, Number(downHours) || 4) })}
+                </AppButton>
+                <AppInput value={downHours} onChangeText={setDownHours} keyboardType="numeric" width={64} />
+              </XStack>
+            </FormField>
+            {downLine ? (
+              <YStack gap="$1" backgroundColor="$backgroundHover" borderRadius="$4" padding="$3">
+                <P size={4} weight="m" color="$textSecondary">
+                  {t('simulator.activeDowntime')}
+                </P>
+                {downtime.filter((d) => d.resourceId === downLine && d.isActive).length === 0 ? (
+                  <P size={4} color="$textSecondary">
+                    {t('simulator.noActiveDowntime')}
+                  </P>
+                ) : (
+                  downtime
+                    .filter((d) => d.resourceId === downLine && d.isActive)
+                    .map((d) => (
+                      <P key={d.id} size={4} color="$textSecondary">
+                        {t('simulator.downWindowRow', { from: hhmmOf(d.from), to: hhmmOf(d.to) })}
+                        {d.reason ? ` · ${d.reason}` : ''}
+                      </P>
+                    ))
+                )}
+              </YStack>
+            ) : null}
+            <XStack>
+              <AppButton variant="ghost" size="$3" loading={applying} onPress={bringBackUp}>
                 {t('simulator.bringBackUp')}
               </AppButton>
             </XStack>

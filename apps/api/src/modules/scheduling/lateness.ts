@@ -1,4 +1,4 @@
-import type { BindingKind, LatenessChainDto, LatenessHop, LatenessRoot } from '@perduraflow/contracts'
+import type { BindingKind, LatenessChainDto, LatenessHop, LatenessRoot, ResourceDowntimeKind } from '@perduraflow/contracts'
 
 /**
  * Causal lateness attribution (D-late) — **pure + deterministic**. Given a version's operations (each
@@ -25,6 +25,8 @@ export interface LatenessOp {
   bindingKind: BindingKind | null
   bindingBlockerDemandLineId: string | null
   bindingBlockerOpSeq: number | null
+  /** When `bindingKind` is `resource_downtime`, the closure window that delayed the start. */
+  bindingDowntimeId: string | null
 }
 
 /** Lookups resolved by the caller (kept out of the pure walk so it stays deterministic + testable). */
@@ -33,6 +35,8 @@ export interface LatenessLookups {
   partNo: (partId: string) => string
   /** The binding gate component's part-no for a part (latest-arriving requirement), or null. */
   materialComponent: (partId: string) => string | null
+  /** The downtime window (kind + reason) for a `resource_downtime` binding, or null. */
+  downtime: (downtimeId: string | null) => { kind: ResourceDowntimeKind; reason: string | null } | null
 }
 
 const keyOf = (demandLineId: string, opSeq: number): string => `${demandLineId}:${opSeq}`
@@ -40,6 +44,7 @@ const keyOf = (demandLineId: string, opSeq: number): string => `${demandLineId}:
 /** Map a terminal (root) binding to a {@link LatenessRoot}, using the terminal op's own at-risk state. */
 function rootOf(kind: BindingKind, op: LatenessOp): LatenessRoot {
   if (kind === 'material') return 'material'
+  if (kind === 'resource_downtime') return 'resource_downtime'
   if (kind === 'working_window') return 'working_window'
   // release / origin: the op started as early as its day / the horizon allowed. If the op is itself
   // late, its DUE precedes the earliest feasible start (due_before_start); if it's on-time, the chain
@@ -47,7 +52,13 @@ function rootOf(kind: BindingKind, op: LatenessOp): LatenessRoot {
   return op.atRisk ? 'due_before_start' : 'capacity'
 }
 
-function hopOf(op: LatenessOp, kind: LatenessHop['kind'], detail: string | null, lk: LatenessLookups): LatenessHop {
+function hopOf(
+  op: LatenessOp,
+  kind: LatenessHop['kind'],
+  detail: string | null,
+  lk: LatenessLookups,
+  downtimeKind: ResourceDowntimeKind | null = null,
+): LatenessHop {
   return {
     demandLineId: op.demandLineId,
     opSeq: op.opSeq,
@@ -56,6 +67,7 @@ function hopOf(op: LatenessOp, kind: LatenessHop['kind'], detail: string | null,
     partNo: lk.partNo(op.partId),
     kind,
     detail,
+    downtimeKind,
   }
 }
 
@@ -101,8 +113,11 @@ export function buildLatenessChain(
       // kind is null here is impossible (start guarded; blockers reached only via resource/predecessor
       // which set a non-null kind on the next op… but the next op could itself be a root kind).
       const r = rootOf(kind ?? 'origin', cur)
-      const detail = r === 'material' ? lk.materialComponent(cur.partId) : null
-      hops.push(hopOf(cur, r, detail, lk))
+      // Root specifics, grounded in stored facts: the material gate's component, or the downtime
+      // window's reason + kind (line-down vs maintenance) — never inferred.
+      const dt = r === 'resource_downtime' ? lk.downtime(cur.bindingDowntimeId) : null
+      const detail = r === 'material' ? lk.materialComponent(cur.partId) : (dt?.reason ?? null)
+      hops.push(hopOf(cur, r, detail, lk, dt?.kind ?? null))
       root = r
       cur = undefined
     }

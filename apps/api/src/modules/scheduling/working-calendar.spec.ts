@@ -156,6 +156,16 @@ describe('workingMinutesInRange — utilization denominator (D-util)', () => {
     expect(workingMinutesInRange(cal, MON, MON + DAY)).toBe(960 - 120)
   })
 
+  it('no double-apply: a window present twice (persisted base + identical what-if change) is subtracted ONCE', () => {
+    const win: [number, number] = [at(MON, 10), at(MON, 12)]
+    const once = twoShift({ closedIntervals: [win] })
+    const duplicated = twoShift({ closedIntervals: [win, win] }) // base + changeset both carry it
+    const overlapping = twoShift({ closedIntervals: [win, [at(MON, 11), at(MON, 13)]] }) // partial overlap
+    // buildWorkingCalendar merges overlapping intervals, so the subtraction can't double-count.
+    expect(workingMinutesInRange(duplicated, MON, MON + DAY)).toBe(workingMinutesInRange(once, MON, MON + DAY))
+    expect(workingMinutesInRange(overlapping, MON, MON + DAY)).toBe(960 - 180) // 10:00–13:00 once
+  })
+
   it('clips to a partial range', () => {
     expect(workingMinutesInRange(twoShift(), at(MON, 10), at(MON, 14))).toBe(240)
   })

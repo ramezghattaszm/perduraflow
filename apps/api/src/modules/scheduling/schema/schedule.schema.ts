@@ -96,6 +96,10 @@ export const scheduledOperation = schedulingSchema.table(
     bindingKind: text('binding_kind').$type<BindingKind>(),
     bindingBlockerDemandLineId: text('binding_blocker_demand_line_id'),
     bindingBlockerOpSeq: integer('binding_blocker_op_seq'),
+    // When the binder is a resource_downtime closure (line-down / maintenance), the window that
+    // bound this op — recorded at solve so the lateness chain narrates the stored window (from/to/
+    // reason/kind), never re-derived. Null for every other binding kind. → master_data.resource_downtime.
+    bindingDowntimeId: text('binding_downtime_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ versionIdx: index('scheduled_operation_version_idx').on(t.scheduleVersionId) }),
