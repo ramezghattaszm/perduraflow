@@ -820,8 +820,7 @@ export function BoardContent() {
           body: t('board.down.body', {
             count: lineOpsN,
             resource: resName,
-            from: selectedWindow ? fmtTime(selectedWindow.from) : '—',
-            to: selectedWindow ? fmtTime(selectedWindow.to) : '—',
+            ...(selectedWindow ? fmtWindow(selectedWindow.from, selectedWindow.to) : { from: '—', to: '—' }),
           }),
         }}
         action={
@@ -1107,8 +1106,7 @@ export function BoardContent() {
                     title={t('whatif:condition.lineDown', { resource: c.name })}
                     detail={t('whatif:condition.lineDownDetail', {
                       count: c.affected,
-                      from: c.from != null ? fmtTime(c.from) : '—',
-                      to: c.to != null ? fmtTime(c.to) : '—',
+                      ...(c.from != null && c.to != null ? fmtWindow(c.from, c.to) : { from: '—', to: '—' }),
                     })}
                     cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
                     loading={whatIf.isPending && whatIfTrigger === `down-${c.resourceId}`}
@@ -1490,6 +1488,23 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 function fmtTime(ms: number): string {
   const d = new Date(ms)
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+/** `MM-DD HH:MM` (UTC, locale-neutral) — used when a window spans days, where HH:MM alone is ambiguous. */
+function fmtDateTime(ms: number): string {
+  const d = new Date(ms)
+  return `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} ${fmtTime(ms)}`
+}
+/**
+ * Window endpoints for display: bare `HH:MM` when both fall on the same UTC day, else dated
+ * (`MM-DD HH:MM`) — so a multi-day outage (e.g. a 48h window, both ends at 19:48) reads
+ * "06-25 19:48 – 06-27 19:48", not "19:48–19:48".
+ */
+function fmtWindow(fromMs: number, toMs: number): { from: string; to: string } {
+  const DAY = 86_400_000
+  const sameDay = Math.floor(fromMs / DAY) === Math.floor(toMs / DAY)
+  return sameDay
+    ? { from: fmtTime(fromMs), to: fmtTime(toMs) }
+    : { from: fmtDateTime(fromMs), to: fmtDateTime(toMs) }
 }
 
 /** True if `[startMs, endMs)` overlaps any of the windows (half-open). */
