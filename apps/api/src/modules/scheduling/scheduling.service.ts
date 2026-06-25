@@ -74,6 +74,14 @@ export interface BaseContext {
   weights: ObjectiveWeights
   /** The resolved weight-set version token — stamped into the rationale + the what-if determinism key. */
   weightSetVersion: string
+  /**
+   * Canonical digest of the PERSISTED base-context inputs the change-set does NOT carry and that
+   * aren't already in the items/overlay/downtime/weights digests — operator factors + assignments
+   * (C5), min-batch (C4), cost rates (C6), and working-calendar structure (shifts/holidays/OT). Hashed
+   * into the what-if determinism key so changing any of them busts the cache (else a stale result is
+   * replayed across different inputs — the generalized root of the line-down cache bug).
+   */
+  baseInputsDigest: string
 }
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
@@ -689,7 +697,20 @@ export class SchedulingService {
     // the exact weights in force. The runtime guard ran on write, so a resolved set always dominates.
     const { weights, version: weightSetVersion } = await this.config.resolveObjective(tenantId, plantId)
 
-    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, downtime, downtimeByResource, resolveOperatorFactor, minBatchByResource, weights, weightSetVersion }
+    // Determinism digest of the persisted base inputs the change-set doesn't carry (see BaseContext).
+    // Computed HERE where the raw data lives (operator factors live behind a closure; min-batch / rates /
+    // calendar are per-resource). Sorted for stability. Downtime is hashed separately (downtimeDigest).
+    const opDigest = [...assignmentsByResource.entries()]
+      .map(([rid, arr]) => `${rid}=${arr.map((a) => `${a.operatorId}:${a.from}:${a.to}:${factorByOperator.get(a.operatorId) ?? 1}`).sort().join(',')}`)
+      .sort()
+    const minBatchDigest = [...minBatchByResource.entries()].map(([rid, mb]) => `${rid}:${mb}`).sort()
+    const rateDigest = resources.map((r) => `${r.id}:${r.runCostPerHour}:${r.setupCost}:${r.overheadPerUnit}`).sort()
+    const calDigest = [...resourceCalendars.entries()]
+      .map(([rid, c]) => `${rid}:${c.workingDays.join('')}:${c.dayWindows.map((w) => w.join('-')).join(',')}:${[...c.holidays].sort().join('|')}:${c.splittable ? 1 : 0}:${c.otCeilingMinutes}`)
+      .sort()
+    const baseInputsDigest = JSON.stringify({ op: opDigest, mb: minBatchDigest, rate: rateDigest, cal: calDigest })
+
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, downtime, downtimeByResource, resolveOperatorFactor, minBatchByResource, weights, weightSetVersion, baseInputsDigest }
   }
 
   /**

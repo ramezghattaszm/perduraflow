@@ -159,7 +159,7 @@ export class WhatIfService {
     const baseKpis = scorePlan(basePlacements, { rateByResource, basePlacements, overtimeHours: 0, weights: ctx.weights }).kpis
     const options = this.buildOptions(ranked, ctx.weightSetVersion)
     const recommendedOptionId = options.find((o) => o.feasible)?.id ?? null
-    const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay, ctx.weightSetVersion, ctx.downtime)
+    const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay, ctx.weightSetVersion, ctx.downtime, ctx.baseInputsDigest)
 
     const prior = await this.repo.findWhatIfByDeterminismKey(tenantId, determinismKey)
     if (prior) {
@@ -668,6 +668,7 @@ export class WhatIfService {
     overlay: ResolveEffective,
     weightSetVersion: string,
     downtime: ResourceDowntimeDto[],
+    baseInputsDigest: string,
   ): string {
     const overlayDigest = items
       .flatMap((i) => i.eligibleResourceIds.map((rid) => {
@@ -688,9 +689,12 @@ export class WhatIfService {
       changeSet,
       items: items.map((i) => ({
         d: i.demandLineId, o: i.routingOperationId, q: i.qty, r: i.requiredDate, f: i.firmness, e: i.eligibleResourceIds, c: i.changeoverValue,
+        // material gate + sequencing floors (persisted base inputs the change-set doesn't carry)
+        m: i.earliestStartMs ?? null, pr: i.priorityRank, rf: i.releaseFloorMs ?? null,
       })),
       overlayDigest,
       downtimeDigest,
+      baseInputsDigest,
       weights: weightSetVersion,
       engine: ENGINE_VERSION,
     })
