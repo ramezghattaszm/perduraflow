@@ -1385,6 +1385,14 @@ export function BoardContent() {
                 >
                   {t('atRisk')}
                 </P>
+              ) : bar.stranded ? (
+                <P
+                  size={4}
+                  weight="b"
+                  color="$warning"
+                >
+                  {t('strandedStatus')}
+                </P>
               ) : null}
             </YStack>
           )}
