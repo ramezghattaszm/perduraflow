@@ -78,12 +78,24 @@
       "Bash(rm -rf tenant)",
       "Bash(rm -f common/guards/roles.guard.ts common/decorators/roles.decorator.ts common/mappers/user.mapper.ts)",
       "Bash(mkdir -p modules/tenant/schema modules/auth/schema modules/auth/dto modules/org/schema modules/org/dto modules/eventbus)",
-      "Bash(bun --filter @perduraflow/api type-check)"
+      "Bash(bun --filter @perduraflow/api type-check)",
+      "Bash(git rm *)",
+      "Bash(echo \"started, pid $!\")",
+      "Bash(bunx tsx *)",
+      "Bash(pkill -f \"nest start --watch\")",
+      "Bash(pkill -f \"@perduraflow/api dev\")",
+      "Bash(echo 'api :3010 -> HTTP __TRACKED_VAR__')",
+      "Bash(pgrep -fl \"nest start|@perduraflow/api dev\")",
+      "Bash(echo \"no api dev process\")",
+      "Bash(cd /Users/RamezGhattas/Documents/Work/Company/SupplyChain/PerduraFlow *)",
+      "Bash(git rev-list *)",
+      "Bash(git merge *)"
     ],
     "additionalDirectories": [
       "/tmp",
       "/private/tmp",
-      "/Users/RamezGhattas/Documents/Work/Company/_newapp/testapp"
+      "/Users/RamezGhattas/Documents/Work/Company/_newapp/testapp",
+      "/Users/RamezGhattas/Documents/Work/Company/SupplyChain/PerduraFlow/apps/api/src/modules/learning/schema"
     ]
   }
 }
