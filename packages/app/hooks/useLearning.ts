@@ -1,7 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
-  AutonomyConfigDto,
-  AutonomyConfigUpdate,
   LearnedParameterDto,
   ParameterPredictionDto,
   PerformanceVarianceDto,
@@ -15,7 +13,6 @@ import { QUERY_KEYS } from '../lib/query-keys'
 
 const get = <T>(url: string) => apiClient.get<T>(url).then((r) => r.data)
 const post = <T, B>(url: string, body: B) => apiClient.post<T>(url, body).then((r) => r.data)
-const put = <T, B>(url: string, body: B) => apiClient.put<T>(url, body).then((r) => r.data)
 
 /** All learned parameter overlays for the tenant (board panel + ml bars + wear flag). */
 export function useLearnedParameters() {
@@ -113,24 +110,5 @@ export function useDismissPrediction() {
   return useMutation({
     mutationFn: (id: string) => post<{ ok: boolean }, undefined>(`/learning/predictions/${id}/dismiss`, undefined),
     onSuccess: invalidatePredictions,
-  })
-}
-
-/** The tenant's autonomy config — the confidence threshold + tier modes (View 5). */
-export function useAutonomyConfig() {
-  return useQuery({
-    queryKey: QUERY_KEYS.policy.autonomy(),
-    queryFn: () => get<AutonomyConfigDto>('/policy/autonomy'),
-  })
-}
-
-/** Set the autonomy config (ConfigureGuard, D42 audited). */
-export function useUpdateAutonomyConfig() {
-  return useMutation({
-    mutationFn: (body: AutonomyConfigUpdate) => put<AutonomyConfigDto, AutonomyConfigUpdate>('/policy/autonomy', body),
-    onSuccess: (data) => {
-      queryClient.setQueryData(QUERY_KEYS.policy.autonomy(), data)
-      invalidatePredictions()
-    },
   })
 }

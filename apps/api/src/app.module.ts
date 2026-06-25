@@ -16,7 +16,6 @@ import { LlmModule } from './modules/llm/llm.module'
 import { MASTERDATA_READ } from './modules/master-data/master-data-read.service'
 import { NotifierModule } from './modules/notifier/notifier.module'
 import { OrgModule } from './modules/org/org.module'
-import { PolicyModule } from './modules/policy/policy.module'
 import { SchedulingModule } from './modules/scheduling/scheduling.module'
 import { TenantModule } from './modules/tenant/tenant.module'
 
@@ -59,7 +58,6 @@ const BINDING_COUNTERPARTS: Provider = {
     OrgModule,
     AuthModule,
     MasterDataModule,
-    PolicyModule,
     AppConfigModule,
     LearningModule,
     SchedulingModule,

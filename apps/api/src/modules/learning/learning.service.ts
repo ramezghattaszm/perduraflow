@@ -3,16 +3,16 @@ import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception
 import {
   executionActualSchema,
   type ActionTier,
+  type ConfigReadContract,
   type DriftDetectedPayload,
   type ExecutionActualPayload,
   type LearningParam,
-  type PolicyReadContract,
   type PredictionDisposition,
 } from '@perduraflow/contracts'
 import { EVENTS } from '../../events'
 import { EventBus } from '../eventbus/event-bus'
 import type { EventEnvelope } from '../eventbus/event-bus.types'
-import { POLICY_READ } from '../policy/policy-read.service'
+import { CONFIG_READ } from '../config/config-read.service'
 import { evaluate, RULE, snoozeDecision, type PriorState } from './learning.rule'
 import { predict, PREDICT, type PredictionResult } from './learning.predictor'
 import { LearningRepository } from './learning.repository'
@@ -45,7 +45,7 @@ export class LearningService implements OnModuleInit {
   constructor(
     private readonly repo: LearningRepository,
     private readonly events: EventBus,
-    @Inject(POLICY_READ) private readonly policy: PolicyReadContract,
+    @Inject(CONFIG_READ) private readonly config: ConfigReadContract,
   ) {}
 
   /** Wire the closed loop: consume actuals off the bus (A4 / D5). */
@@ -190,8 +190,8 @@ export class LearningService implements OnModuleInit {
     // measured against a fresh forecast (D-snooze) and re-surfaced ONLY when materially worse.
     const snoozed = live ? undefined : await this.repo.findSnoozed(tenantId, resourceId, routingOperationId, param)
 
-    const cfg = await this.policy.getAutonomyConfig(tenantId)
-    const wearBand = cfg.wearBand ?? RULE.STEP_BAND
+    const cfg = await this.config.resolveAutonomy(tenantId)
+    const wearBand = cfg.wearBand
     const threshold = std * (1 + wearBand)
     const cadence = this.cadenceMinutes(actuals, std)
     const result = series.length >= PREDICT.MIN_SAMPLES ? predict(series, threshold, cadence) : null
@@ -252,8 +252,8 @@ export class LearningService implements OnModuleInit {
     // `stay` = remain set aside (the fix — no re-surface on the next actual). Re-anchoring is implicit:
     // the breadcrumb is taken from the snoozed row, and a re-dismissal snapshots the new (worse) values.
     if (snoozed) {
-      const confDelta = cfg.snoozeConfDelta ?? RULE.SNOOZE_CONF_DELTA
-      const urgencyMinutes = cfg.snoozeUrgencyMinutes ?? RULE.SNOOZE_URGENCY_MINUTES
+      const confDelta = cfg.snoozeConfDelta
+      const urgencyMinutes = cfg.snoozeUrgencyMinutes
       const outcome = snoozeDecision({
         tier: result.actionTier,
         newConfidence: result.confidence,

@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common'
-import { PolicyModule } from '../policy/policy.module'
+import { ConfigModule } from '../config/config.module'
 import { LearningController } from './learning.controller'
 import { learningDbProvider } from './learning.db'
 import { LEARNING_READ, LearningReadService } from './learning-read.service'
@@ -15,7 +15,7 @@ import { LearningService } from './learning.service'
  * scheduling at compile time — actuals arrive as events (decoupled).
  */
 @Module({
-  imports: [PolicyModule],
+  imports: [ConfigModule],
   controllers: [LearningController],
   providers: [
     learningDbProvider,

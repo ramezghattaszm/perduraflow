@@ -6,6 +6,7 @@ import {
   type ConfigGroupKey,
   type ConfigGroupView,
   type ConfigLevel,
+  type ConfigValue,
   FIRM_LATENESS_DOMINANCE_RATIO,
   firmLatenessDominates,
   OBJECTIVE_WEIGHT_KEYS,
@@ -16,6 +17,7 @@ import {
   AppInput,
   AppSelect,
   AppSlider,
+  AppSwitch,
   P,
   PageHeader,
   Panel,
@@ -34,11 +36,25 @@ import { AdminShell } from '../shell/admin-shell'
 const GROUPS: { key: ConfigGroupKey; live: boolean }[] = [
   { key: 'objective', live: true },
   { key: 'reporting', live: true },
-  { key: 'autonomy', live: false },
+  { key: 'autonomy', live: true },
 ]
 
-const SCOPES: ConfigLevel[] = ['global', 'tenant', 'plant']
+// Autonomy is tenant-scoped (the learning gate has no plant context — the autonomy boundary is a
+// tenant-wide trust policy), so it offers global → tenant only; the other groups go down to plant.
+const scopesFor = (group: ConfigGroupKey): ConfigLevel[] =>
+  group === 'autonomy' ? ['global', 'tenant'] : ['global', 'tenant', 'plant']
 const PROVENANCE_TONE = { global: 'neutral', tenant: 'active', plant: 'warning' } as const
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+const DISPLAY_SUFFIX = { percent: '%', hours: 'h', raw: '' } as const
+/** Stored (raw) → displayed: percent ×100, hours ÷60, raw as-is. */
+const toDisplay = (raw: number, d: ConfigFieldView['display']) =>
+  d === 'percent' ? round2(raw * 100) : d === 'hours' ? round2(raw / 60) : raw
+/** Displayed → stored (raw): the inverse. `int` fields round to a whole stored value. */
+const fromDisplay = (disp: number, d: ConfigFieldView['display'], isInt: boolean) => {
+  const raw = d === 'percent' ? disp / 100 : d === 'hours' ? disp * 60 : disp
+  return isInt ? Math.round(raw) : raw
+}
 
 /**
  * Configuration (admin) — the hierarchical config framework surface (CONFIG-FRAMEWORK-DESIGN). One
@@ -56,6 +72,12 @@ export function ConfigurationContent() {
   const [group, setGroup] = useState<ConfigGroupKey>('reporting')
   const [scope, setScope] = useState<ConfigLevel>('tenant')
   const [plantId, setPlantId] = useState<string | null>(plants[0]?.id ?? null)
+  const scopes = scopesFor(group)
+  // Switching to a group that doesn't support the current scope (e.g. autonomy ↛ plant) → snap to tenant.
+  const selectGroup = (g: ConfigGroupKey) => {
+    setGroup(g)
+    if (!scopesFor(g).includes(scope)) setScope('tenant')
+  }
 
   const live = GROUPS.find((g) => g.key === group)?.live ?? false
   // Resolve WITH the plant when the plant scope is in view, so the plant override participates.
@@ -74,7 +96,7 @@ export function ConfigurationContent() {
         <SegmentedControl
           options={GROUPS.map((g) => ({ value: g.key, label: t(`groups.${g.key}`) }))}
           value={group}
-          onChange={(g) => setGroup(g as ConfigGroupKey)}
+          onChange={(g) => selectGroup(g as ConfigGroupKey)}
         />
         <P size={3} color="$textSecondary">
           {t(`groupDesc.${group}`)}
@@ -93,7 +115,7 @@ export function ConfigurationContent() {
           {/* Scope selector — demonstrates the cascade. Global is the read-only floor. */}
           <XStack gap="$3" alignItems="center" flexWrap="wrap">
             <SegmentedControl
-              options={SCOPES.map((s) => ({ value: s, label: t(`scope.${s}`) }))}
+              options={scopes.map((s) => ({ value: s, label: t(`scope.${s}`) }))}
               value={scope}
               onChange={(s) => setScope(s as ConfigLevel)}
             />
@@ -162,24 +184,46 @@ function FieldRow({
   const set = useSetConfigOverride()
   const reset = useResetConfigOverride()
 
-  // The override value at the scope in view (null = inherited here), as an edit string.
-  const scopeOverride = scope === 'plant' ? field.plant : scope === 'tenant' ? field.tenant : null
-  const [draft, setDraft] = useState<string>(scopeOverride != null ? String(scopeOverride) : '')
+  const isBool = field.control === 'toggle'
+  const suffix = DISPLAY_SUFFIX[field.display]
+  // Show a scalar value in display units (with suffix); booleans render as On/Off.
+  const fmt = (v: ConfigValue): string =>
+    typeof v === 'boolean'
+      ? t(`bool.${v ? 'on' : 'off'}`)
+      : typeof v === 'number'
+        ? `${toDisplay(v, field.display)}${suffix}`
+        : String(v)
 
-  const num = draft.trim() === '' ? null : Number(draft)
+  // The override value at the scope in view (null = inherited here). Drafts are in DISPLAY units.
+  const scopeOverride = scope === 'plant' ? field.plant : scope === 'tenant' ? field.tenant : null
+  const initialDraft =
+    scopeOverride != null && typeof scopeOverride === 'number' ? String(toDisplay(scopeOverride, field.display)) : ''
+  const [draft, setDraft] = useState<string>(initialDraft)
+  const [boolDraft, setBoolDraft] = useState<boolean>(Boolean(scopeOverride ?? field.value))
+
+  const dispNum = draft.trim() === '' ? null : Number(draft)
+  const rawNum = dispNum === null ? null : fromDisplay(dispNum, field.display, field.kind === 'int')
   const inRange =
-    num === null ||
-    (Number.isFinite(num) &&
-      (field.min === undefined || num >= field.min) &&
-      (field.max === undefined || num <= field.max) &&
-      (field.kind !== 'int' || Number.isInteger(num)))
+    rawNum === null ||
+    (Number.isFinite(rawNum) &&
+      (field.min === undefined || rawNum >= field.min) &&
+      (field.max === undefined || rawNum <= field.max))
   const scopeId = scope === 'plant' ? plantId : tenantId
-  const dirty = (scopeOverride != null ? String(scopeOverride) : '') !== draft.trim()
+  const dirty = isBool ? boolDraft !== Boolean(scopeOverride ?? field.value) : draft.trim() !== initialDraft
   const overriddenHere = scopeOverride != null
+  // The slider's current position (display units) — the draft, else the effective value as a start.
+  const sliderVal = dispNum ?? (typeof field.value === 'number' ? toDisplay(field.value, field.display) : 0)
+  const dispMin = field.min !== undefined ? toDisplay(field.min, field.display) : 0
+  const dispMax = field.max !== undefined ? toDisplay(field.max, field.display) : undefined
 
   const onSave = () => {
-    if (!inRange || num === null || !scopeId || scope === 'global') return
-    set.mutate({ group, level: scope, scopeId, fields: { [field.key]: num }, plantId: plantId ?? undefined })
+    if (!scopeId || scope === 'global') return
+    if (isBool) {
+      set.mutate({ group, level: scope, scopeId, fields: { [field.key]: boolDraft }, plantId: plantId ?? undefined })
+      return
+    }
+    if (!inRange || rawNum === null) return
+    set.mutate({ group, level: scope, scopeId, fields: { [field.key]: rawNum }, plantId: plantId ?? undefined })
   }
   const onReset = () => {
     if (!scopeId || scope === 'global') return
@@ -201,7 +245,7 @@ function FieldRow({
         </P>
         <XStack gap="$2" alignItems="center">
           <P size={4} color="$textTertiary">
-            {t('row.effective', { value: String(field.value) })}
+            {t('row.effective', { value: fmt(field.value) })}
           </P>
           <StatusPill tone={PROVENANCE_TONE[field.provenance]}>
             {t(`provenance.${field.provenance}`)}
@@ -212,32 +256,65 @@ function FieldRow({
       {/* Cascade columns — the global → tenant → plant values in force. */}
       <XStack gap="$4" flexWrap="wrap">
         <P size={5} color="$textTertiary">
-          {t('col.global', { value: String(field.global) })}
+          {t('col.global', { value: fmt(field.global) })}
         </P>
         <P size={5} color="$textTertiary">
-          {t('col.tenant', { value: field.tenant != null ? String(field.tenant) : t('col.inherited') })}
+          {t('col.tenant', { value: field.tenant != null ? fmt(field.tenant) : t('col.inherited') })}
         </P>
         <P size={5} color="$textTertiary">
-          {t('col.plant', { value: field.plant != null ? String(field.plant) : t('col.inherited') })}
+          {t('col.plant', { value: field.plant != null ? fmt(field.plant) : t('col.inherited') })}
         </P>
       </XStack>
 
       {scope !== 'global' ? (
         <XStack gap="$2" alignItems="flex-end" flexWrap="wrap">
-          <YStack flex={1} minWidth={160}>
-            <AppInput
-              label={t('row.overrideAt', { scope: t(`scope.${scope}`) })}
-              value={draft}
-              onChangeText={setDraft}
-              type="text"
-              placeholder={t('row.inheritPlaceholder')}
-              error={inRange ? undefined : t('row.invalid', { min: field.min ?? '', max: field.max ?? '' })}
-            />
-          </YStack>
+          {isBool ? (
+            <XStack flex={1} minWidth={160} gap="$2" alignItems="center" paddingVertical="$2">
+              <AppSwitch checked={boolDraft} onCheckedChange={canEdit ? setBoolDraft : undefined} />
+              <P size={3} color="$textSecondary">
+                {t(`bool.${boolDraft ? 'on' : 'off'}`)}
+              </P>
+            </XStack>
+          ) : field.control === 'slider' ? (
+            <XStack flex={1} minWidth={220} gap="$3" alignItems="center">
+              <YStack flex={1} opacity={canEdit ? 1 : 0.6} pointerEvents={canEdit ? 'auto' : 'none'}>
+                <AppSlider
+                  value={sliderVal}
+                  onChange={(v) => setDraft(String(round2(v)))}
+                  min={dispMin}
+                  max={field.sliderMax ?? dispMax ?? 100}
+                  step={field.sliderStep ?? 1}
+                  tone={inRange ? 'primary' : 'warning'}
+                />
+              </YStack>
+              <YStack width={96}>
+                <AppInput
+                  value={draft === '' ? String(sliderVal) : draft}
+                  onChangeText={setDraft}
+                  type="text"
+                  error={inRange ? undefined : '!'}
+                />
+              </YStack>
+              <P size={5} color="$textTertiary">
+                {suffix}
+              </P>
+            </XStack>
+          ) : (
+            <YStack flex={1} minWidth={160}>
+              <AppInput
+                label={t('row.overrideAt', { scope: `${t(`scope.${scope}`)}${suffix ? ` · ${suffix}` : ''}` })}
+                value={draft}
+                onChangeText={setDraft}
+                type="text"
+                placeholder={t('row.inheritPlaceholder')}
+                error={inRange ? undefined : t('row.invalid', { min: dispMin, max: dispMax ?? '' })}
+              />
+            </YStack>
+          )}
           <AppButton
             variant="primary"
             size="$3"
-            disabled={!canEdit || !dirty || !inRange || num === null}
+            disabled={!canEdit || !dirty || (!isBool && (!inRange || rawNum === null))}
             onPress={onSave}
           >
             {t('row.save')}
@@ -424,8 +501,6 @@ function ObjectiveWeightsEditor({
     </YStack>
   )
 }
-
-const round2 = (n: number) => Math.round(n * 100) / 100
 
 /** Web Configuration screen — body inside the desktop `AdminShell` chrome. */
 export function ConfigurationScreen() {

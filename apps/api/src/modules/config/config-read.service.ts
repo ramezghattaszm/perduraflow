@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import {
+  type AutonomyPolicy,
   CONFIG_READ_CONTRACT,
   type ConfigReadContract,
   OBJECTIVE_DEFAULT_VERSION,
@@ -52,5 +53,18 @@ export class ConfigReadService implements ConfigReadContract {
         ? `obj:t${revisions.tenant ?? 0}`
         : OBJECTIVE_DEFAULT_VERSION
     return { weights, version }
+  }
+
+  /** Resolved Autonomy Policy (global → tenant) — the learning gate reads this in place of the
+   *  retired per-tenant `autonomy_config`. Always real-valued (the floor is the default). */
+  async resolveAutonomy(tenantId: string): Promise<AutonomyPolicy> {
+    const { values } = await this.config.resolve('autonomy', tenantId)
+    return {
+      tier1AutoThreshold: Number(values['tier1AutoThreshold']),
+      wearBand: Number(values['wearBand']),
+      snoozeConfDelta: Number(values['snoozeConfDelta']),
+      snoozeUrgencyMinutes: Number(values['snoozeUrgencyMinutes']),
+      boundedAuto: Boolean(values['boundedAuto']),
+    }
   }
 }

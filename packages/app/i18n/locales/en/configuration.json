@@ -38,7 +38,16 @@
     "overtime": "Overtime",
     "inventory": "Inventory / holding",
     "displacement": "Displacement",
-    "cost": "Cost"
+    "cost": "Cost",
+    "tier1AutoThreshold": "Tier-1 auto-adopt confidence",
+    "wearBand": "Wear band (over standard)",
+    "snoozeConfDelta": "Snooze re-ask: confidence rise",
+    "snoozeUrgencyMinutes": "Snooze re-ask: urgency",
+    "boundedAuto": "Tier-2 bounded-auto"
+  },
+  "bool": {
+    "on": "On",
+    "off": "Off (advisory-first)"
   },
   "objective": {
     "dominant": "Dominant",

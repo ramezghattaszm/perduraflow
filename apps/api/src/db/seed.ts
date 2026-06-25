@@ -33,7 +33,7 @@ import {
   materialRequirement,
   resourceOperatorAssignment,
 } from '../modules/scheduling/schema'
-import { autonomyConfig } from '../modules/policy/schema'
+import { configOverride } from '../modules/config/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48). Idempotent. Aggregates every
@@ -982,13 +982,20 @@ export async function seed(): Promise<void> {
       ho(ramos!.id, null, w1s, w1e, 0.89, 6.3, 0.9, 0.83, 0.976, 1, 5150),
     ])
 
-    // Autonomy config — ADVISORY-FIRST for the demo: a high Tier-1 auto-adopt threshold so the
-    // warm-start's Press Line A wear PREDICTION stays QUEUED (advisory, "predicting — not yet
-    // adopted") instead of auto-pre-adopting (ml_predicted) at reset. Real wear still ADOPTS via the
-    // learning rule when actuals cross the band (the live-drift demo's payoff), independent of this gate.
-    await db
-      .insert(autonomyConfig)
-      .values({ tenantId, tier1AutoThreshold: 0.97, tier2Mode: 'advisory' })
+    // Autonomy config (Config framework, Stage 3 — the `autonomy` group): ADVISORY-FIRST for the
+    // demo. A high Tier-1 auto-adopt threshold (a TENANT override) so the warm-start's Press Line A
+    // wear PREDICTION stays QUEUED (advisory, "predicting — not yet adopted") instead of auto-pre-
+    // adopting (ml_predicted) at reset. Real wear still ADOPTS via the learning rule when actuals
+    // cross the band (the live-drift demo's payoff), independent of this gate. The other autonomy
+    // fields fall through to the shipped defaults (the config global floor).
+    await db.insert(configOverride).values({
+      tenantId,
+      settingGroup: 'autonomy',
+      level: 'tenant',
+      scopeId: tenantId,
+      payload: { tier1AutoThreshold: 0.97 },
+      revision: 1,
+    })
 
     console.log(
       '  ✓ Magna de México scenario: 3 plants, 4 customers, 5 resources, 6 parts, 4 certs, 7 operators, 14 demand lines'

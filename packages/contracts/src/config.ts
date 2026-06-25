@@ -43,8 +43,20 @@ export interface ConfigFieldView {
   /** Plant override for this field, or null if none / no plant scope requested. */
   plant: ConfigValue | null
   kind: 'int' | 'number' | 'text' | 'boolean'
+  /** Raw min/max (in STORED units — the validation bounds). */
   min?: number
   max?: number
+  /**
+   * How the value is PRESENTED + entered (the stored value is always raw): `percent` (raw ×100, "%"),
+   * `hours` (raw minutes ÷60, "h"), or `raw` (as-is, default). The UI converts on display + entry.
+   */
+  display: 'percent' | 'hours' | 'raw'
+  /** The input control: `slider` (+ number), `number`, or `toggle` (boolean). */
+  control: 'slider' | 'number' | 'toggle'
+  /** For a slider: the upper bound in DISPLAY units (e.g. 100 for a 0–100% confidence). */
+  sliderMax?: number
+  /** For a slider: the step in DISPLAY units. */
+  sliderStep?: number
 }
 
 /** A resolved group for the config UI — the field cascade + the override revisions in force. */
@@ -83,6 +95,45 @@ export interface ReportingPolicy {
 
 /** Shipped default reporting window (covers the demo seed's ~12-day rolling history). */
 export const REPORTING_DEFAULTS: ReportingPolicy = { reportingWindowDays: 14 }
+
+// --- Group: autonomy policy (the learning gate) -----------------------------
+/**
+ * Autonomy Policy — the learning confidence×tier gate (A18 trust envelope, D42). Folded into the
+ * config framework (Stage 3): global → tenant (the autonomy boundary is a tenant-wide trust policy;
+ * the gate is tenant-scoped, so plant overrides don't apply). Every field is real-valued here (the
+ * framework's global floor IS the default — no null-with-fallback): the gate reads the resolved
+ * value directly. `boundedAuto` is the Tier-2 mode as a boolean (false = advisory-first).
+ */
+export interface AutonomyPolicy {
+  /** Tier-1 confidence ≥ this auto-commits a predicted adjust; below → queue. 0–1. */
+  tier1AutoThreshold: number
+  /** Crossing-threshold band the predictor measures against (fraction over std). */
+  wearBand: number
+  /** Snooze re-surface confidence delta (0–1). */
+  snoozeConfDelta: number
+  /** Snooze re-surface urgency horizon (minutes). */
+  snoozeUrgencyMinutes: number
+  /** Tier-2 bounded-auto (true) vs advisory-first (false, default). */
+  boundedAuto: boolean
+}
+
+/** The autonomy field keys, in display order. */
+export const AUTONOMY_FIELD_KEYS: (keyof AutonomyPolicy)[] = [
+  'tier1AutoThreshold',
+  'wearBand',
+  'snoozeConfDelta',
+  'snoozeUrgencyMinutes',
+  'boundedAuto',
+]
+
+/** Shipped autonomy defaults (the real-valued floor — mirrors the safe defaults + the rule constants). */
+export const AUTONOMY_POLICY_DEFAULTS: AutonomyPolicy = {
+  tier1AutoThreshold: 0.75,
+  wearBand: 0.05,
+  snoozeConfDelta: 0.15,
+  snoozeUrgencyMinutes: 1440,
+  boundedAuto: false,
+}
 
 // --- Group: objective policy (weights) --------------------------------------
 /** The engine objective-function factor weights — `contribution = rawValue · weight`, lower is better. */
@@ -196,4 +247,6 @@ export interface ConfigReadContract {
    * override) so a stored artifact stays interpretable against the exact weights that produced it.
    */
   resolveObjective(tenantId: string, plantId?: string): Promise<{ weights: ObjectiveWeights; version: string }>
+  /** The resolved Autonomy Policy (global → tenant) — the learning gate's threshold + tier + snooze. */
+  resolveAutonomy(tenantId: string): Promise<AutonomyPolicy>
 }

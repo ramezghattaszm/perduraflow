@@ -92,8 +92,12 @@ export class ConfigService {
       tenant: tenantRow?.payload?.[f.key] ?? null,
       plant: plantRow?.payload?.[f.key] ?? null,
       kind: f.kind,
+      display: f.display ?? 'raw',
+      control: f.control ?? (f.kind === 'boolean' ? 'toggle' : 'number'),
       ...(f.min !== undefined ? { min: f.min } : {}),
       ...(f.max !== undefined ? { max: f.max } : {}),
+      ...(f.sliderMax !== undefined ? { sliderMax: f.sliderMax } : {}),
+      ...(f.sliderStep !== undefined ? { sliderStep: f.sliderStep } : {}),
     }))
     return {
       group,

@@ -1,4 +1,5 @@
 import {
+  AUTONOMY_POLICY_DEFAULTS,
   type ConfigGroupKey,
   type ConfigValue,
   firmLatenessDominates,
@@ -14,6 +15,13 @@ export interface GroupFieldSpec {
   kind: 'int' | 'number' | 'text' | 'boolean'
   min?: number
   max?: number
+  /** Presentation of the (always-raw-stored) value — `percent` (×100), `hours` (÷60), or `raw`. */
+  display?: 'percent' | 'hours' | 'raw'
+  /** Input control — `slider` (+ number), `number`, or `toggle`. Defaults: boolean→toggle, else number. */
+  control?: 'slider' | 'number' | 'toggle'
+  /** Slider upper bound in DISPLAY units; slider step in display units. */
+  sliderMax?: number
+  sliderStep?: number
 }
 
 /**
@@ -52,12 +60,34 @@ const OBJECTIVE: ConfigGroupDescriptor = {
 }
 
 /**
- * The group registry. Stage 1: `reporting`; Stage 2: `objective` (weights + dominance guard).
- * `autonomy` (folded from the policy module) registers here in a later stage.
+ * Group 3 — Autonomy Policy (the learning confidence×tier gate). Stage 3. Tenant-scoped (the gate
+ * has no plant context; the autonomy boundary is a tenant-wide trust policy) — global → tenant only.
+ * Every field is real-valued (the floor IS the default), so the gate reads the resolved value
+ * directly. `boundedAuto` is the Tier-2 mode as a boolean.
+ */
+const AUTONOMY: ConfigGroupDescriptor = {
+  key: 'autonomy',
+  defaults: { ...AUTONOMY_POLICY_DEFAULTS },
+  fields: [
+    // Confidence dials → percent sliders (0–100%). wearBand is fractional too but realistic values
+    // are small, so its slider caps at 50% (the stored max stays 2 = 200%). Snooze urgency is a
+    // duration → shown in hours, number-only (a slider over minutes→days is useless). Mode → toggle.
+    { key: 'tier1AutoThreshold', kind: 'number', min: 0, max: 1, display: 'percent', control: 'slider', sliderMax: 100, sliderStep: 1 },
+    { key: 'wearBand', kind: 'number', min: 0, max: 2, display: 'percent', control: 'slider', sliderMax: 50, sliderStep: 1 },
+    { key: 'snoozeConfDelta', kind: 'number', min: 0, max: 1, display: 'percent', control: 'slider', sliderMax: 100, sliderStep: 1 },
+    { key: 'snoozeUrgencyMinutes', kind: 'int', min: 1, max: 100000, display: 'hours', control: 'number' },
+    { key: 'boundedAuto', kind: 'boolean', control: 'toggle' },
+  ],
+}
+
+/**
+ * The group registry. Stage 1: `reporting`; Stage 2: `objective` (weights + dominance guard);
+ * Stage 3: `autonomy` (folded from the retired policy module).
  */
 export const CONFIG_GROUPS: Partial<Record<ConfigGroupKey, ConfigGroupDescriptor>> = {
   objective: OBJECTIVE,
   reporting: REPORTING,
+  autonomy: AUTONOMY,
 }
 
 /** Resolve a group descriptor or throw a typed "unknown group" for the controller to 404/400. */
