@@ -88,6 +88,17 @@
     "rootWorking_window": "won't fit the working window",
     "rootCapacity": "resource at capacity",
     "rootDue_before_start": "due before it could start",
+    "withLever": "{{base}} — {{lever}}",
+    "lever": {
+      "material": "expedite the material or move the date",
+      "working_window": "add overtime or a shift, or move the date",
+      "capacity": "reprioritize, add overtime, or move the date",
+      "due_before_start": "re-sequencing won't help; renegotiate the date or expedite"
+    },
+    "dueTimed": "due {{due}}, but the line can't start until {{start}} — re-sequencing won't help; renegotiate the date or expedite",
+    "behindResource": "behind {{blocker}} on {{resource}}",
+    "behindPredecessor": "waiting on its earlier op (op {{opSeq}})",
+    "divergent": "{{immediate}} · root cause: {{cause}} ({{rootOrder}}) — {{lever}}",
     "hopResource": "{{order}} op {{opSeq}} · {{resource}} — line occupied, held by",
     "hopPredecessor": "{{order}} op {{opSeq}} · {{resource}} — waiting on its earlier op",
     "hopRoot": "{{order}} op {{opSeq}} · {{resource}} — {{cause}}",

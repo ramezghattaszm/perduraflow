@@ -11,7 +11,13 @@ interface CopilotState {
   open: boolean
   /** The active conversation id (loaded on open; updated as turns flow). */
   conversationId: string | null
+  /** A pre-seeded composer message (set when a screen opens the Copilot to ask a specific question,
+   *  e.g. "Evaluate options" on an at-risk row). The panel reads it once into the input, then clears. */
+  draft: string | null
   openCopilot: () => void
+  /** Open the panel with the composer pre-filled (the planner reviews, then sends). */
+  openCopilotWith: (prompt: string) => void
+  consumeDraft: () => void
   closeCopilot: () => void
   toggleCopilot: () => void
   setConversation: (id: string | null) => void
@@ -20,7 +26,10 @@ interface CopilotState {
 const useCopilotStore = create<CopilotState>((set) => ({
   open: false,
   conversationId: null,
+  draft: null,
   openCopilot: () => set({ open: true }),
+  openCopilotWith: (draft) => set({ open: true, draft }),
+  consumeDraft: () => set({ draft: null }),
   closeCopilot: () => set({ open: false }),
   toggleCopilot: () => set((s) => ({ open: !s.open })),
   setConversation: (conversationId) => set({ conversationId }),
@@ -36,6 +45,12 @@ export const useCopilotConversationId = () => useCopilotStore((s) => s.conversat
 export const useToggleCopilot = () => useCopilotStore((s) => s.toggleCopilot)
 /** Open the panel. */
 export const useOpenCopilot = () => useCopilotStore((s) => s.openCopilot)
+/** Open the panel with the composer pre-seeded with a prompt. */
+export const useOpenCopilotWith = () => useCopilotStore((s) => s.openCopilotWith)
+/** The pending pre-seed draft (null = none). */
+export const useCopilotDraft = () => useCopilotStore((s) => s.draft)
+/** Clear the pending draft (call after reading it into the composer). */
+export const useConsumeCopilotDraft = () => useCopilotStore((s) => s.consumeDraft)
 /** Close the panel. */
 export const useCloseCopilot = () => useCopilotStore((s) => s.closeCopilot)
 /** Set the active conversation id. */

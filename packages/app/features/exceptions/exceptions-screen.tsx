@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { ParameterPredictionDto } from '@perduraflow/contracts'
+import type { ParameterPredictionDto, WorkListRowDto } from '@perduraflow/contracts'
 import {
   AppButton,
   AppSelect,
@@ -11,6 +11,8 @@ import {
   P,
   PageHeader,
   Panel,
+  StatusPill,
+  XStack,
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
@@ -20,13 +22,21 @@ import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources, useWorkList } from '../../hooks/useScheduling'
 import { useApprovePrediction, useDismissPrediction, usePredictions } from '../../hooks/useLearning'
 import { useCanConfigure } from '../../stores/auth.store'
+import { useOpenCopilotWith } from '../../stores/copilot.store'
 import { useSetScreenContext } from '../../stores/screenContext.store'
 import { AdminShell } from '../shell/admin-shell'
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const fmtTime = (iso: string | null) => {
   if (!iso) return '—'
   const d = new Date(iso)
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+/** Day + time, e.g. "Jun 25 06:00" — for the due-vs-earliest-start gap on a due_before_start row. */
+const fmtDayTime = (iso: string | null) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()} ${fmtTime(iso)}`
 }
 const fmtHorizon = (min: number) =>
   min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`
@@ -57,10 +67,13 @@ export function ExceptionsContent() {
     (p) => p.disposition === 'auto_committed' || p.disposition === 'approved'
   )
   const queued = predictions.filter((p) => p.disposition === 'queued')
-  // The at-risk queue IS the Work List filtered to at-risk (order grain) — single source, so the
-  // count here equals the Work List's at-risk chip (counts.atRisk) by construction.
+  // At-risk = the Work List filtered to at-risk (order grain, single source). "Needs you" is FIRM
+  // only — a firm late order is a real human exception; forecast (speculative) at-risk is shown
+  // separately as advisory, so it doesn't read as a required action or inflate the count.
   const atRisk = (workList?.rows ?? []).filter((r) => r.status === 'at_risk')
-  const needYou = queued.length + atRisk.length
+  const firmAtRisk = atRisk.filter((r) => r.firmness === 'firm')
+  const forecastAtRisk = atRisk.filter((r) => r.firmness === 'forecast')
+  const needYou = queued.length + firmAtRisk.length
 
   // Pass C: the selected at-risk row is the deictic referent ("this order / why is this at-risk").
   // It resolves to selectedOrderId, which the Copilot's evaluate_what_if can act on. Published to
@@ -91,6 +104,40 @@ export function ExceptionsContent() {
           conf: Math.round(p.confidence * 100),
           horizon: fmtHorizon(p.horizonMinutes),
         })
+
+  const tl = (k: string, o?: Record<string, unknown>) => t(`scheduling:${k}`, o ?? {})
+  // At-risk statement = the binding op/line + the cause & lever. `due_before_start` is uniquely
+  // unfixable by scheduling, so it shows the due-vs-earliest-start gap (times from the order row).
+  const atRiskStatement = (a: WorkListRowDto) => {
+    const detail = a.atRiskDetail ?? ''
+    const cause =
+      a.chain?.root === 'due_before_start'
+        ? t('scheduling:lateness.dueTimed', {
+            due: fmtDayTime(a.requiredDate),
+            start: fmtDayTime(a.plannedStart),
+          })
+        : a.chain
+          ? latenessSummary(a.chain, tl)
+          : t(`scheduling:riskReason.${a.atRiskReason}`, { defaultValue: a.atRiskReason ?? '' })
+    return detail ? `${detail} · ${cause}` : cause
+  }
+
+  // "Evaluate options" → opens the Copilot pre-seeded with the lever that matches the root cause, so
+  // the planner gets the right what-if (expedite/move-date for material & due_before_start; overtime
+  // for capacity/window) in one click instead of selecting the row and knowing what to ask.
+  const openCopilotWith = useOpenCopilotWith()
+  const resolvePrompt = (a: WorkListRowDto): string => {
+    const order = a.releaseReference ?? a.demandLineId
+    const root = a.chain?.root
+    const key =
+      root === 'material' ||
+      root === 'due_before_start' ||
+      root === 'working_window' ||
+      root === 'capacity'
+        ? `resolvePrompt.${root}`
+        : 'resolvePrompt.default'
+    return t(key, { order })
+  }
 
   return (
     <>
@@ -170,24 +217,65 @@ export function ExceptionsContent() {
                 }
               />
             ))}
-            {atRisk.map((a, i) => (
+            {firmAtRisk.map((a, i) => (
               // Order grain (one row per demand line) — the Work List consolidates an order's
               // at-risk ops into a single binding row, so demandLineId is a stable key.
               <ExceptionRow
                 key={a.demandLineId}
                 divided={queued.length > 0 || i > 0}
                 title={a.label}
-                statement={`${a.atRiskDetail ?? ''} · ${a.chain ? latenessSummary(a.chain, (k, o) => t(`scheduling:${k}`, o ?? {})) : t(`scheduling:riskReason.${a.atRiskReason}`, { defaultValue: a.atRiskReason ?? '' })}`}
+                statement={atRiskStatement(a)}
                 badge={{ label: t('tier.t3'), tone: 'danger' }}
                 selected={selectedOrderId === a.demandLineId}
                 onPress={() =>
                   setSelectedOrderId((cur) => (cur === a.demandLineId ? null : a.demandLineId))
+                }
+                actions={
+                  <AppButton
+                    variant="light"
+                    size="$3"
+                    onPress={() => openCopilotWith(resolvePrompt(a))}
+                  >
+                    {t('evaluateOptions')}
+                  </AppButton>
                 }
               />
             ))}
           </>
         )}
       </Panel>
+
+      {/* Forecast at-risk — speculative (non-firm) demand that's late. Advisory only: shown so it's
+          visible, but no Tier-3 action (not a firm commitment). Quiet badge, no Approve/Dismiss. */}
+      {forecastAtRisk.length > 0 ? (
+        <Panel
+          title={t('forecastAtRisk')}
+          headerRight={
+            <P
+              size={5}
+              color="$textTertiary"
+            >
+              {t('forecastAtRiskCaption')}
+            </P>
+          }
+          contentPadding="$0"
+          contentGap="$0"
+        >
+          {forecastAtRisk.map((a, i) => (
+            <ExceptionRow
+              key={a.demandLineId}
+              divided={i > 0}
+              title={a.label}
+              statement={atRiskStatement(a)}
+              badge={{ label: t('forecastBadge'), tone: 'inactive' }}
+              selected={selectedOrderId === a.demandLineId}
+              onPress={() =>
+                setSelectedOrderId((cur) => (cur === a.demandLineId ? null : a.demandLineId))
+              }
+            />
+          ))}
+        </Panel>
+      ) : null}
 
       {/* Auto-handled — Tier-1 ≥ threshold, pre-applied + logged (transparent). */}
       <Panel
@@ -220,6 +308,60 @@ export function ExceptionsContent() {
           ))
         )}
       </Panel>
+
+      {/* Legend — what the tags mean (the tier names are kept; this explains them). */}
+      <YStack
+        gap="$1.5"
+        paddingTop="$1"
+      >
+        <P
+          size={5}
+          weight="b"
+          caps
+          color="$textTertiary"
+        >
+          {t('legend.title')}
+        </P>
+        <XStack
+          gap="$2"
+          alignItems="center"
+          flexWrap="wrap"
+        >
+          <StatusPill tone="warning">{t('tier.t1')}</StatusPill>
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('legend.t1')}
+          </P>
+        </XStack>
+        <XStack
+          gap="$2"
+          alignItems="center"
+          flexWrap="wrap"
+        >
+          <StatusPill tone="danger">{t('tier.t3')}</StatusPill>
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('legend.t3')}
+          </P>
+        </XStack>
+        <XStack
+          gap="$2"
+          alignItems="center"
+          flexWrap="wrap"
+        >
+          <StatusPill tone="active">{t('autoBadge')}</StatusPill>
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('legend.auto')}
+          </P>
+        </XStack>
+      </YStack>
     </>
   )
 }
