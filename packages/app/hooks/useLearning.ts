@@ -74,23 +74,29 @@ export function useSimulateActuals() {
     mutationFn: (req: SimulateActualsRequest) => post<{ emitted: number }, SimulateActualsRequest>('/dev/scheduling/simulate', req),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.parameters() })
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.predictions() })
+      // Prefix match — covers every plant's predictions (the key now carries plantId).
+      void queryClient.invalidateQueries({ queryKey: ['learning', 'predictions'] })
     },
   })
 }
 
 // --- phase 4: predictions + autonomy policy ----------------------------------
 
-/** Live parameter forecasts + dispositions (Exception Queue + board flags, View 4). */
-export function usePredictions() {
+/**
+ * Live parameter forecasts for a plant (Exception Queue + board flags, View 4). Plant-scoped at the
+ * endpoint (`plantId` required), so it only runs once a plant is selected — never shows another plant's.
+ */
+export function usePredictions(plantId: string | undefined) {
   return useQuery({
-    queryKey: QUERY_KEYS.learning.predictions(),
-    queryFn: () => get<ParameterPredictionDto[]>('/learning/predictions'),
+    queryKey: QUERY_KEYS.learning.predictions(plantId ?? ''),
+    queryFn: () => get<ParameterPredictionDto[]>(`/learning/predictions?plantId=${plantId}`),
+    enabled: Boolean(plantId),
   })
 }
 
 const invalidatePredictions = () => {
-  void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.predictions() })
+  // Prefix match — invalidates predictions for every plant (the key now carries plantId).
+  void queryClient.invalidateQueries({ queryKey: ['learning', 'predictions'] })
   void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.learning.parameters() })
 }
 

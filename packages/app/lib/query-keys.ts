@@ -41,7 +41,7 @@ export const QUERY_KEYS = {
   },
   learning: {
     parameters: () => ['learning', 'parameters'] as const,
-    predictions: () => ['learning', 'predictions'] as const,
+    predictions: (plantId: string) => ['learning', 'predictions', plantId] as const,
   },
   workforce: {
     coverage: (plantId: string) => ['workforce', 'coverage', plantId] as const,

@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common'
 import {
   LEARNING_READ_CONTRACT,
+  MASTERDATA_READ_CONTRACT,
   type ExecutionActualDto,
   type LearnedParameterDto,
   type LearningParam,
   type LearningReadContract,
+  type MasterDataReadContract,
   type ParameterPredictionDto,
 } from '@perduraflow/contracts'
+import { BindingResolver } from '../binding/binding.resolver'
 import {
   toExecutionActualDto,
   toLearnedParameterDto,
@@ -27,7 +30,10 @@ export const LEARNING_READ = Symbol('LEARNING_READ')
 export class LearningReadService implements LearningReadContract {
   readonly contract = LEARNING_READ_CONTRACT
 
-  constructor(private readonly repo: LearningRepository) {}
+  constructor(
+    private readonly repo: LearningRepository,
+    private readonly bindings: BindingResolver,
+  ) {}
 
   /** The learned overlay for one parameter, or null. */
   async getLearnedParameter(
@@ -61,8 +67,25 @@ export class LearningReadService implements LearningReadContract {
     return row ? toParameterPredictionDto(row) : null
   }
 
-  /** All live forecasts for the tenant — Exception Queue + board flags (phase 4). */
+  /**
+   * All live forecasts for the tenant — the published-contract surface (no plant scope). Consumed
+   * in-process by scheduling/what-if (collision detection over every line). The HTTP exception-queue
+   * surface uses {@link listPredictionsForPlant} instead, so a screen never sees another plant's rows.
+   */
   async listPredictions(tenantId: string): Promise<ParameterPredictionDto[]> {
     return (await this.repo.listLivePredictions(tenantId)).map(toParameterPredictionDto)
+  }
+
+  /**
+   * Live forecasts for ONE plant (the Exception Queue / board surface). Plant scope is resolved
+   * server-side via `masterdata.read` — predictions key on `resourceId`, so we keep only those whose
+   * resource belongs to the plant. Mirrors every other plant-scoped read (filter at the endpoint).
+   */
+  async listPredictionsForPlant(tenantId: string, plantId: string): Promise<ParameterPredictionDto[]> {
+    const md = await this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
+    const plantResourceIds = new Set((await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id))
+    return (await this.repo.listLivePredictions(tenantId))
+      .filter((p) => plantResourceIds.has(p.resourceId))
+      .map(toParameterPredictionDto)
   }
 }

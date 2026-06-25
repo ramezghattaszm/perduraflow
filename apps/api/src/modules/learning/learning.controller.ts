@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common'
 import { executionActualSchema, type ExecutionActualPayload } from '@perduraflow/contracts'
+import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { ConfigureGuard } from '../../common/guards/configure.guard'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
@@ -37,10 +38,17 @@ export class LearningController {
     return { ok: true }
   }
 
-  /** `GET /learning/predictions` — live forecasts + dispositions (Exception Queue, board flags). */
+  /**
+   * `GET /learning/predictions?plantId=` — live forecasts for ONE plant (Exception Queue, board
+   * flags). `plantId` is REQUIRED: predictions are plant-scoped at the endpoint (like every other
+   * plant read), so a screen never shows another plant's forecasts.
+   */
   @Get('predictions')
-  listPredictions(@CurrentUser() user: JwtPayload) {
-    return this.read.listPredictions(user.tenantId)
+  listPredictions(@CurrentUser() user: JwtPayload, @Query('plantId') plantId?: string) {
+    if (!plantId) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'plantId is required', ERROR_CODES.VALIDATION_ERROR)
+    }
+    return this.read.listPredictionsForPlant(user.tenantId, plantId)
   }
 
   /** `POST /learning/predictions/:id/approve` — human-dispose a queued prediction (ConfigureGuard). */

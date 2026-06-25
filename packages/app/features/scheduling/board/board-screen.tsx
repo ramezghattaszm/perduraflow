@@ -88,7 +88,7 @@ export function BoardContent() {
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
   const { data: variance } = useVariance(versionId ?? undefined)
   const { data: learned = [] } = useLearnedParameters()
-  const { data: predictions = [] } = usePredictions()
+  const { data: predictions = [] } = usePredictions(plantId ?? undefined)
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
   const discard = useDiscardDraft()

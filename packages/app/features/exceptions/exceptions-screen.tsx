@@ -45,7 +45,7 @@ export function ExceptionsContent() {
   const { data: plants = [] } = usePlants()
   const { plantId, setPlant } = usePlantSelection(plants)
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
-  const { data: predictions = [] } = usePredictions()
+  const { data: predictions = [] } = usePredictions(plantId ?? undefined)
   const { data: workList } = useWorkList(plantId ?? undefined)
   const approve = useApprovePrediction()
   const dismiss = useDismissPrediction()
