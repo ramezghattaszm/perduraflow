@@ -45,8 +45,12 @@ before starting features.
 | `docs/api-spec.md` | This app's API decisions (modules, tables, scope key, error codes, env) | Yes |
 | `docs/frontend-spec.md` | This app's UI decisions (palette, routes, screens, copy) | Yes |
 | `docs/PROJECT-SUMMARY.md` | This app's live state / handoff | Yes |
+| **`docs/SESSION-HANDOFF.md`** | **▶ Resume here.** Where the last session left off — current status, decisions made (don't re-litigate), open threads, next step (the line-down duration fix) | Yes |
+| `docs/CONFIG-FRAMEWORK-DESIGN.md` | The hierarchical config framework (global→tenant→plant, cascade/reset/audit) + Objective Policy (weights) + Reporting Policy (KPI window) + Autonomy — design + build sequencing | Yes |
+| `docs/WEIGHT-CONFIG-DESIGN.md` | Objective weights detail: the firm-lateness-dominance guard + learned-weights-as-advisory (future — propose-then-confirm, never auto-drift) | Yes |
+| `docs/PREDICTIVE-SCHEDULING-EMPHASIS.md` | Demo talk-track for the predictive story (built beats vs vision; the honesty caveat) | Yes |
 
-Before building anything, read the two architecture docs and the two app spec docs.
+**Resuming a session?** Start at `docs/SESSION-HANDOFF.md` (the entry point for picking up where the last session left off), then read the two architecture docs and the two app spec docs before building.
 
 ---
 
