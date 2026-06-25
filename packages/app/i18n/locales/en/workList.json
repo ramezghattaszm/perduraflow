@@ -8,12 +8,14 @@
   "filter": {
     "all": "All",
     "at_risk": "At-risk",
+    "stranded": "Stranded",
     "in_progress": "In progress",
     "scheduled": "Scheduled",
     "completed": "Completed"
   },
   "status": {
     "at_risk": "At-risk",
+    "stranded": "Stranded",
     "in_progress": "In progress",
     "scheduled": "Scheduled",
     "completed": "Completed"

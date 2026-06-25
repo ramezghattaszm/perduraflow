@@ -32,6 +32,7 @@ const op = (
   plannedEndMs: NOW + 25 * HOUR,
   atRisk: false,
   atRiskReason: null,
+  stranded: false,
   hasActual: false,
   chain: null,
   ...over,
@@ -41,22 +42,32 @@ const orders = (...ms: WorkListOrderMeta[]) => new Map(ms.map((m) => [m.demandLi
 
 describe('opStatus — per-op precedence', () => {
   it('completed when it has an actual (even if flagged at-risk)', () => {
-    expect(opStatus({ hasActual: true, atRisk: true, plannedStartMs: NOW - HOUR }, NOW)).toBe(
+    expect(opStatus({ hasActual: true, atRisk: true, stranded: false, plannedStartMs: NOW - HOUR }, NOW)).toBe(
       'completed'
     )
   })
   it('at_risk when flagged and not yet executed', () => {
-    expect(opStatus({ hasActual: false, atRisk: true, plannedStartMs: NOW + HOUR }, NOW)).toBe(
+    expect(opStatus({ hasActual: false, atRisk: true, stranded: false, plannedStartMs: NOW + HOUR }, NOW)).toBe(
+      'at_risk'
+    )
+  })
+  it('stranded when in an active down-window, not yet executed, not flagged late', () => {
+    expect(opStatus({ hasActual: false, atRisk: false, stranded: true, plannedStartMs: NOW - HOUR }, NOW)).toBe(
+      'stranded'
+    )
+  })
+  it('at_risk wins over stranded for the same op (delivery prediction is the headline)', () => {
+    expect(opStatus({ hasActual: false, atRisk: true, stranded: true, plannedStartMs: NOW + HOUR }, NOW)).toBe(
       'at_risk'
     )
   })
   it('in_progress when started per plan, not done, not at-risk', () => {
-    expect(opStatus({ hasActual: false, atRisk: false, plannedStartMs: NOW - HOUR }, NOW)).toBe(
+    expect(opStatus({ hasActual: false, atRisk: false, stranded: false, plannedStartMs: NOW - HOUR }, NOW)).toBe(
       'in_progress'
     )
   })
   it('scheduled when entirely in the future', () => {
-    expect(opStatus({ hasActual: false, atRisk: false, plannedStartMs: NOW + HOUR }, NOW)).toBe(
+    expect(opStatus({ hasActual: false, atRisk: false, stranded: false, plannedStartMs: NOW + HOUR }, NOW)).toBe(
       'scheduled'
     )
   })
@@ -64,7 +75,10 @@ describe('opStatus — per-op precedence', () => {
 
 describe('rollupStatus — order precedence', () => {
   it('at_risk wins over everything', () => {
-    expect(rollupStatus(['completed', 'at_risk', 'scheduled'])).toBe('at_risk')
+    expect(rollupStatus(['completed', 'at_risk', 'stranded', 'scheduled'])).toBe('at_risk')
+  })
+  it('stranded outranks all but at_risk', () => {
+    expect(rollupStatus(['completed', 'stranded', 'scheduled'])).toBe('stranded')
   })
   it('completed only when ALL ops completed', () => {
     expect(rollupStatus(['completed', 'completed'])).toBe('completed')
@@ -101,6 +115,8 @@ describe('buildWorkList', () => {
         atRisk: true,
         atRiskReason: 'late',
       }),
+      // DL-STRAND: op in an active down-window, future, not flagged late → stranded (FACT, distinct)
+      op({ demandLineId: 'DL-STRAND', opSeq: 10, stranded: true }),
     ]
     const { rows, counts } = buildWorkList(
       ops,
@@ -108,16 +124,18 @@ describe('buildWorkList', () => {
         meta({ demandLineId: 'DL-DONE' }),
         meta({ demandLineId: 'DL-RUN' }),
         meta({ demandLineId: 'DL-FUT' }),
-        meta({ demandLineId: 'DL-RISK' })
+        meta({ demandLineId: 'DL-RISK' }),
+        meta({ demandLineId: 'DL-STRAND' })
       ),
       NOW
     )
-    expect(counts).toEqual({ total: 4, completed: 1, atRisk: 1, inProgress: 1, scheduled: 1 })
+    expect(counts).toEqual({ total: 5, completed: 1, atRisk: 1, stranded: 1, inProgress: 1, scheduled: 1 })
 
     const byId = new Map(rows.map((r) => [r.demandLineId, r]))
     expect(byId.get('DL-DONE')!.status).toBe('completed')
     expect(byId.get('DL-RUN')!.status).toBe('in_progress')
     expect(byId.get('DL-FUT')!.status).toBe('scheduled')
+    expect(byId.get('DL-STRAND')!.status).toBe('stranded')
 
     const risk = byId.get('DL-RISK')!
     expect(risk.status).toBe('at_risk')

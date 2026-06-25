@@ -138,6 +138,10 @@ export interface ScheduledOperationDto {
   cycleConfidence: number | null
   atRisk: boolean
   atRiskReason: string | null
+  /** STRANDED: this committed op sits inside an active line-down window — it can't run as planned
+   *  (a FACT, computed op ∩ active downtime; no re-solve). Distinct from `atRisk` (the delivery
+   *  prediction). Absent/false when no active window covers it. */
+  stranded?: boolean
   /** This version's execution actual for the op (planned-vs-actual on the board);
    *  `null` until the version has actuals. */
   actual?: OperationActualDto | null
@@ -329,11 +333,14 @@ export interface ScorecardDto {
 /**
  * A work item's computed lifecycle status (D-worklist) — derived from the schedule + actuals,
  * never stored. Mutually exclusive + exhaustive, evaluated in precedence order:
- * `completed` (executed) → `at_risk` (committed, late/blocked) → `in_progress` (started, on-track)
- * → `scheduled` (future, on-track). The `at_risk` set uses the SAME `atRisk` flag the board, KPI
- * strip and exception queue read, so the at-risk count reconciles across surfaces by construction.
+ * `completed` (executed) → `at_risk` (committed, predicted late/blocked) → `stranded` (a committed op
+ * sits inside an active line-down window — it CANNOT run as planned; a FACT, not a prediction, and
+ * distinct from late: the order may re-sequence on-time) → `in_progress` (started, on-track) →
+ * `scheduled` (future, on-track). `at_risk` uses the SAME `atRisk` flag the board / KPI strip /
+ * exception queue read (the delivery prediction, R1 — unchanged until a re-solve); `stranded` is the
+ * separate infeasibility fact, so neither masks the other and both reconcile across surfaces.
  */
-export const workListStatusSchema = z.enum(['completed', 'at_risk', 'in_progress', 'scheduled'])
+export const workListStatusSchema = z.enum(['completed', 'at_risk', 'stranded', 'in_progress', 'scheduled'])
 export type WorkListStatus = z.infer<typeof workListStatusSchema>
 
 /** One operation under a work-list order row (the expand detail) — same per-op taxonomy. */
@@ -388,6 +395,8 @@ export interface WorkListCountsDto {
   total: number
   completed: number
   atRisk: number
+  /** Orders with a committed op inside an active line-down window (can't run as planned). */
+  stranded: number
   inProgress: number
   scheduled: number
 }

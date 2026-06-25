@@ -231,6 +231,28 @@ export class SchedulingService {
   }
 
   /**
+   * The "stranded" op ids of a committed plan: ops whose `[plannedStart, plannedEnd)` overlaps an
+   * ACTIVE line-down / maintenance window on their resource — they CANNOT run as planned (the line
+   * is down then). A FACT (committed op ∩ active window), no re-solve — distinct from at-risk (the
+   * delivery prediction). ONE source so the board (op.stranded) and the work-list ('stranded' status)
+   * reconcile. Empty when there are no active windows.
+   */
+  private async strandedOpIds(tenantId: string, plantId: string, ops: ScheduledOperation[]): Promise<Set<string>> {
+    const md = await this.resolveMasterData(tenantId)
+    const { closed } = downtimeMaps(await md.listActiveDowntime(tenantId, plantId))
+    const out = new Set<string>()
+    if (closed.size === 0) return out
+    for (const o of ops) {
+      const wins = closed.get(o.resourceId)
+      if (!wins) continue
+      const s = o.plannedStart.getTime()
+      const e = o.plannedEnd.getTime()
+      if (wins.some(([ws, we]) => s < we && e > ws)) out.add(o.id)
+    }
+    return out
+  }
+
+  /**
    * The causal lateness chains for one order on the plant's committed plan (D-late) — one per at-risk
    * op of that order. Empty when the order isn't at-risk. Used by the Copilot's explain_lateness tool;
    * the chain is computed (grounded), so the Copilot narrates it and never infers a blocker.
@@ -267,6 +289,9 @@ export class SchedulingService {
     // Causal lateness chains for the at-risk ops (D-late) — attached to the board op so the bar panel
     // can show "held by … ← root", same computed chain the queue + Copilot read.
     const chains = await this.latenessChainsFor(tenantId, version.plantId, ops)
+    // Stranded ops (committed op ∩ active line-down window) — a FACT the board marks "can't run as
+    // planned", distinct from at-risk. One source (same helper feeds the work-list).
+    const stranded = await this.strandedOpIds(tenantId, version.plantId, ops)
     return {
       version: toScheduleVersionDto(version),
       run: toOptimizerRunDto(run!),
@@ -275,6 +300,7 @@ export class SchedulingService {
         const a = actualByOp.get(o.id)
         return {
           ...toScheduledOperationDto(o),
+          stranded: stranded.has(o.id),
           actual: a
             ? {
                 actualStart: a.actualStart,
@@ -1169,7 +1195,7 @@ export class SchedulingService {
       throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
     }
     const resolvedPlant = version?.plantId ?? plantId
-    const empty = { total: 0, completed: 0, atRisk: 0, inProgress: 0, scheduled: 0 }
+    const empty = { total: 0, completed: 0, atRisk: 0, stranded: 0, inProgress: 0, scheduled: 0 }
     if (!version) return { plantId: resolvedPlant, scheduleVersionId: null, counts: empty, rows: [] }
 
     const md = await this.resolveMasterData(tenantId)
@@ -1217,6 +1243,7 @@ export class SchedulingService {
       })
     }
 
+    const stranded = await this.strandedOpIds(tenantId, version.plantId, ops)
     const opInputs: WorkListOpInput[] = ops.map((o) => ({
       demandLineId: o.demandLineId,
       opSeq: o.opSeq,
@@ -1226,6 +1253,7 @@ export class SchedulingService {
       plannedEndMs: o.plannedEnd.getTime(),
       atRisk: o.atRisk,
       atRiskReason: o.atRiskReason,
+      stranded: stranded.has(o.id),
       hasActual: actualOpIds.has(o.id),
       chain: chains.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
     }))

@@ -37,19 +37,23 @@ const fmtDayTime = (iso: string | null) => {
   return `${fmtDay(iso)}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 }
 
-/** Status → pill tone (single mapping; shared by the column cell + the detail ops). */
+/** Status → pill tone (single mapping; shared by the column cell + the detail ops).
+ *  `stranded` is amber (warning), distinct from `at_risk` red — a can't-run-as-planned FACT, not a
+ *  delivery-late prediction. */
 const STATUS_TONE: Record<WorkListStatus, StatusTone> = {
   completed: 'active',
   at_risk: 'danger',
+  stranded: 'warning',
   in_progress: 'neutral',
   scheduled: 'inactive',
 }
 /** Default sort weight — most-actionable first (matches the API's row order). */
 const STATUS_RANK: Record<WorkListStatus, number> = {
   at_risk: 0,
-  in_progress: 1,
-  scheduled: 2,
-  completed: 3,
+  stranded: 1,
+  in_progress: 2,
+  scheduled: 3,
+  completed: 4,
 }
 const PRIORITY_RANK = { critical: 0, high: 1, standard: 2 } as const
 
@@ -95,7 +99,7 @@ export function WorkListTable({
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const counts = data?.counts ?? { total: 0, completed: 0, atRisk: 0, inProgress: 0, scheduled: 0 }
+  const counts = data?.counts ?? { total: 0, completed: 0, atRisk: 0, stranded: 0, inProgress: 0, scheduled: 0 }
   const rows = data?.rows ?? []
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -137,6 +141,7 @@ export function WorkListTable({
   const filterOptions: { value: FilterValue; label: string }[] = [
     { value: 'all', label: `${t('filter.all')} · ${counts.total}` },
     { value: 'at_risk', label: `${t('filter.at_risk')} · ${counts.atRisk}` },
+    { value: 'stranded', label: `${t('filter.stranded')} · ${counts.stranded}` },
     { value: 'in_progress', label: `${t('filter.in_progress')} · ${counts.inProgress}` },
     { value: 'scheduled', label: `${t('filter.scheduled')} · ${counts.scheduled}` },
     { value: 'completed', label: `${t('filter.completed')} · ${counts.completed}` },

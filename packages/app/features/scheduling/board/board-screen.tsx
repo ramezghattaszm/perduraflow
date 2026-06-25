@@ -199,6 +199,9 @@ export function BoardContent() {
         setupMin: o.setupTime,
         runMin: o.cycleTime * o.plannedQty,
         atRisk: o.atRisk,
+        // STRANDED (server fact): committed op inside an active down-window — can't run as planned.
+        // Distinct from atRisk; rendered as "can't run", not on-time. Same source as the work-list.
+        stranded: o.stranded ?? false,
         changeover: changeoverIds.has(o.id),
         ml,
         predicted,
@@ -316,6 +319,11 @@ export function BoardContent() {
   )
   const atRiskFirmCount = new Set(
     kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
+  ).size
+  // Stranded firm orders (committed op inside an active down-window) — a FACT, distinct from at-risk.
+  // Surfaced as its own KPI tile only when present, so the at-risk count stays the delivery prediction.
+  const strandedFirmCount = new Set(
+    kpiOps.filter((o) => o.stranded && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
   ).size
   const plantUtil = variance?.utilizationPct ?? null
   // The KPI strip is a plant-state surface → CONTINUOUS throughput (executed-past, Reporting-Policy
@@ -1043,6 +1051,14 @@ export function BoardContent() {
             caption={t('kpi.atRiskCaption')}
             valueTone={atRiskFirmCount > 0 ? 'bad' : 'ok'}
           />
+          {strandedFirmCount > 0 ? (
+            <KpiTile
+              label={t('kpi.stranded')}
+              value={String(strandedFirmCount)}
+              caption={t('kpi.strandedCaption')}
+              valueTone="warn"
+            />
+          ) : null}
           <KpiTile
             label={t('kpi.throughput')}
             value={tputPct == null ? '—' : `${Math.round(tputPct * 100)}%`}

@@ -60,6 +60,8 @@ export const LineDownClosure: Story = {
         horizonEndMs={end}
         closures={[{ resourceId: 'press', startMs: origin + 120 * m, endMs: end, label: 'down' }]}
         bars={[
+          // a committed op on the down line, inside the closure → STRANDED (muted + dashed outline = "can't run")
+          { id: 'bs', resourceId: 'press', label: 'FG-2001', sourceTag: 'std', startMs: origin + 150 * m, endMs: origin + 260 * m, setupMin: 30, runMin: 80, atRisk: false, stranded: true, changeover: false },
           { id: 'b1', resourceId: 'pressb', label: 'FG-1001', sourceTag: 'std', startMs: origin, endMs: origin + 130 * m, setupMin: 20, runMin: 110, atRisk: false, changeover: false },
           { id: 'b2', resourceId: 'pressb', label: 'FG-1003', sourceTag: 'std', startMs: origin + 130 * m, endMs: origin + 300 * m, setupMin: 30, runMin: 140, atRisk: true, changeover: true },
         ]}

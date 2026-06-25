@@ -25,6 +25,8 @@ export interface WorkListOpInput {
   plannedEndMs: number
   atRisk: boolean
   atRiskReason: string | null
+  /** True when this committed op sits inside an active line-down window (can't run as planned). */
+  stranded: boolean
   /** True once the op has an execution actual (it has run). */
   hasActual: boolean
   /** The op's computed causal chain (`${demandLineId}:${opSeq}`), if at-risk; else null. */
@@ -46,39 +48,46 @@ export interface WorkListOrderMeta {
 
 /**
  * Per-op lifecycle status. Precedence (first match wins), exhaustive over committed ops:
- * `completed` (has an actual) → `at_risk` (committed, late/blocked) → `in_progress` (started per
- * plan, not done) → `scheduled` (future). `at_risk` uses the engine's own flag, so it matches the
- * board / KPI strip / exception queue exactly.
+ * `completed` (has an actual) → `at_risk` (committed, predicted late/blocked) → `stranded` (sits in
+ * an active line-down window — can't run as planned) → `in_progress` (started per plan, not done) →
+ * `scheduled` (future). `at_risk` uses the engine's own flag (the delivery prediction); `stranded` is
+ * the separate infeasibility FACT. A stranded op isn't `atRisk`-flagged in the committed plan (it was
+ * on-time pre-outage), so the two don't collide in practice — and `at_risk` wins if they ever do.
  */
 export function opStatus(
-  op: { hasActual: boolean; atRisk: boolean; plannedStartMs: number },
+  op: { hasActual: boolean; atRisk: boolean; stranded: boolean; plannedStartMs: number },
   nowMs: number
 ): WorkListStatus {
   if (op.hasActual) return 'completed'
   if (op.atRisk) return 'at_risk'
+  if (op.stranded) return 'stranded'
   if (op.plannedStartMs <= nowMs) return 'in_progress'
   return 'scheduled'
 }
 
 /**
- * Roll an order's op statuses up to one status. Precedence: any op at-risk → `at_risk`; all ops
- * completed → `completed`; any op started (completed or in-progress) → `in_progress`; else
- * `scheduled`. An order with no ops is `scheduled` (nothing has started).
+ * Roll an order's op statuses up to one status. Precedence: any op at-risk → `at_risk`; any op
+ * stranded → `stranded`; all ops completed → `completed`; any op started (completed or in-progress)
+ * → `in_progress`; else `scheduled`. An order with no ops is `scheduled`. `at_risk` outranks
+ * `stranded` (a genuinely-late order is the dominant delivery signal); a not-yet-late order with an
+ * infeasible op surfaces as `stranded` (re-sequence) rather than falsely on-time.
  */
 export function rollupStatus(statuses: WorkListStatus[]): WorkListStatus {
   if (statuses.length === 0) return 'scheduled'
   if (statuses.includes('at_risk')) return 'at_risk'
+  if (statuses.includes('stranded')) return 'stranded'
   if (statuses.every((s) => s === 'completed')) return 'completed'
   if (statuses.some((s) => s === 'completed' || s === 'in_progress')) return 'in_progress'
   return 'scheduled'
 }
 
-/** Default row order: most-actionable first — at-risk, then started, then upcoming, then done; due asc within. */
+/** Default row order: most-actionable first — at-risk, stranded, then started, upcoming, done; due asc within. */
 const STATUS_RANK: Record<WorkListStatus, number> = {
   at_risk: 0,
-  in_progress: 1,
-  scheduled: 2,
-  completed: 3,
+  stranded: 1,
+  in_progress: 2,
+  scheduled: 3,
+  completed: 4,
 }
 
 /**
@@ -156,6 +165,7 @@ export function buildWorkList(
     total: rows.length,
     completed: rows.filter((r) => r.status === 'completed').length,
     atRisk: rows.filter((r) => r.status === 'at_risk').length,
+    stranded: rows.filter((r) => r.status === 'stranded').length,
     inProgress: rows.filter((r) => r.status === 'in_progress').length,
     scheduled: rows.filter((r) => r.status === 'scheduled').length,
   }

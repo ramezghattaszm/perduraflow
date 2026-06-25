@@ -121,6 +121,8 @@
     "utilizationCaption": "capacity, plan ahead",
     "atRisk": "At-risk",
     "atRiskCaption": "firm orders",
+    "stranded": "Stranded",
+    "strandedCaption": "can't run — line down",
     "throughput": "Throughput",
     "throughputCaption": "good vs planned"
   },

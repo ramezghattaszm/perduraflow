@@ -61,6 +61,9 @@ export interface GanttBar {
   setupMin: number
   runMin: number
   atRisk: boolean
+  /** STRANDED: this op sits inside an active line-down window — it can't run as planned. Rendered
+   *  muted + a dashed danger outline ("can't run as planned"), distinct from at-risk's solid outline. */
+  stranded?: boolean
   changeover: boolean
   /** Learned (ml_adjusted) cycle/setup → distinct `$ml` fill + a confidence bar (phase 3, FS13). */
   ml?: boolean
@@ -520,8 +523,15 @@ export function ScheduleGantt({ resources, bars, closures, horizonStartMs, horiz
                         <Rect x={x + 6} y={y + BAR_H - 5} width={Math.max((w - 12) * b.confidence, 0)} height={2} fill="#ffffff" opacity={0.8} />
                       </>
                     ) : null}
+                    {/* stranded: a muted wash — this op can't run as planned (line down in its slot) */}
+                    {b.stranded ? <Rect x={x} y={y} width={w} height={BAR_H} fill={c.axisBg} opacity={0.55} /> : null}
                   </G>
                   {b.atRisk ? <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill="none" stroke={c.danger} strokeWidth={2} /> : null}
+                  {/* stranded (and not already at-risk): a DASHED danger outline — "can't run as planned",
+                      distinct from at-risk's solid outline. */}
+                  {b.stranded && !b.atRisk ? (
+                    <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill="none" stroke={c.danger} strokeWidth={2} strokeDasharray="4 3" />
+                  ) : null}
                   {b.changeover ? <Rect x={x - 2} y={y - 4} width={3} height={BAR_H + 8} rx={1.5} fill={c.accent} opacity={0.85} /> : null}
                   {b.atRisk ? <Circle cx={x + w - 10} cy={y + 8} r={3.5} fill={c.danger} /> : null}
                   {/* selected state — an outset ring while this bar's panel/sheet is open */}

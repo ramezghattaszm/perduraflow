@@ -89,7 +89,9 @@
       "Bash(echo \"no api dev process\")",
       "Bash(cd /Users/RamezGhattas/Documents/Work/Company/SupplyChain/PerduraFlow *)",
       "Bash(git rev-list *)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(echo \"started web \\(pid $!\\)\")"
     ],
     "additionalDirectories": [
       "/tmp",
