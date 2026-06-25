@@ -57,7 +57,10 @@ export const toResourceTypeConfigDto = (c: ResourceTypeConfig): ResourceTypeConf
 })
 
 /** Map a resource-group row (+ member ids) to its DTO. */
-export const toResourceGroupDto = (g: ResourceGroup, memberResourceIds: string[]): ResourceGroupDto => ({
+export const toResourceGroupDto = (
+  g: ResourceGroup,
+  memberResourceIds: string[]
+): ResourceGroupDto => ({
   id: g.id,
   name: g.name,
   plantId: g.plantId,
@@ -102,6 +105,7 @@ export const toOperatorDto = (o: Operator, certificationIds: string[]): Operator
   laborRate: o.laborRate,
   performanceFactor: o.performanceFactor,
   available: o.available,
+  absenceReason: o.absenceReason ?? null,
   certificationIds,
   isActive: o.isActive,
 })

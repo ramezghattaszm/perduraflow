@@ -14,6 +14,7 @@ import {
   type MaterialConditionDto,
   type ResourceOperatorAssignmentDto,
   type OeeDto,
+  type OperatorAbsenceReason,
   type OperatorDto,
   type OrgPriority,
   type OrgReadContract,
@@ -1065,7 +1066,7 @@ export class SchedulingService {
     const relevantCertIds = new Set(operators.flatMap((o) => o.certificationIds))
     const certs = (await md.listCertifications(tenantId)).filter((c) => c.isActive && relevantCertIds.has(c.id))
 
-    const operatorAxis: CoverageAxisDto[] = operators.map((o) => ({ id: o.id, label: o.name, out: !o.available }))
+    const operatorAxis: CoverageAxisDto[] = operators.map((o) => ({ id: o.id, label: o.name, out: !o.available, outReason: o.available ? null : o.absenceReason }))
     const stationAxis: CoverageAxisDto[] = certs.map((c) => ({ id: c.id, label: c.code, certRequired: true }))
     const holds = (op: OperatorDto, certId: string) => op.certificationIds.includes(certId)
     const covered = (certId: string) => operators.some((op) => op.available && holds(op, certId))
@@ -1082,20 +1083,21 @@ export class SchedulingService {
     const gapStations = certs.filter((c) => !covered(c.id))
     const proposals: CoverageProposalDto[] = gapStations
       .map((c): CoverageProposalDto | null => {
-        // Call in the CHEAPEST off-shift qualified operator (an OT call-in is for
-        // absent staff); tie-break by id for determinism (D54 confirmed-fill).
-        const fill =
+        // Candidates = qualified + absent; the ladder (pickCallIn) chooses by reason then cost.
+        const fill = pickCallIn(
           operators
             .filter((op) => holds(op, c.id) && !op.available)
-            .sort((a, b) => (a.laborRate ?? Number.POSITIVE_INFINITY) - (b.laborRate ?? Number.POSITIVE_INFINITY) || a.id.localeCompare(b.id))[0] ??
-          operators.find((op) => holds(op, c.id))
-        if (!fill) return null
+            .map((op) => ({ id: op.id, name: op.name, absenceReason: op.absenceReason, laborRate: op.laborRate })),
+        )
+        if (!fill) return null // only sick (or unknown-reason) absentees → honestly unfillable, no proposal
         return {
           id: c.id,
           station: c.name,
           operatorName: fill.name,
-          reason: 'No certified operator present next shift',
+          reason: fill.tentative ? 'On vacation — confirm availability before calling in' : 'No certified operator present next shift',
           status: 'proposed',
+          absenceReason: fill.absenceReason,
+          tentative: fill.tentative,
         }
       })
       .filter((p): p is CoverageProposalDto => p != null)
@@ -1116,6 +1118,40 @@ export class SchedulingService {
 
 /** Adherence window: an op "on plan" if it started within this of planned (variance). */
 const ADHERENCE_TOLERANCE_MIN = 15
+
+/** A qualified-but-absent operator considered for an OT call-in to a gapped station (D54). */
+export interface CallInCandidate {
+  id: string
+  name: string
+  absenceReason: OperatorAbsenceReason | null
+  laborRate: number | null
+}
+
+/** Call-in eligibility tiers: off-shift first, then vacation; sick is never callable. */
+const CALLABLE_TIER: Record<OperatorAbsenceReason, number> = { not_scheduled: 0, vacation: 1, sick: Number.POSITIVE_INFINITY }
+
+/**
+ * Pure OT call-in selection (D54). From the qualified+absent candidates, pick by the eligibility
+ * ladder: a `not_scheduled` (off-shift) operator first → a clean call-in; else one on `vacation` →
+ * a TENTATIVE call-in (confirm first). `sick` (or an unknown/absent reason) is never callable. Ties
+ * within a tier break by cheapest labor rate, then id (deterministic). Returns null when no one is
+ * callable (the gap is honestly unfillable → no proposal).
+ */
+export function pickCallIn(
+  candidates: CallInCandidate[],
+): { id: string; name: string; absenceReason: Exclude<OperatorAbsenceReason, 'sick'>; tentative: boolean } | null {
+  const fill = candidates
+    .filter((c) => c.absenceReason === 'not_scheduled' || c.absenceReason === 'vacation')
+    .sort(
+      (a, b) =>
+        CALLABLE_TIER[a.absenceReason!] - CALLABLE_TIER[b.absenceReason!] ||
+        (a.laborRate ?? Number.POSITIVE_INFINITY) - (b.laborRate ?? Number.POSITIVE_INFINITY) ||
+        a.id.localeCompare(b.id),
+    )[0]
+  if (!fill) return null
+  const absenceReason = fill.absenceReason as Exclude<OperatorAbsenceReason, 'sick'>
+  return { id: fill.id, name: fill.name, absenceReason, tentative: absenceReason === 'vacation' }
+}
 
 /** The part's attribute value that the op's changeover key points at (AS6). */
 function changeoverValueFor(part: PartDto, key: string | null): string | null {

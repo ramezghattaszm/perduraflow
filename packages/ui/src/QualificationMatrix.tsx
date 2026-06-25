@@ -10,6 +10,8 @@ export interface MatrixAxis {
   label: string
   /** Row (operator): absent this shift → an OUT pill (coverage skin, View 3). */
   out?: boolean
+  /** Row (operator): the OUT pill text when out (e.g. "OUT · Vacation"); defaults to "OUT". */
+  outLabel?: string
   /** Column (station/cert): requires certification → a `*` marker (coverage skin). */
   marked?: boolean
 }
@@ -106,9 +108,21 @@ export function QualificationMatrix({
         : state === 'gap'
           ? '$dangerSoft'
           : 'transparent'
-    const border = unavailable ? '$borderColor' : state === 'on' ? '$primary' : state === 'gap' ? '$danger' : '$borderColor'
+    const border = unavailable
+      ? '$borderColor'
+      : state === 'on'
+        ? '$primary'
+        : state === 'gap'
+          ? '$danger'
+          : '$borderColor'
     return (
-      <XStack key={c.id} width={cellW} height={rowH} justifyContent="center" alignItems="center">
+      <XStack
+        key={c.id}
+        width={cellW}
+        height={rowH}
+        justifyContent="center"
+        alignItems="center"
+      >
         <XStack
           onPress={readOnly || coverage ? undefined : () => onToggle(r.id, c.id, state !== 'on')}
           width={box}
@@ -128,9 +142,17 @@ export function QualificationMatrix({
           aria-label={`${r.label} — ${c.label}${unavailable ? ' (unavailable)' : ''}`}
         >
           {unavailable ? (
-            state === 'on' ? <Check size={16} color="$textSecondary" /> : null
+            state === 'on' ? (
+              <Check
+                size={16}
+                color="$textSecondary"
+              />
+            ) : null
           ) : state === 'on' ? (
-            <Check size={18} color="$surface" />
+            <Check
+              size={18}
+              color="$surface"
+            />
           ) : null}
         </XStack>
       </XStack>
@@ -150,9 +172,22 @@ export function QualificationMatrix({
       alignItems="stretch"
     >
       {/* pinned operator column */}
-      <YStack borderRightWidth={1} borderRightColor="$borderColor">
-        <XStack width={rowLabelW} height={HEADER_H} paddingHorizontal="$4" alignItems="center">
-          <P size={5} weight="b" caps color="$textTertiary">
+      <YStack
+        borderRightWidth={1}
+        borderRightColor="$borderColor"
+      >
+        <XStack
+          width={rowLabelW}
+          height={HEADER_H}
+          paddingHorizontal="$4"
+          alignItems="center"
+        >
+          <P
+            size={5}
+            weight="b"
+            caps
+            color="$textTertiary"
+          >
             {rowHeader}
           </P>
         </XStack>
@@ -169,15 +204,34 @@ export function QualificationMatrix({
             backgroundColor={selectedRowId === r.id ? '$primarySoft' : undefined}
             onPress={onRowSelect ? () => onRowSelect(r.id) : undefined}
             cursor={onRowSelect ? 'pointer' : undefined}
-            hoverStyle={onRowSelect && selectedRowId !== r.id ? { backgroundColor: '$backgroundHover' } : undefined}
+            hoverStyle={
+              onRowSelect && selectedRowId !== r.id
+                ? { backgroundColor: '$backgroundHover' }
+                : undefined
+            }
           >
-            <P size={3} weight="m" color={r.out ? '$textSecondary' : '$textPrimary'} numberOfLines={1}>
+            <P
+              size={3}
+              weight="m"
+              color={r.out ? '$textSecondary' : '$textPrimary'}
+              numberOfLines={1}
+            >
               {r.label}
             </P>
             {r.out ? (
-              <XStack borderWidth={1} borderColor="$borderColor" borderRadius="$2" paddingHorizontal="$1.5">
-                <P size={5} weight="b" caps color="$textTertiary">
-                  OUT
+              <XStack
+                borderWidth={1}
+                borderColor="$borderColor"
+                borderRadius="$2"
+                paddingHorizontal="$1.5"
+              >
+                <P
+                  size={5}
+                  weight="b"
+                  caps
+                  color="$textTertiary"
+                >
+                  {r.outLabel ?? 'OUT'}
                 </P>
               </XStack>
             ) : null}
@@ -198,16 +252,43 @@ export function QualificationMatrix({
         <YStack width={innerWidth}>
           <XStack height={HEADER_H}>
             {cols.map((c) => (
-              <XStack key={c.id} width={cellW} paddingHorizontal="$2" alignItems="center" justifyContent="center">
-                <P size={5} weight="b" caps color="$textTertiary" numberOfLines={1} style={{ textAlign: 'center' }}>
+              <XStack
+                key={c.id}
+                width={cellW}
+                paddingHorizontal="$2"
+                alignItems="center"
+                justifyContent="center"
+              >
+                <P
+                  size={5}
+                  weight="b"
+                  caps
+                  color="$textTertiary"
+                  numberOfLines={1}
+                  style={{ textAlign: 'center' }}
+                >
                   {c.label}
-                  {c.marked ? <P size={5} weight="b" color="$warning"> *</P> : null}
+                  {c.marked ? (
+                    <P
+                      size={5}
+                      weight="b"
+                      color="$warning"
+                    >
+                      {' '}
+                      *
+                    </P>
+                  ) : null}
                 </P>
               </XStack>
             ))}
           </XStack>
           {rows.map((r) => (
-            <XStack key={r.id} height={rowH} borderTopWidth={1} borderTopColor="$borderColor">
+            <XStack
+              key={r.id}
+              height={rowH}
+              borderTopWidth={1}
+              borderTopColor="$borderColor"
+            >
               {cols.map((c) => renderCell(r, c))}
             </XStack>
           ))}

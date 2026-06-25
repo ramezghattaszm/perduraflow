@@ -1,3 +1,4 @@
+import type { OperatorAbsenceReason } from '@perduraflow/contracts'
 import { boolean, doublePrecision, index, text, timestamp, unique } from 'drizzle-orm/pg-core'
 import { generateId } from '../../../db/ulid'
 import { masterDataSchema } from './_schema'
@@ -22,7 +23,7 @@ export const certification = masterDataSchema.table(
   (t) => ({
     tenantIdx: index('certification_tenant_idx').on(t.tenantId),
     codeUnique: unique('certification_tenant_code_unique').on(t.tenantId, t.code),
-  }),
+  })
 )
 
 /**
@@ -47,11 +48,14 @@ export const operator = masterDataSchema.table(
     // Next-shift presence for the workforce coverage view (seeded/D35; phase 3).
     // `false` = OUT this shift (distinct from `is_active` soft-delete).
     available: boolean('available').notNull().default(true),
+    // Why OUT (drives OT call-in eligibility, D54): not_scheduled (callable) / vacation (tentative) /
+    // sick (never). NULL when present. Distinct from `available` (the boolean) + `is_active`.
+    absenceReason: text('absence_reason').$type<OperatorAbsenceReason>(),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => ({ tenantIdx: index('operator_tenant_idx').on(t.tenantId) }),
+  (t) => ({ tenantIdx: index('operator_tenant_idx').on(t.tenantId) })
 )
 
 /** Operator × certification qualification (MD15). Intra-schema FKs only (O2). */
@@ -70,7 +74,7 @@ export const operatorQualification = masterDataSchema.table(
   (t) => ({
     operatorIdx: index('operator_qualification_operator_idx').on(t.operatorId),
     pairUnique: unique('operator_qualification_pair_unique').on(t.operatorId, t.certificationId),
-  }),
+  })
 )
 
 export type Certification = typeof certification.$inferSelect

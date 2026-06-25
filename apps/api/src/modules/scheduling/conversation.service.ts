@@ -894,6 +894,8 @@ export function compactCoverage(
   const operators = cov.operators.map((o, i) => ({
     operator: o.label,
     available: !o.out,
+    // Why out (drives call-in eligibility): not_scheduled = callable; vacation = tentative; sick = never.
+    absenceReason: o.out ? (o.outReason ?? null) : null,
     qualifiedFor: cov.stations
       .filter((_, j) => cov.cells[i]?.[j] === 'qualified')
       .map((s) => s.label),
@@ -913,7 +915,12 @@ export function compactCoverage(
       station: p.station,
       suggestedCallIn: p.operatorName,
       reason: p.reason,
+      absenceReason: p.absenceReason,
+      // tentative = the only fill is on vacation; the call-in may not be possible — say so, confirm first.
+      tentative: p.tentative,
     })),
+    proposalNote:
+      'A call-in to a not_scheduled (off-shift) operator is a clean OT fill; a tentative proposal is an operator on VACATION — flag that it may not be possible and to confirm first. Sick operators are never proposed. A gap with no proposal has no one callable.',
   }
 }
 

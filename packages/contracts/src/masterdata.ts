@@ -134,6 +134,14 @@ export interface CertificationDto {
   isActive: boolean
 }
 
+/**
+ * Why an operator is absent next shift (drives OT call-in eligibility, D54): `not_scheduled` is
+ * off-shift and freely callable; `vacation` is callable but TENTATIVE (flag it, confirm first);
+ * `sick` is never called in. `null` when the operator is present (`available = true`).
+ */
+export const operatorAbsenceReasonSchema = z.enum(['not_scheduled', 'sick', 'vacation'])
+export type OperatorAbsenceReason = z.infer<typeof operatorAbsenceReasonSchema>
+
 export interface OperatorDto {
   id: string
   name: string
@@ -149,6 +157,8 @@ export interface OperatorDto {
   performanceFactor: number
   /** Present next shift (workforce coverage; `false` = OUT). Seeded/D35 (1.2). */
   available: boolean
+  /** Why absent when `available = false` (drives call-in eligibility); `null` when present. */
+  absenceReason: OperatorAbsenceReason | null
   /** Certifications this operator holds (operator_qualification join, MD15). */
   certificationIds: string[]
   isActive: boolean

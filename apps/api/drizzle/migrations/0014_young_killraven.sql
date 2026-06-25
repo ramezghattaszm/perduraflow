@@ -1,0 +1,1 @@
+ALTER TABLE "master_data"."operator" ADD COLUMN "absence_reason" text;

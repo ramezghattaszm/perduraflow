@@ -6,7 +6,7 @@ import { compactCoverage } from './conversation.service'
 const COV: WorkforceCoverageDto = {
   plantId: 'p1',
   operators: [
-    { id: 'op-luis', label: 'Luis Cruz', out: true },
+    { id: 'op-luis', label: 'Luis Cruz', out: true, outReason: 'not_scheduled' },
     { id: 'op-diego', label: 'Diego Hernández', out: false },
   ],
   stations: [
@@ -20,7 +20,17 @@ const COV: WorkforceCoverageDto = {
   ],
   readinessPct: 0.5,
   certGapCount: 1,
-  proposals: [{ id: 'st-leak', station: 'LEAK', operatorName: 'Jorge Morales', reason: 'No certified operator present next shift', status: 'proposed' }],
+  proposals: [
+    {
+      id: 'st-leak',
+      station: 'LEAK',
+      operatorName: 'Jorge Morales',
+      reason: 'No certified operator present next shift',
+      status: 'proposed',
+      absenceReason: 'not_scheduled',
+      tentative: false,
+    },
+  ],
 }
 
 /**
@@ -34,15 +44,32 @@ describe('compactCoverage — Pass D coverage artifact', () => {
     expect(a.focus).toBe('the whole plant')
     expect(a.readinessPct).toBe(0.5)
     const by = Object.fromEntries((a.stations ?? []).map((s) => [s.station, s]))
-    expect(by['LEAK']).toMatchObject({ covered: false, gap: true, qualifiedPresent: [], qualifiedOut: ['Luis Cruz'] })
-    expect(by['WELD']).toMatchObject({ covered: true, gap: false, qualifiedPresent: ['Diego Hernández'] })
+    expect(by['LEAK']).toMatchObject({
+      covered: false,
+      gap: true,
+      qualifiedPresent: [],
+      qualifiedOut: ['Luis Cruz'],
+    })
+    expect(by['WELD']).toMatchObject({
+      covered: true,
+      gap: false,
+      qualifiedPresent: ['Diego Hernández'],
+    })
   })
 
   it('frames a gap as advisory (not a schedule blocker) and carries the call-in proposal', () => {
     const a = compactCoverage(COV, { type: 'station', id: 'st-leak', label: 'LEAK' })
     expect(a.focus).toBe('station LEAK')
     expect(a.gapMeaning).toContain('do NOT block the schedule')
-    expect(a.proposals).toEqual([{ station: 'LEAK', suggestedCallIn: 'Jorge Morales', reason: 'No certified operator present next shift' }])
+    expect(a.proposals).toEqual([
+      {
+        station: 'LEAK',
+        suggestedCallIn: 'Jorge Morales',
+        reason: 'No certified operator present next shift',
+        absenceReason: 'not_scheduled',
+        tentative: false,
+      },
+    ])
   })
 
   it('lists per-operator qualifications', () => {
@@ -53,7 +80,10 @@ describe('compactCoverage — Pass D coverage artifact', () => {
   })
 
   it('honest empty-state when the plant has no coverage data', () => {
-    const a = compactCoverage({ ...COV, operators: [], stations: [], cells: [], proposals: [] }, null)
+    const a = compactCoverage(
+      { ...COV, operators: [], stations: [], cells: [], proposals: [] },
+      null
+    )
     expect(a.emptyState).toBe(true)
     expect(a.note).toContain('No workforce coverage data')
     expect(a.stations).toBeUndefined()

@@ -4,6 +4,12 @@
   "plant": "Plant",
   "operator": "Operator",
   "matrix": { "title": "Skill & certification coverage" },
+  "out": "Out",
+  "absence": {
+    "not_scheduled": "Off shift",
+    "sick": "Sick",
+    "vacation": "Vacation"
+  },
   "legend": {
     "qualified": "Qualified",
     "notQualified": "Not qualified",
@@ -18,9 +24,11 @@
   },
   "proposal": {
     "heading": "Re-balance proposed",
+    "headingTentative": "Re-balance proposed — tentative",
     "gap": "{{station}} has no certified operator next shift.",
     "action": "→ Call in {{operator}} on overtime",
     "detail": "certified · within OT rules · service protected",
+    "tentativeDetail": "certified, but {{operator}} is on vacation — confirm availability before calling in",
     "confirm": "Approve OT call-in",
     "confirmed": "OT call-in confirmed",
     "none": "Full coverage — no gaps next shift."

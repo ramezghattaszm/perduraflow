@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { NarrationMode } from './llm'
+import type { OperatorAbsenceReason } from './masterdata'
 import type { OrgPriority } from './org'
 
 /**
@@ -47,7 +48,14 @@ export type TimeSource = z.infer<typeof timeSourceSchema>
  * (followed for the chain); the rest are roots: `material` (buy-component gate), `release`/`origin`
  * (couldn't start before its day / the horizon), `working_window` (couldn't fit a working segment).
  */
-export const bindingKindSchema = z.enum(['resource', 'predecessor', 'material', 'release', 'origin', 'working_window'])
+export const bindingKindSchema = z.enum([
+  'resource',
+  'predecessor',
+  'material',
+  'release',
+  'origin',
+  'working_window',
+])
 export type BindingKind = z.infer<typeof bindingKindSchema>
 
 // --- DTOs --------------------------------------------------------------------
@@ -213,7 +221,12 @@ export interface OeeDto {
 }
 
 /** A root cause that terminates a lateness chain (D-late). */
-export const latenessRootSchema = z.enum(['material', 'working_window', 'capacity', 'due_before_start'])
+export const latenessRootSchema = z.enum([
+  'material',
+  'working_window',
+  'capacity',
+  'due_before_start',
+])
 export type LatenessRoot = z.infer<typeof latenessRootSchema>
 
 /**
@@ -372,6 +385,8 @@ export interface CoverageAxisDto {
   label: string
   /** Operator only: absent this shift (the OUT marker). */
   out?: boolean
+  /** Operator only: WHY they're out (drives the OUT marker's reason tag); null/absent when present. */
+  outReason?: OperatorAbsenceReason | null
   /** Station/cert only: requires a certification (the `*`). */
   certRequired?: boolean
 }
@@ -388,6 +403,10 @@ export interface CoverageProposalDto {
   operatorName: string
   reason: string
   status: 'proposed' | 'confirmed'
+  /** The proposed operator's absence reason (`not_scheduled` = clean call-in; `vacation` = tentative). */
+  absenceReason: OperatorAbsenceReason
+  /** True when the only available fill is on vacation — call-in may not be possible; confirm first. */
+  tentative: boolean
 }
 
 /** View 3 · Workforce coverage (supervisor). */
@@ -460,7 +479,9 @@ export const setResourceOperatorAssignmentSchema = z
     effectiveTo: z.string().nullable().default(null),
   })
   .strict()
-export type SetResourceOperatorAssignmentRequest = z.infer<typeof setResourceOperatorAssignmentSchema>
+export type SetResourceOperatorAssignmentRequest = z.infer<
+  typeof setResourceOperatorAssignmentSchema
+>
 
 // =============================================================================
 // Phase 5 — what-if (D55) + plan-comparison/baselines (D57) + narration (A19)
@@ -478,15 +499,40 @@ export type ChangeOriginType = z.infer<typeof changeOriginTypeSchema>
  * wear remediation); the union is general so phase 6 can drive it conversationally.
  */
 export const changeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('demand_qty'), demandLineId: z.string().min(1), to: z.number().int().positive() }),
-  z.object({ kind: z.literal('demand_date'), demandLineId: z.string().min(1), to: z.string().min(1) }),
-  z.object({ kind: z.literal('resource_window'), resourceId: z.string().min(1), downFrom: z.string().min(1), downTo: z.string().min(1) }),
-  z.object({ kind: z.literal('overtime'), resourceId: z.string().min(1), hours: z.number().positive() }),
-  z.object({ kind: z.literal('wear_remediation'), resourceId: z.string().min(1), action: z.enum(['service', 'defer', 'ot']) }),
+  z.object({
+    kind: z.literal('demand_qty'),
+    demandLineId: z.string().min(1),
+    to: z.number().int().positive(),
+  }),
+  z.object({
+    kind: z.literal('demand_date'),
+    demandLineId: z.string().min(1),
+    to: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('resource_window'),
+    resourceId: z.string().min(1),
+    downFrom: z.string().min(1),
+    downTo: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('overtime'),
+    resourceId: z.string().min(1),
+    hours: z.number().positive(),
+  }),
+  z.object({
+    kind: z.literal('wear_remediation'),
+    resourceId: z.string().min(1),
+    action: z.enum(['service', 'defer', 'ot']),
+  }),
   // Material arrival (D36 gate): a buy-component's availability gates its consuming ops. The
   // gate itself lives in the §4.8 material-availability data; this marks the trigger so the
   // engine offers the wait / re-sequence-around remediation. `availableAt` is informational.
-  z.object({ kind: z.literal('material_arrival'), componentPartId: z.string().min(1), availableAt: z.string().min(1) }),
+  z.object({
+    kind: z.literal('material_arrival'),
+    componentPartId: z.string().min(1),
+    availableAt: z.string().min(1),
+  }),
 ])
 export type Change = z.infer<typeof changeSchema>
 
@@ -500,7 +546,13 @@ export type ChangeSet = z.infer<typeof changeSetSchema>
 
 // --- structured rationale (the phase-6 substrate — addressable 3 ways) --------
 
-export type RationaleFactorKey = 'lateness' | 'changeover' | 'overtime' | 'inventory' | 'displacement' | 'cost'
+export type RationaleFactorKey =
+  | 'lateness'
+  | 'changeover'
+  | 'overtime'
+  | 'inventory'
+  | 'displacement'
+  | 'cost'
 export type FactorDirection = 'improves' | 'worsens' | 'neutral'
 
 /**
@@ -700,13 +752,20 @@ export interface WhatIfNarrationDto {
 
 /** `POST /scheduling/what-if` — evaluate a change-set → ranked costed option-set. */
 export const whatIfRequestSchema = z
-  .object({ plantId: z.string().min(1), baseVersionId: z.string().optional(), changeSet: changeSetSchema })
+  .object({
+    plantId: z.string().min(1),
+    baseVersionId: z.string().optional(),
+    changeSet: changeSetSchema,
+  })
   .strict()
 export type WhatIfRequest = z.infer<typeof whatIfRequestSchema>
 
 /** `POST /scheduling/what-if/:id/narrate` — render the rationale into prose (async). */
 export const narrateRequestSchema = z
-  .object({ mode: z.enum(['option', 'across_options']).default('across_options'), optionId: z.string().optional() })
+  .object({
+    mode: z.enum(['option', 'across_options']).default('across_options'),
+    optionId: z.string().optional(),
+  })
   .strict()
 export type NarrateRequest = z.infer<typeof narrateRequestSchema>
 

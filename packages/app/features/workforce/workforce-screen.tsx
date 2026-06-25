@@ -90,7 +90,18 @@ export function WorkforceContent() {
           >
             <QualificationMatrix
               bordered={false}
-              rows={cov.operators.map((o) => ({ id: o.id, label: o.label, out: o.out }))}
+              rows={cov.operators.map((o) => ({
+                id: o.id,
+                label: o.label,
+                out: o.out,
+                // OUT pill carries the reason ("Out · Vacation") so absence type is visible at a glance.
+                outLabel: o.out
+                  ? `${t('out')} · ${o.outReason ? t(`absence.${o.outReason}`) : ''}`.replace(
+                      / · $/,
+                      ''
+                    )
+                  : undefined,
+              }))}
               cols={cov.stations.map((s) => ({ id: s.id, label: s.label, marked: s.certRequired }))}
               rowHeader={t('operator')}
               emptyText={t('empty')}
@@ -166,10 +177,14 @@ export function WorkforceContent() {
               cov.proposals.map((p) => (
                 <CoverageProposal
                   key={p.id}
-                  heading={t('proposal.heading')}
+                  heading={p.tentative ? t('proposal.headingTentative') : t('proposal.heading')}
                   gapText={t('proposal.gap', { station: p.station })}
                   actionText={t('proposal.action', { operator: p.operatorName })}
-                  detailText={t('proposal.detail')}
+                  detailText={
+                    p.tentative
+                      ? t('proposal.tentativeDetail', { operator: p.operatorName })
+                      : t('proposal.detail')
+                  }
                   confirmLabel={t('proposal.confirm')}
                   confirmedLabel={t('proposal.confirmed')}
                   confirmed={confirmed.has(p.id)}
