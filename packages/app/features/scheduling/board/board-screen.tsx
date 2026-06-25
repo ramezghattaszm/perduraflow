@@ -1489,15 +1489,16 @@ function fmtTime(ms: number): string {
   const d = new Date(ms)
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 }
-/** `MM-DD HH:MM` (UTC, locale-neutral) — used when a window spans days, where HH:MM alone is ambiguous. */
+/** `Mon DD HH:MM` (UTC) — e.g. "Jun 25 19:48"; for windows that span days, where HH:MM alone is ambiguous.
+ *  `timeZone: 'UTC'` keeps the date aligned with the UTC time {@link fmtTime} renders (matches `timeAgo`). */
 function fmtDateTime(ms: number): string {
-  const d = new Date(ms)
-  return `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} ${fmtTime(ms)}`
+  const date = new Date(ms).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' })
+  return `${date} ${fmtTime(ms)}`
 }
 /**
  * Window endpoints for display: bare `HH:MM` when both fall on the same UTC day, else dated
- * (`MM-DD HH:MM`) — so a multi-day outage (e.g. a 48h window, both ends at 19:48) reads
- * "06-25 19:48 – 06-27 19:48", not "19:48–19:48".
+ * (`Mon DD HH:MM`) — so a multi-day outage (e.g. a 48h window, both ends at 19:48) reads
+ * "Jun 25 19:48 – Jun 27 19:48", not "19:48–19:48".
  */
 function fmtWindow(fromMs: number, toMs: number): { from: string; to: string } {
   const DAY = 86_400_000
