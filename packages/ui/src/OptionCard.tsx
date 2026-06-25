@@ -12,6 +12,8 @@ export interface OptionKpiCell {
   /** Signed delta vs base, pre-formatted (e.g. "+0.04", "−$0.12"); omit if none. */
   delta?: string
   tone?: 'up' | 'down' | 'neutral'
+  /** Optional secondary line under the value (e.g. "4 orders" beneath the late-HOURS headline). */
+  caption?: string
 }
 
 /** Props for {@link OptionCard}. */
@@ -158,6 +160,14 @@ export function OptionCard({
               >
                 {k.value}
               </P>
+              {k.caption ? (
+                <P
+                  size={5}
+                  color="$textTertiary"
+                >
+                  {k.caption}
+                </P>
+              ) : null}
               {k.delta ? (
                 <P
                   size={5}

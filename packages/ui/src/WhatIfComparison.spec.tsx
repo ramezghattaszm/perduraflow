@@ -8,7 +8,7 @@ const opt = (id: string, over: Partial<WhatIfOption>): WhatIfOption => ({
   labelKey: id,
   feasible: true,
   infeasibleReasonKey: null,
-  kpis: { otif: 1, costPerUnit: null, oee: null, lateOrders: 0, throughput: null, churn: null },
+  kpis: { otif: 1, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: 0, throughput: null, churn: null },
   score: 0,
   rationale: { schemaVersion: '1.0', weightSetVersion: 'aps-w2', optionId: id, score: 0, headlineKey: '', headlineParams: {}, factors: [], constraints: [], comparatives: [] },
   ...over,
@@ -18,7 +18,7 @@ const result = (options: WhatIfOption[], recommendedOptionId: string | null): Wh
   plantId: 'p1',
   baseVersionId: 'v1',
   changeSet: { origin: { type: 'manual' }, changes: [] },
-  baseKpis: { otif: 1, costPerUnit: null, oee: null, lateOrders: 0, throughput: null, churn: null },
+  baseKpis: { otif: 1, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: 0, throughput: null, churn: null },
   options,
   recommendedOptionId,
   determinismKey: 'k',
@@ -34,7 +34,7 @@ const result = (options: WhatIfOption[], recommendedOptionId: string | null): Wh
 describe('buildComparison — render-don\'t-retype (decide-support #2)', () => {
   const A = opt('protect_delivery', {
     rank: 1,
-    kpis: { otif: 0.84, costPerUnit: 1.59, oee: null, lateOrders: 6, throughput: 36200, churn: null },
+    kpis: { otif: 0.84, costPerUnit: 1.59, oee: null, lateOrders: 6, firmLateHours: 21.6, throughput: 36200, churn: null },
     rationale: { schemaVersion: '1.0', weightSetVersion: 'aps-w2', optionId: 'protect_delivery', score: 0, headlineKey: '', headlineParams: {}, constraints: [], comparatives: [], factors: [
       { key: 'changeover', labelKey: '', rawValue: 16, unit: '', weight: 1, contribution: 16, direction: 'worsens', detailKey: '', detailParams: {} },
       { key: 'displacement', labelKey: '', rawValue: 7, unit: '', weight: 2, contribution: 14, direction: 'worsens', detailKey: '', detailParams: {} },
@@ -42,7 +42,7 @@ describe('buildComparison — render-don\'t-retype (decide-support #2)', () => {
   })
   const B = opt('minimize_changeover', {
     rank: 2,
-    kpis: { otif: 0.816, costPerUnit: 1.58, oee: null, lateOrders: 7, throughput: 36200, churn: null },
+    kpis: { otif: 0.816, costPerUnit: 1.58, oee: null, lateOrders: 7, firmLateHours: 46.3, throughput: 36200, churn: null },
     rationale: { schemaVersion: '1.0', weightSetVersion: 'aps-w2', optionId: 'minimize_changeover', score: 0, headlineKey: '', headlineParams: {}, constraints: [], comparatives: [], factors: [
       { key: 'changeover', labelKey: '', rawValue: 6, unit: '', weight: 1, contribution: 6, direction: 'improves', detailKey: '', detailParams: {} },
     ] },
@@ -60,7 +60,8 @@ describe('buildComparison — render-don\'t-retype (decide-support #2)', () => {
   it('KPI cells equal the artifact values (no transcription)', () => {
     expect(row('otif').cells).toEqual(['84%', '82%', '—']) // 0.84, 0.816→82%, infeasible '—'
     expect(row('cost').cells).toEqual(['$1.59', '$1.58', '—'])
-    expect(row('late').cells).toEqual(['6', '7', '—'])
+    expect(row('late').cells).toEqual(['21.6h', '46.3h', '—']) // firm-late HOURS (the scored quantity)
+    expect(row('lateOrders').cells).toEqual(['6', '7', '—'])
     expect(row('throughput').cells).toEqual(['36200', '36200', '—'])
   })
 

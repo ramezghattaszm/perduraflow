@@ -156,6 +156,9 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
     costPerUnit,
     oee: null,
     lateOrders: lateLines.size,
+    // The scored quantity (firm-lateness dominance) — surfaced as the headline late metric so the
+    // recommendation is legible (fewer total breach-hours wins, even with more late orders).
+    firmLateHours: r2(firmLateHours),
     throughput: totalQty,
     churn: ctx.basePlacements.length > 0 ? r4(displaced / placements.length) : null,
   }

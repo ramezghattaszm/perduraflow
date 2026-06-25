@@ -15,7 +15,7 @@
   "narrationSummaryTitle": "Why this is recommended",
   "narrationLoading": "Writing the explanation…",
   "narrationUnavailable": "Explanation unavailable — the options and rationale above are the answer.",
-  "kpi": { "otif": "OTIF", "cost": "Cost/unit", "late": "Late orders", "throughput": "Throughput", "churn": "Churn", "oee": "OEE" },
+  "kpi": { "otif": "OTIF", "cost": "Cost/unit", "late": "Firm late", "lateOrders": "{{count}} orders", "throughput": "Throughput", "churn": "Churn", "oee": "OEE" },
   "vs": "vs base",
   "verdict": { "preferred": "preferred over", "dominated": "worse than", "tradeoff": "trades off with" },
   "drivenBy": "driven by {{factor}}",

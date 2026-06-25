@@ -21,6 +21,7 @@ export interface ComparisonRow {
 const fmtPct = (n: number | null): string => (n == null ? '—' : `${Math.round(n * 100)}%`)
 const fmtMoney = (n: number | null): string => (n == null ? '—' : `$${n.toFixed(2)}`)
 const fmtNum = (n: number | null): string => (n == null ? '—' : String(n))
+const fmtHours = (n: number | null): string => (n == null ? '—' : `${n.toFixed(1)}h`)
 const factorValue = (o: WhatIfOption, key: string): string => {
   const f = o.rationale.factors.find((x) => x.key === key)
   return f ? String(f.rawValue) : '—'
@@ -49,7 +50,9 @@ export function buildComparison(result: WhatIfResultDto, optionLabel: (o: WhatIf
   const rows: ComparisonRow[] = [
     metric('otif', 'OTIF', (o) => fmtPct(o.kpis.otif)),
     metric('cost', 'Cost / unit', (o) => fmtMoney(o.kpis.costPerUnit)),
-    metric('late', 'Late orders', (o) => fmtNum(o.kpis.lateOrders)),
+    // Firm-late HOURS first (the scored quantity → matches the recommendation), order count below it.
+    metric('late', 'Firm late', (o) => fmtHours(o.kpis.firmLateHours)),
+    metric('lateOrders', 'Late orders', (o) => fmtNum(o.kpis.lateOrders)),
     metric('throughput', 'Throughput', (o) => fmtNum(o.kpis.throughput)),
     metric('changeover', 'Changeovers', (o) => factorValue(o, 'changeover')),
     metric('displacement', 'Displacement', (o) => factorValue(o, 'displacement')),

@@ -67,6 +67,13 @@ describe('scorePlan — cost factor (C6) & firm-lateness dominance lock', () => 
       onTimeScore.factors.find((f) => f.key === 'cost')!.contribution -
       lateScore.factors.find((f) => f.key === 'cost')!.contribution
     expect(latenessPenalty).toBeGreaterThan(costSaving)
+
+    // beat-2 legibility lock: firm-late HOURS is a first-class KPI and equals the lateness factor's
+    // RAW (scored) quantity — so the option tile's headline late metric can't disagree with what
+    // drives the ranking (the bug where the recommended option showed worse OTIF / more late orders).
+    expect(onTimeScore.kpis.firmLateHours).toBe(0)
+    expect(lateScore.kpis.firmLateHours).toBe(1) // REQ + 1h
+    expect(lateScore.factors.find((f) => f.key === 'lateness')!.rawValue).toBe(lateScore.kpis.firmLateHours)
   })
 
   it('cost is cost-neutral (0, never NaN) when no resource is rated — the non-null guard', () => {

@@ -18,11 +18,14 @@ function fmtPct(n: number | null): string {
 function fmtMoney(n: number | null): string {
   return n == null ? '—' : `$${n.toFixed(2)}`
 }
+function fmtHours(n: number | null): string {
+  return n == null ? '—' : `${n.toFixed(1)}h`
+}
 /** Signed delta vs base, with the "good direction" tone (lower cost/late = up). */
 function delta(
   value: number | null,
   base: number | null,
-  kind: 'pct' | 'money' | 'count',
+  kind: 'pct' | 'money' | 'count' | 'hours',
   lowerIsBetter: boolean
 ) {
   if (value == null || base == null) return undefined
@@ -36,11 +39,13 @@ function delta(
       ? `${sign}${Math.round(mag * 100)}%`
       : kind === 'money'
         ? `${sign}$${mag.toFixed(2)}`
-        : `${sign}${Math.round(mag)}`
+        : kind === 'hours'
+          ? `${sign}${mag.toFixed(1)}h`
+          : `${sign}${Math.round(mag)}`
   return { delta: txt, tone }
 }
 
-function kpiCells(k: CostedKpis, base: CostedKpis, t: (k: string) => string) {
+function kpiCells(k: CostedKpis, base: CostedKpis, t: (k: string, opts?: Record<string, unknown>) => string) {
   return [
     {
       label: t('whatif:kpi.otif'),
@@ -53,9 +58,13 @@ function kpiCells(k: CostedKpis, base: CostedKpis, t: (k: string) => string) {
       ...delta(k.costPerUnit, base.costPerUnit, 'money', true),
     },
     {
+      // Headline late metric = firm-late HOURS (the scored quantity → matches the recommendation);
+      // order COUNT is the secondary caption. A plan with fewer late orders but a larger total breach
+      // correctly shows worse here, so the recommended option no longer looks worse than a rejected one.
       label: t('whatif:kpi.late'),
-      value: String(k.lateOrders),
-      ...delta(k.lateOrders, base.lateOrders, 'count', true),
+      value: fmtHours(k.firmLateHours),
+      caption: t('whatif:kpi.lateOrders', { count: k.lateOrders }),
+      ...delta(k.firmLateHours, base.firmLateHours, 'hours', true),
     },
   ]
 }

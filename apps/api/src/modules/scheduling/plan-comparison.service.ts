@@ -71,6 +71,7 @@ export class PlanComparisonService {
       costPerUnit: sc.costPerUnit,
       oee: sc.oee,
       lateOrders: sc.atRisk.length,
+      firmLateHours: null, // execution baseline — per-op due breaches aren't tracked here
       throughput: sc.throughputAttainment,
       churn: null,
     }
@@ -123,6 +124,7 @@ function aggregate(rows: HistoricalRow[]): CostedKpis {
     // Aggregate A·P·Q honestly from recorded components; the blended OEE is their product.
     oee: a != null && p != null && q != null ? { availability: a, performance: p, quality: q, oee: r4(a * p * q) } : null,
     lateOrders: Math.round(rows.reduce((s, r) => s + r.lateOrders, 0) / n),
+    firmLateHours: null, // historical baseline — per-op due breaches aren't tracked here
     throughput: avg(rows.map((r) => r.throughput)),
     churn: null,
   }

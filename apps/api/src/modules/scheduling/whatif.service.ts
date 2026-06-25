@@ -581,7 +581,7 @@ export class WhatIfService {
           labelKey: r.spec.labelKey,
           feasible: false,
           infeasibleReasonKey: r.infeasibleReasonKey,
-          kpis: { otif: 0, costPerUnit: null, oee: null, lateOrders: 0, throughput: null, churn: null },
+          kpis: { otif: 0, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: null, throughput: null, churn: null },
           score: Number.POSITIVE_INFINITY,
           rationale: emptyRationale(r.spec.id),
         }

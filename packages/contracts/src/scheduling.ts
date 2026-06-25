@@ -674,6 +674,11 @@ export interface CostedKpis {
   oee: OeeDto | null
   /** Count of at-risk (late) orders. */
   lateOrders: number
+  /** Firm-lateness HOURS — total hours firm orders breach their due. THE quantity the objective
+   *  minimizes (firm-lateness dominance), so it's the headline late metric in the option tiles:
+   *  a plan with fewer late orders but larger total breach is correctly NOT recommended. `null` when
+   *  not tracked (historical/execution baselines, which don't carry per-op due breaches). */
+  firmLateHours: number | null
   /** Total placed quantity over the horizon. */
   throughput: number | null
   /** Sequence churn vs the base plan (0–1); null when not applicable. */
