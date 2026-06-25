@@ -320,10 +320,16 @@ export function BoardContent() {
   const atRiskFirmCount = new Set(
     kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
   ).size
-  // Stranded firm orders (committed op inside an active down-window) — a FACT, distinct from at-risk.
-  // Surfaced as its own KPI tile only when present, so the at-risk count stays the delivery prediction.
-  const strandedFirmCount = new Set(
-    kpiOps.filter((o) => o.stranded && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
+  // Stranded orders (committed op inside an active down-window) — a FACT, distinct from at-risk.
+  // Counts to MATCH the work-list 'stranded' rollup (counts.stranded) so the two surfaces reconcile:
+  // distinct ORDERS with a not-yet-run stranded op, EXCLUDING orders that are at-risk (at_risk outranks
+  // stranded). ALL firmness — stranded is plan-infeasibility (a can't-run op is can't-run regardless),
+  // unlike the firm-scoped at-risk delivery tile. (The earlier firm-only count under-read the work-list.)
+  const atRiskOrderIds = new Set(kpiOps.filter((o) => o.atRisk).map((o) => o.demandLineId))
+  const strandedCount = new Set(
+    kpiOps
+      .filter((o) => o.stranded && o.actual == null && !atRiskOrderIds.has(o.demandLineId))
+      .map((o) => o.demandLineId)
   ).size
   const plantUtil = variance?.utilizationPct ?? null
   // The KPI strip is a plant-state surface → CONTINUOUS throughput (executed-past, Reporting-Policy
@@ -1051,10 +1057,10 @@ export function BoardContent() {
             caption={t('kpi.atRiskCaption')}
             valueTone={atRiskFirmCount > 0 ? 'bad' : 'ok'}
           />
-          {strandedFirmCount > 0 ? (
+          {strandedCount > 0 ? (
             <KpiTile
               label={t('kpi.stranded')}
-              value={String(strandedFirmCount)}
+              value={String(strandedCount)}
               caption={t('kpi.strandedCaption')}
               valueTone="warn"
             />
