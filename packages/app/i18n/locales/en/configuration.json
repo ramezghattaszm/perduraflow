@@ -32,7 +32,22 @@
     "plant": "This plant's own setting — the most specific; overrides the tenant and global."
   },
   "field": {
-    "reportingWindowDays": "Reporting window (days)"
+    "reportingWindowDays": "Reporting window (days)",
+    "lateness": "Firm lateness",
+    "changeover": "Changeover",
+    "overtime": "Overtime",
+    "inventory": "Inventory / holding",
+    "displacement": "Displacement",
+    "cost": "Cost"
+  },
+  "objective": {
+    "dominant": "Dominant",
+    "guardOk": "Firm delivery protected",
+    "guardBroken": "Dominance broken",
+    "invariant": "Firm lateness must stay ≥ {{ratio}}× every other weight (ceiling {{ceiling}}) — so firm delivery can't be weighted away.",
+    "guardHint": "These exceed the ceiling: {{fields}}. Lower them, or raise Firm lateness.",
+    "ceilingHint": "≤ {{ceiling}} to keep firm-lateness dominant",
+    "saveBlocked": "Resolve the dominance warning to save."
   },
   "provenance": {
     "global": "Default",

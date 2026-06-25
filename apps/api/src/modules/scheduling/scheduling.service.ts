@@ -6,6 +6,7 @@ import {
   type CoverageAxisDto,
   type CoverageCell,
   type ConfigReadContract,
+  type ObjectiveWeights,
   type CoverageProposalDto,
   type LatenessChainDto,
   type LearnedParameterDto,
@@ -64,6 +65,10 @@ export interface BaseContext {
   resolveOperatorFactor: ResolveOperatorFactor
   /** Minimum-batch floor (C4) per resource — run-quantity floor from the resource-type config. */
   minBatchByResource: Map<string, number>
+  /** RESOLVED objective weights (Objective Policy, plant→tenant→global) the scorer uses (config-driven). */
+  weights: ObjectiveWeights
+  /** The resolved weight-set version token — stamped into the rationale + the what-if determinism key. */
+  weightSetVersion: string
 }
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
@@ -649,7 +654,12 @@ export class SchedulingService {
     const minBatchByType = new Map((await md.listResourceTypeConfigs(tenantId)).map((c) => [c.resourceType, c.minBatchQty]))
     const minBatchByResource = new Map(resources.map((r) => [r.id, minBatchByType.get(r.resourceType) ?? 0]))
 
-    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, resolveOperatorFactor, minBatchByResource }
+    // Objective Policy (config-driven): resolve the scorer's weights + the version token (plant→
+    // tenant→global) once per solve, so scoring is deterministic and the rationale/cache key stamp
+    // the exact weights in force. The runtime guard ran on write, so a resolved set always dominates.
+    const { weights, version: weightSetVersion } = await this.config.resolveObjective(tenantId, plantId)
+
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, resolveOperatorFactor, minBatchByResource, weights, weightSetVersion }
   }
 
   /**

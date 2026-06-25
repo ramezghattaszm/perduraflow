@@ -10,33 +10,21 @@
  * rationale's contributions stay interpretable against the exact weights that
  * produced them if these ever re-tune (the value depends on the weights).
  */
-export const WEIGHT_SET_VERSION = 'aps-w2'
+import { OBJECTIVE_DEFAULT_VERSION, OBJECTIVE_DEFAULTS } from '@perduraflow/contracts'
 
-/** The per-factor objective weights (documented constants); `contribution = rawValue · weight`. */
-export const WEIGHTS = {
-  /** Per firm-late hour — dominant (firm delivery effectively protected). */
-  lateness: 10,
-  /** Per changeover switch. */
-  changeover: 1,
-  /** Per overtime hour (labour premium). */
-  overtime: 4,
-  /** Per early hour finished ahead of need (holding/inventory pressure). */
-  inventory: 0.2,
-  /** Per operation displaced vs the current plan (D44 nervousness discipline). */
-  displacement: 2,
-  /**
-   * Per unit of `costPerUnit` (C6, aps-w2). Cost is a real economic factor — it must matter vs
-   * changeover/overtime/holding/displacement, yet sit FAR below lateness so firm-lateness dominance
-   * holds (cost can never pull a firm order late). Calibrated against measured magnitudes:
-   * costPerUnit ≈ 1.7–1.9 (absolute term ≈ 7, in the changeover/displacement/overtime band, well
-   * below lateness ~95 and holding ~87); option-to-option deltas 0.01–0.16 (≤0.5 worst case) →
-   * 0.04–0.64 (≤2.0) discrimination, i.e. a fraction of a changeover up to ~one displaced op.
-   * Dominance proof: overriding even 0.5 h firm lateness (penalty 5) needs a cost delta > 1.25/unit
-   * — ~8× the largest observed delta — so it cannot happen. The OT premium is also reflected in
-   * costPerUnit, a small (~0.6 vs the overtime factor's ~32) and same-signed ACCEPTED double-count.
-   */
-  cost: 4,
-} as const
+/** The shipped weight-set version (the `aps-w2` default). A config override resolves its own token
+ *  (`obj:t<rev>`/`obj:p<rev>`) at solve time; this is the fallback/default identity. */
+export const WEIGHT_SET_VERSION = OBJECTIVE_DEFAULT_VERSION
+
+/**
+ * The shipped per-factor objective weights (the `aps-w2` calibration) — now the canonical default in
+ * `@perduraflow/contracts` ({@link OBJECTIVE_DEFAULTS}), so the config framework, the runtime guard,
+ * and the UI share ONE source of truth. Calibration: lateness 10 dominates (others ≤ 4); cost (4)
+ * stays a real discriminator yet far below lateness (a firm-late hour ~10 dwarfs the ≤2.0 option-to-
+ * option cost discrimination), so cost can never pull a firm order late. Production reads the
+ * RESOLVED weights via `ScoreContext.weights`; these are the fallback when none are threaded.
+ */
+export const WEIGHTS = OBJECTIVE_DEFAULTS
 
 /** The structured-rationale shape version (independent of the weight-set version). */
 export const RATIONALE_SCHEMA_VERSION = '1.0'

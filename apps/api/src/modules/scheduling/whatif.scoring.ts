@@ -1,6 +1,5 @@
-import type { ConstraintBinding, CostedKpis, RationaleFactor } from '@perduraflow/contracts'
+import { type ConstraintBinding, type CostedKpis, OBJECTIVE_DEFAULTS, type ObjectiveWeights, type RationaleFactor } from '@perduraflow/contracts'
 import type { Placement } from './sequencer'
-import { WEIGHTS } from './whatif.weights'
 
 const MS_PER_HOUR = 3_600_000
 
@@ -18,6 +17,9 @@ export interface ScoreContext {
   basePlacements: Placement[]
   /** Overtime hours this option adds (cost + the OT factor). */
   overtimeHours: number
+  /** The RESOLVED objective weights (config-driven, plant→tenant→global). Omitted → the shipped
+   *  `aps-w2` default (the locked-test calibration); production threads the resolved set via context. */
+  weights?: ObjectiveWeights
 }
 
 /** The scored output for one plan (option). */
@@ -69,6 +71,7 @@ function countDisplaced(placements: Placement[], base: Placement[]): number {
  * Firm-lateness dominates: the lateness factor counts firm orders only (D13/D23).
  */
 export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPlan {
+  const w = ctx.weights ?? OBJECTIVE_DEFAULTS
   let firmLateHours = 0
   let earlyHours = 0
   let cost = 0
@@ -102,19 +105,19 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
   const costPerUnit = costedQty > 0 ? r2((cost + otCost) / costedQty) : null
 
   const factors: RationaleFactor[] = [
-    factor('lateness', 'h', r2(firmLateHours), WEIGHTS.lateness, 'whatif.factor.lateness', {
+    factor('lateness', 'h', r2(firmLateHours), w.lateness, 'whatif.factor.lateness', {
       hours: r2(firmLateHours),
       orders: lateLines.size,
     }),
-    factor('changeover', '', changeovers, WEIGHTS.changeover, 'whatif.factor.changeover', { count: changeovers }),
-    factor('overtime', 'h', r2(otHours), WEIGHTS.overtime, 'whatif.factor.overtime', { hours: r2(otHours) }),
-    factor('inventory', 'h', r2(earlyHours), WEIGHTS.inventory, 'whatif.factor.inventory', { hours: r2(earlyHours) }),
-    factor('displacement', '', displaced, WEIGHTS.displacement, 'whatif.factor.displacement', { count: displaced }),
+    factor('changeover', '', changeovers, w.changeover, 'whatif.factor.changeover', { count: changeovers }),
+    factor('overtime', 'h', r2(otHours), w.overtime, 'whatif.factor.overtime', { hours: r2(otHours) }),
+    factor('inventory', 'h', r2(earlyHours), w.inventory, 'whatif.factor.inventory', { hours: r2(earlyHours) }),
+    factor('displacement', '', displaced, w.displacement, 'whatif.factor.displacement', { count: displaced }),
     // Cost (C6): per-unit economics in the objective. rawValue = costPerUnit, with a non-null
     // guard — an uncosted plan (no rated resource → costPerUnit null) contributes 0 (cost-neutral),
     // never NaN; the seed rates every resource, so this only fires on misconfigured data. Weight 4
     // keeps cost a real discriminator while staying far below lateness (firm-lateness dominance).
-    factor('cost', '', costPerUnit ?? 0, WEIGHTS.cost, 'whatif.factor.cost', { cost: costPerUnit ?? 0 }),
+    factor('cost', '', costPerUnit ?? 0, w.cost, 'whatif.factor.cost', { cost: costPerUnit ?? 0 }),
   ]
   const score = r4(factors.reduce((s, f) => s + f.contribution, 0))
 

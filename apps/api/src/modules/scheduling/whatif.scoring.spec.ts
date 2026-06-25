@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { firmLatenessDominates, OBJECTIVE_DEFAULTS, type ObjectiveWeights } from '@perduraflow/contracts'
 import type { Placement } from './sequencer'
 import { scorePlan, type ResourceRate } from './whatif.scoring'
 
@@ -87,5 +88,51 @@ describe('scorePlan — cost factor (C6) & firm-lateness dominance lock', () => 
     const cheapScore = scorePlan(cheap, { rateByResource, basePlacements: cheap, overtimeHours: 0 })
     const priceyScore = scorePlan(pricey, { rateByResource, basePlacements: pricey, overtimeHours: 0 })
     expect(cheapScore.score).toBeLessThan(priceyScore.score) // both on time → cost decides
+  })
+})
+
+describe('firmLatenessDominates — the SHARED guard (test + runtime + UI use this one fn)', () => {
+  it('the shipped aps-w2 default PASSES — ties the guard to the locked behavioural calibration', () => {
+    // The scorePlan tests above prove the default behaviourally dominates; the guard must agree, so
+    // the runtime/UI guard and the locked test can never drift apart.
+    expect(firmLatenessDominates(OBJECTIVE_DEFAULTS).ok).toBe(true)
+  })
+
+  it('rejects a set where a non-lateness weight exceeds lateness / ratio (cost weighted up)', () => {
+    const breaking: ObjectiveWeights = { ...OBJECTIVE_DEFAULTS, cost: 10 } // lateness 10 → ceiling 5; cost 10 > 5
+    const verdict = firmLatenessDominates(breaking)
+    expect(verdict.ok).toBe(false)
+    expect(verdict.offending).toContain('cost')
+    expect(verdict.maxOtherWeight).toBe(5) // lateness 10 / ratio 2
+  })
+
+  it('rejects a set where lateness is too low relative to the others', () => {
+    const verdict = firmLatenessDominates({ ...OBJECTIVE_DEFAULTS, lateness: 2 }) // ceiling 1; cost 4 > 1
+    expect(verdict.ok).toBe(false)
+    expect(verdict.offending).toContain('lateness')
+  })
+
+  it('rejects a negative weight', () => {
+    const verdict = firmLatenessDominates({ ...OBJECTIVE_DEFAULTS, changeover: -1 })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.offending).toContain('changeover')
+  })
+
+  it('accepts a legitimate custom set that keeps lateness dominant (changeover raised within bounds)', () => {
+    expect(firmLatenessDominates({ ...OBJECTIVE_DEFAULTS, changeover: 5 }).ok).toBe(true) // 5 ≤ ceiling 5
+  })
+})
+
+describe('scorePlan — responds to the RESOLVED weights (config-driven proof)', () => {
+  it('the same plan scores differently under different cost weights (weights flow through ctx)', () => {
+    const plan = [firmOp('EXP', REQ)] // on time, costPerUnit 2.0
+    const rateByResource = new Map<string, ResourceRate>([['EXP', rate(2.0)]])
+    const base = { rateByResource, basePlacements: plan, overtimeHours: 0 }
+    const lowCost = scorePlan(plan, { ...base, weights: { ...OBJECTIVE_DEFAULTS, cost: 2 } })
+    const highCost = scorePlan(plan, { ...base, weights: { ...OBJECTIVE_DEFAULTS, cost: 4 } })
+    // cost contribution = costPerUnit(2.0) × weight → 4 vs 8; the higher cost weight scores worse.
+    expect(lowCost.factors.find((f) => f.key === 'cost')!.contribution).toBe(4)
+    expect(highCost.factors.find((f) => f.key === 'cost')!.contribution).toBe(8)
+    expect(highCost.score).toBeGreaterThan(lowCost.score)
   })
 })

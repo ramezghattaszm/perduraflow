@@ -4,6 +4,7 @@ import {
   type Change,
   type ChangeSet,
   type LearningReadContract,
+  type ObjectiveWeights,
   type OptionComparative,
   type RationaleFactor,
   type RequestedChange,
@@ -116,7 +117,7 @@ export class WhatIfService {
 
     const specs = this.optionSpecs(changeSet, predicted)
     const evaluated = specs.map((spec) =>
-      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, givenOt),
+      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, givenOt, ctx.weights),
     )
 
     const feasible = evaluated.filter((e) => e.feasible)
@@ -154,10 +155,10 @@ export class WhatIfService {
       return a.spec.id.localeCompare(b.spec.id)
     })
 
-    const baseKpis = scorePlan(basePlacements, { rateByResource, basePlacements, overtimeHours: 0 }).kpis
-    const options = this.buildOptions(ranked)
+    const baseKpis = scorePlan(basePlacements, { rateByResource, basePlacements, overtimeHours: 0, weights: ctx.weights }).kpis
+    const options = this.buildOptions(ranked, ctx.weightSetVersion)
     const recommendedOptionId = options.find((o) => o.feasible)?.id ?? null
-    const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay)
+    const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay, ctx.weightSetVersion)
 
     const prior = await this.repo.findWhatIfByDeterminismKey(tenantId, determinismKey)
     if (prior) {
@@ -279,7 +280,7 @@ export class WhatIfService {
 
     const spec = this.optionSpecs(changeSet, predicted).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
-    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet))
+    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet), ctx.weights)
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
@@ -529,6 +530,7 @@ export class WhatIfService {
     resolveOperatorFactor: ResolveOperatorFactor,
     minBatchByResource: Map<string, number>,
     givenOvertimeHours: number,
+    weights: ObjectiveWeights,
   ): { spec: OptionSpec; feasible: boolean; infeasibleReasonKey: string | null; scored: ScoredPlan | null; placements: Placement[] } {
     const items = spec.itemTransform(changed)
     const starved = items.find((i) => i.eligibleResourceIds.length === 0)
@@ -547,13 +549,14 @@ export class WhatIfService {
     const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor, minBatchByResource).placements
     // OT magnitude for scoring = the larger of this option's proposed OT and the compound's
     // stipulated (given) OT, so stipulated overtime is costed in the factor + cost, never free.
-    const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: Math.max(spec.overtimeHours, givenOvertimeHours) })
+    const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: Math.max(spec.overtimeHours, givenOvertimeHours), weights })
     return { spec, feasible: true, infeasibleReasonKey: null, scored, placements }
   }
 
   // --- assembling options + comparatives + rationale --------------------------
   private buildOptions(
     ranked: ReturnType<WhatIfService['runOption']>[],
+    weightSetVersion: string,
   ): WhatIfOption[] {
     const feasible = ranked.filter((r) => r.feasible && r.scored)
     return ranked.map((r, idx) => {
@@ -573,7 +576,7 @@ export class WhatIfService {
       const comparatives = this.comparatives(r, feasible)
       const rationale: StructuredRationale = {
         schemaVersion: RATIONALE_SCHEMA_VERSION,
-        weightSetVersion: WEIGHT_SET_VERSION,
+        weightSetVersion,
         optionId: r.spec.id,
         score: r.scored.score,
         headlineKey: 'whatif.headline.option',
@@ -645,7 +648,7 @@ export class WhatIfService {
     return map
   }
 
-  private determinismKey(baseVersionId: string, changeSet: ChangeSet, items: SequencerItem[], overlay: ResolveEffective): string {
+  private determinismKey(baseVersionId: string, changeSet: ChangeSet, items: SequencerItem[], overlay: ResolveEffective, weightSetVersion: string): string {
     const overlayDigest = items
       .flatMap((i) => i.eligibleResourceIds.map((rid) => {
         const e = overlay(i.routingOperationId, rid, i.setupTime, i.cycleTime)
@@ -659,7 +662,7 @@ export class WhatIfService {
         d: i.demandLineId, o: i.routingOperationId, q: i.qty, r: i.requiredDate, f: i.firmness, e: i.eligibleResourceIds, c: i.changeoverValue,
       })),
       overlayDigest,
-      weights: WEIGHT_SET_VERSION,
+      weights: weightSetVersion,
       engine: ENGINE_VERSION,
     })
     return createHash('sha256').update(canonical).digest('hex')

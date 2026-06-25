@@ -1,4 +1,12 @@
-import { type ConfigGroupKey, type ConfigValue, REPORTING_DEFAULTS } from '@perduraflow/contracts'
+import {
+  type ConfigGroupKey,
+  type ConfigValue,
+  firmLatenessDominates,
+  OBJECTIVE_DEFAULTS,
+  OBJECTIVE_WEIGHT_KEYS,
+  type ObjectiveWeights,
+  REPORTING_DEFAULTS,
+} from '@perduraflow/contracts'
 
 /** UI/validation metadata for one field of a setting group. */
 export interface GroupFieldSpec {
@@ -31,10 +39,24 @@ const REPORTING: ConfigGroupDescriptor = {
 }
 
 /**
- * The group registry. Stage 1 registers `reporting` only; `objective` (weights + dominance
- * guard) and `autonomy` (folded from the policy module) register here in later stages.
+ * Group 1 — Objective Policy (the engine objective-function weights). Stage 2. The `validate` guard
+ * is the SHARED {@link firmLatenessDominates} — the same pure fn the locked behavioural test and the
+ * UI live guard use, so a custom set can never break firm-lateness dominance. Each weight is a
+ * non-negative number; a 0–100 UI range keeps them in a sane band (the guard enforces the invariant).
+ */
+const OBJECTIVE: ConfigGroupDescriptor = {
+  key: 'objective',
+  defaults: { ...OBJECTIVE_DEFAULTS },
+  fields: OBJECTIVE_WEIGHT_KEYS.map((key) => ({ key, kind: 'number' as const, min: 0, max: 100 })),
+  validate: (values) => firmLatenessDominates(values as unknown as ObjectiveWeights),
+}
+
+/**
+ * The group registry. Stage 1: `reporting`; Stage 2: `objective` (weights + dominance guard).
+ * `autonomy` (folded from the policy module) registers here in a later stage.
  */
 export const CONFIG_GROUPS: Partial<Record<ConfigGroupKey, ConfigGroupDescriptor>> = {
+  objective: OBJECTIVE,
   reporting: REPORTING,
 }
 

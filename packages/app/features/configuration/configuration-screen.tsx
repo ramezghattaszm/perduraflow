@@ -1,11 +1,21 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import type { ConfigFieldView, ConfigGroupKey, ConfigLevel } from '@perduraflow/contracts'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  type ConfigFieldView,
+  type ConfigGroupKey,
+  type ConfigGroupView,
+  type ConfigLevel,
+  FIRM_LATENESS_DOMINANCE_RATIO,
+  firmLatenessDominates,
+  OBJECTIVE_WEIGHT_KEYS,
+  type ObjectiveWeights,
+} from '@perduraflow/contracts'
 import {
   AppButton,
   AppInput,
   AppSelect,
+  AppSlider,
   P,
   PageHeader,
   Panel,
@@ -22,7 +32,7 @@ import { AdminShell } from '../shell/admin-shell'
 
 /** Groups in the framework — Reporting is live (Stage 1); the others are registered placeholders. */
 const GROUPS: { key: ConfigGroupKey; live: boolean }[] = [
-  { key: 'objective', live: false },
+  { key: 'objective', live: true },
   { key: 'reporting', live: true },
   { key: 'autonomy', live: false },
 ]
@@ -103,19 +113,29 @@ export function ConfigurationContent() {
             {t(`scopeHint.${scope}`)}
           </P>
 
-          <YStack gap="$3" marginTop="$2">
-            {(view?.fields ?? []).map((f) => (
-              <FieldRow
-                key={f.key}
-                field={f}
-                group={group}
-                scope={scope}
-                tenantId={user?.tenantId ?? ''}
-                plantId={plantId}
-                canEdit={canConfigure && scope !== 'global'}
-              />
-            ))}
-          </YStack>
+          {group === 'objective' && view ? (
+            <ObjectiveWeightsEditor
+              view={view}
+              scope={scope}
+              tenantId={user?.tenantId ?? ''}
+              plantId={plantId}
+              canEdit={canConfigure && scope !== 'global'}
+            />
+          ) : (
+            <YStack gap="$3" marginTop="$2">
+              {(view?.fields ?? []).map((f) => (
+                <FieldRow
+                  key={f.key}
+                  field={f}
+                  group={group}
+                  scope={scope}
+                  tenantId={user?.tenantId ?? ''}
+                  plantId={plantId}
+                  canEdit={canConfigure && scope !== 'global'}
+                />
+              ))}
+            </YStack>
+          )}
         </Panel>
       )}
     </>
@@ -239,6 +259,173 @@ function FieldRow({
     </YStack>
   )
 }
+
+/** Read the resolved weights (effective values) out of a group view. */
+function weightsFromView(view: ConfigGroupView): ObjectiveWeights {
+  const byKey = new Map(view.fields.map((f) => [f.key, Number(f.value)]))
+  return {
+    lateness: byKey.get('lateness') ?? 0,
+    changeover: byKey.get('changeover') ?? 0,
+    overtime: byKey.get('overtime') ?? 0,
+    inventory: byKey.get('inventory') ?? 0,
+    displacement: byKey.get('displacement') ?? 0,
+    cost: byKey.get('cost') ?? 0,
+  }
+}
+
+const WEIGHT_SLIDER_MAX: Record<keyof ObjectiveWeights, number> = {
+  lateness: 40,
+  changeover: 20,
+  overtime: 20,
+  inventory: 20,
+  displacement: 20,
+  cost: 20,
+}
+
+/**
+ * Objective Policy editor — the six weights as **slider + exact-number entry**, edited as one cohesive
+ * set and saved together at the scope. The firm-lateness-dominance guard ({@link firmLatenessDominates},
+ * the SAME pure fn as the runtime + locked test) runs **live** as you drag/type: a breaching weight is
+ * shown in `$warning`, the protected invariant is named, and Save is blocked until firm delivery again
+ * dominates — so a custom set can never weight firm delivery away. The server re-checks on save.
+ */
+function ObjectiveWeightsEditor({
+  view,
+  scope,
+  tenantId,
+  plantId,
+  canEdit,
+}: {
+  view: ConfigGroupView
+  scope: ConfigLevel
+  tenantId: string
+  plantId: string | null
+  canEdit: boolean
+}) {
+  const { t } = useTranslation('configuration')
+  const set = useSetConfigOverride()
+  const reset = useResetConfigOverride()
+
+  const initial = useMemo(() => weightsFromView(view), [view])
+  const [w, setW] = useState<ObjectiveWeights>(initial)
+  useEffect(() => setW(initial), [initial])
+
+  const verdict = firmLatenessDominates(w)
+  const ceiling = w.lateness / FIRM_LATENESS_DOMINANCE_RATIO
+  const provenance = new Map(view.fields.map((f) => [f.key, f.provenance]))
+  const overriddenHere = view.fields.some((f) => (scope === 'plant' ? f.plant : scope === 'tenant' ? f.tenant : null) != null)
+  const dirty = OBJECTIVE_WEIGHT_KEYS.some((k) => w[k] !== initial[k])
+  const scopeId = scope === 'plant' ? plantId : tenantId
+
+  const setWeight = (k: keyof ObjectiveWeights, value: number) => setW((prev) => ({ ...prev, [k]: value }))
+
+  const onSave = () => {
+    if (!verdict.ok || !scopeId || scope === 'global') return
+    set.mutate({ group: 'objective', level: scope, scopeId, fields: { ...w }, plantId: plantId ?? undefined })
+  }
+  const onReset = () => {
+    if (!scopeId || scope === 'global') return
+    reset.mutate({ group: 'objective', level: scope, scopeId, plantId: plantId ?? undefined })
+  }
+
+  return (
+    <YStack gap="$3" marginTop="$2">
+      {/* The protected-invariant banner — always visible; turns into the live guard warning when broken. */}
+      <YStack
+        gap="$1"
+        borderWidth={1}
+        borderColor={verdict.ok ? '$borderColor' : '$warning'}
+        backgroundColor={verdict.ok ? '$surfaceRaised' : '$warningSoft'}
+        borderRadius="$4"
+        padding="$3"
+      >
+        <XStack gap="$2" alignItems="center">
+          <StatusPill tone={verdict.ok ? 'active' : 'warning'}>
+            {verdict.ok ? t('objective.guardOk') : t('objective.guardBroken')}
+          </StatusPill>
+          <P size={4} color="$textSecondary">
+            {t('objective.invariant', { ratio: FIRM_LATENESS_DOMINANCE_RATIO, ceiling: round2(ceiling) })}
+          </P>
+        </XStack>
+        {!verdict.ok ? (
+          <P size={4} color="$warning">
+            {t('objective.guardHint', { fields: verdict.offending.map((k) => t(`field.${k}`)).join(', ') })}
+          </P>
+        ) : null}
+      </YStack>
+
+      {OBJECTIVE_WEIGHT_KEYS.map((k) => {
+        const isLateness = k === 'lateness'
+        const breaches = verdict.offending.includes(k)
+        return (
+          <YStack key={k} gap="$2" borderWidth={1} borderColor="$borderColor" borderRadius="$4" padding="$3">
+            <XStack justifyContent="space-between" alignItems="center" gap="$2" flexWrap="wrap">
+              <XStack gap="$2" alignItems="center">
+                <P size={3} weight="m" color="$textPrimary">
+                  {t(`field.${k}`)}
+                </P>
+                {isLateness ? <StatusPill tone="active">{t('objective.dominant')}</StatusPill> : null}
+              </XStack>
+              <StatusPill tone={PROVENANCE_TONE[provenance.get(k) ?? 'global']}>
+                {t(`provenance.${provenance.get(k) ?? 'global'}`)}
+              </StatusPill>
+            </XStack>
+            <XStack gap="$3" alignItems="center">
+              <YStack flex={1} opacity={canEdit ? 1 : 0.6} pointerEvents={canEdit ? 'auto' : 'none'}>
+                <AppSlider
+                  value={w[k]}
+                  onChange={(v) => setWeight(k, round2(v))}
+                  min={0}
+                  max={WEIGHT_SLIDER_MAX[k]}
+                  step={0.1}
+                  tone={breaches ? 'warning' : 'primary'}
+                />
+              </YStack>
+              <YStack width={92}>
+                <AppInput
+                  value={String(w[k])}
+                  onChangeText={(txt) => {
+                    const n = Number(txt)
+                    if (txt.trim() !== '' && Number.isFinite(n)) setWeight(k, n)
+                    else if (txt.trim() === '') setWeight(k, 0)
+                  }}
+                  type="text"
+                />
+              </YStack>
+            </XStack>
+            {!isLateness ? (
+              <P size={5} color={breaches ? '$warning' : '$textTertiary'}>
+                {t('objective.ceilingHint', { ceiling: round2(ceiling) })}
+              </P>
+            ) : null}
+          </YStack>
+        )
+      })}
+
+      {scope !== 'global' ? (
+        <XStack gap="$2" alignItems="center" flexWrap="wrap">
+          <AppButton variant="primary" size="$3" disabled={!canEdit || !dirty || !verdict.ok} onPress={onSave}>
+            {t('row.save')}
+          </AppButton>
+          <AppButton variant="light" size="$3" disabled={!canEdit || !overriddenHere} onPress={onReset}>
+            {t('row.reset')}
+          </AppButton>
+          {!verdict.ok ? (
+            <P size={4} color="$warning">
+              {t('objective.saveBlocked')}
+            </P>
+          ) : null}
+        </XStack>
+      ) : (
+        <P size={5} color="$textTertiary">
+          {t('row.globalReadOnly')}
+        </P>
+      )}
+    </YStack>
+  )
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 /** Web Configuration screen — body inside the desktop `AdminShell` chrome. */
 export function ConfigurationScreen() {

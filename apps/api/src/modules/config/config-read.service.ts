@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common'
-import { CONFIG_READ_CONTRACT, type ConfigReadContract, type ReportingPolicy } from '@perduraflow/contracts'
+import {
+  CONFIG_READ_CONTRACT,
+  type ConfigReadContract,
+  OBJECTIVE_DEFAULT_VERSION,
+  type ObjectiveWeights,
+  type ReportingPolicy,
+} from '@perduraflow/contracts'
 import { ConfigService } from './config.service'
 
 /** DI token for the published `config.read 1.0` interface (consumed cross-module, e.g. by scheduling). */
@@ -20,5 +26,31 @@ export class ConfigReadService implements ConfigReadContract {
   async resolveReporting(tenantId: string, plantId?: string): Promise<ReportingPolicy> {
     const { values } = await this.config.resolve('reporting', tenantId, plantId)
     return { reportingWindowDays: Number(values['reportingWindowDays']) }
+  }
+
+  /**
+   * Resolved Objective weights (plant → tenant → global) + the version token to stamp into the
+   * rationale/determinism key. The token reflects the highest-precedence level that contributed any
+   * override (`obj:p<rev>` plant, `obj:t<rev>` tenant, else the shipped `aps-w2`) — so a stored
+   * rationale stays interpretable against the exact weights, and a weight change invalidates the
+   * what-if cache (the token feeds the determinism key).
+   */
+  async resolveObjective(tenantId: string, plantId?: string): Promise<{ weights: ObjectiveWeights; version: string }> {
+    const { values, provenance, revisions } = await this.config.resolve('objective', tenantId, plantId)
+    const weights = {
+      lateness: Number(values['lateness']),
+      changeover: Number(values['changeover']),
+      overtime: Number(values['overtime']),
+      inventory: Number(values['inventory']),
+      displacement: Number(values['displacement']),
+      cost: Number(values['cost']),
+    }
+    const levels = Object.values(provenance)
+    const version = levels.includes('plant')
+      ? `obj:p${revisions.plant ?? 0}`
+      : levels.includes('tenant')
+        ? `obj:t${revisions.tenant ?? 0}`
+        : OBJECTIVE_DEFAULT_VERSION
+    return { weights, version }
   }
 }
