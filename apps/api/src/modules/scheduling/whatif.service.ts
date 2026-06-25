@@ -8,6 +8,7 @@ import {
   type OptionComparative,
   type RationaleFactor,
   type RequestedChange,
+  type ResourceDowntimeDto,
   type ScheduleVersionDto,
   type StructuredRationale,
   type WhatIfOption,
@@ -158,7 +159,7 @@ export class WhatIfService {
     const baseKpis = scorePlan(basePlacements, { rateByResource, basePlacements, overtimeHours: 0, weights: ctx.weights }).kpis
     const options = this.buildOptions(ranked, ctx.weightSetVersion)
     const recommendedOptionId = options.find((o) => o.feasible)?.id ?? null
-    const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay, ctx.weightSetVersion)
+    const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay, ctx.weightSetVersion, ctx.downtime)
 
     const prior = await this.repo.findWhatIfByDeterminismKey(tenantId, determinismKey)
     if (prior) {
@@ -660,12 +661,27 @@ export class WhatIfService {
     return map
   }
 
-  private determinismKey(baseVersionId: string, changeSet: ChangeSet, items: SequencerItem[], overlay: ResolveEffective, weightSetVersion: string): string {
+  private determinismKey(
+    baseVersionId: string,
+    changeSet: ChangeSet,
+    items: SequencerItem[],
+    overlay: ResolveEffective,
+    weightSetVersion: string,
+    downtime: ResourceDowntimeDto[],
+  ): string {
     const overlayDigest = items
       .flatMap((i) => i.eligibleResourceIds.map((rid) => {
         const e = overlay(i.routingOperationId, rid, i.setupTime, i.cycleTime)
         return `${i.demandLineId}:${i.routingOperationId}:${rid}:${e.setupTime}:${e.cycleTime}`
       }))
+      .sort()
+    // Persisted downtime (line-down / maintenance) is a BASE-CONTEXT input that the change-set does
+    // NOT carry (the `line_down` marker has no window times; a windowed resource stays `active`, so
+    // `items` are unchanged). Without this, every line-down window hashes identically → the first
+    // result is replayed for all of them (a stale cache that disagrees with solve). Hash the active
+    // windows (resource + bounds + kind) so the cache busts per-window.
+    const downtimeDigest = downtime
+      .map((d) => `${d.resourceId}:${d.from}:${d.to}:${d.kind}`)
       .sort()
     const canonical = JSON.stringify({
       baseVersionId,
@@ -674,6 +690,7 @@ export class WhatIfService {
         d: i.demandLineId, o: i.routingOperationId, q: i.qty, r: i.requiredDate, f: i.firmness, e: i.eligibleResourceIds, c: i.changeoverValue,
       })),
       overlayDigest,
+      downtimeDigest,
       weights: weightSetVersion,
       engine: ENGINE_VERSION,
     })

@@ -932,18 +932,22 @@ export function BoardContent() {
   const conditionCount =
     lineDownConditions.length + demandConditions.length + materialConditions.length
 
-  // The line-down VERDICT (from the what-if, not the banner): the outage is ABSORBED when the best
-  // feasible re-solve adds NO new lateness vs the base — `option.lateOrders ≤ baseKpis.lateOrders`.
-  // (Delta, not zero: the demo plant carries a pre-existing material-gated at-risk that the outage
-  // doesn't touch; an absorbed outage must not be masked by — or blamed for — that.) Surface as a
-  // positive resilience result, distinct from the at-risk case (outage ADDS lateness → decide reroute/OT).
-  const lineDownAbsorbed = (() => {
-    if (!whatIfResult || !whatIfResult.changeSet.changes.some((c) => c.kind === 'line_down')) return false
-    const best =
-      whatIfResult.options.find((o) => o.id === whatIfResult.recommendedOptionId) ??
-      whatIfResult.options.find((o) => o.feasible)
-    return Boolean(best?.feasible && best.kpis.lateOrders <= whatIfResult.baseKpis.lateOrders)
-  })()
+  // The line-down VERDICT (three reference points, after the determinism-cache fix that makes the
+  // what-if base reflect the outage):
+  //   R1 pre-outage  = the committed plan's at-risk orders (before the window).
+  //   R2 with-outage = the what-if BASE (default re-route, no remediation) — now reflects the window.
+  //   R3 remediation = the options (reroute = R2, overtime, …).
+  // ABSORBED ⟺ the outage added no new lateness: R2.lateOrders ≤ R1. Otherwise AT-RISK — the option
+  // set (reroute vs OT + cost) stands as decide-support. NOT R2-vs-options (R2 IS the outage, so
+  // comparing remediations to it always reads "absorbed" — the b42d591 bug this replaces).
+  const committedLateOrders = new Set(
+    (detail?.operations ?? []).filter((o) => o.atRisk).map((o) => o.demandLineId)
+  ).size
+  const lineDownAbsorbed = Boolean(
+    whatIfResult &&
+      whatIfResult.changeSet.changes.some((c) => c.kind === 'line_down') &&
+      whatIfResult.baseKpis.lateOrders <= committedLateOrders
+  )
 
   return (
     <>
