@@ -1,5 +1,5 @@
 {
-  "title": "Copilot",
+  "title": "Maestro",
   "subtitle": "Ask about the analysis or explore a new scenario — grounded in the engine, never invented.",
   "placeholder": "Ask about the options, or describe a scenario (e.g. \"what if I increase GP-1142 to 150?\")",
   "send": "Send",
@@ -12,6 +12,6 @@
   "groundedHint": "The deterministic analysis this answer is grounded in — the source of truth.",
   "degraded": "Degraded — the model couldn't process this turn; the data is still available.",
   "you": "You",
-  "assistant": "Copilot",
+  "assistant": "Maestro",
   "needPlant": "Select a plant to start."
 }
