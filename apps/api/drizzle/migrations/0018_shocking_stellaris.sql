@@ -1,0 +1,1 @@
+ALTER TABLE "scheduling"."scheduled_operation" ADD COLUMN "binding_operator_id" text;

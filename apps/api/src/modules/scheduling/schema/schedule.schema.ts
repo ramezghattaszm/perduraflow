@@ -100,6 +100,10 @@ export const scheduledOperation = schedulingSchema.table(
     // bound this op — recorded at solve so the lateness chain narrates the stored window (from/to/
     // reason/kind), never re-derived. Null for every other binding kind. → master_data.resource_downtime.
     bindingDowntimeId: text('binding_downtime_id'),
+    // When the binder is the OPERATOR (C5) — a slow operator inflated this op's run so it overflows the
+    // working window / finishes late, where at STANDARD it would be on time — the operator who ran it,
+    // recorded at solve so the lateness chain names them (analog of bindingDowntimeId). → operator.
+    bindingOperatorId: text('binding_operator_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ versionIdx: index('scheduled_operation_version_idx').on(t.scheduleVersionId) }),

@@ -29,6 +29,7 @@ const firmOp = (resourceId: string, endMs: number): Placement => ({
   bindingBlockerDemandLineId: null,
   bindingBlockerOpSeq: null,
   bindingDowntimeId: null,
+  bindingOperatorId: null,
   requiredDateMs: REQ,
   firmness: 'firm',
   changeoverValue: null,

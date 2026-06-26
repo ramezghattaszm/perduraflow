@@ -104,17 +104,26 @@ export type ResolveEffective = (
  * — a DELIBERATE DIVIDE (higher factor = faster). Setup is untouched. **Pure** (built by the service
  * from the §4.8 assignment table + operator factors) so the sequencer stays deterministic.
  */
-export type ResolveOperatorFactor = (resourceId: string, atMs: number) => number
+export type ResolveOperator = (resourceId: string, atMs: number) => { id: string; performanceFactor: number } | null
 
 /**
  * Which floor component set this op's start — the immediate, computed cause of its placement (D-late).
  * `resource`/`predecessor` point at a blocking op (recurse for the causal chain); the rest are roots:
  * `material` (a buy-component gate), `release`/`origin` (couldn't start before its day / the horizon),
  * `working_window` (couldn't fit any working segment), `resource_downtime` (a per-resource line-down /
- * maintenance closure delayed the start — carries the window id). Recorded for EVERY op so the chain
- * can pass through on-time blockers; null only when there is no binder (degenerate empty schedule).
+ * maintenance closure delayed the start — carries the window id), `operator` (a slow operator inflated
+ * the run so it overflows/finishes late where at STANDARD it would be on time — carries the operator id).
+ * Recorded for EVERY op so the chain can pass through on-time blockers; null only when no binder.
  */
-export type BindingKind = 'resource' | 'predecessor' | 'material' | 'release' | 'origin' | 'working_window' | 'resource_downtime'
+export type BindingKind =
+  | 'resource'
+  | 'predecessor'
+  | 'material'
+  | 'release'
+  | 'origin'
+  | 'working_window'
+  | 'resource_downtime'
+  | 'operator'
 
 /** A placed operation (epoch-ms times; the service maps to rows). */
 export interface Placement {
@@ -142,6 +151,8 @@ export interface Placement {
   bindingBlockerOpSeq: number | null
   /** When `bindingKind` is `resource_downtime`, the closure window that delayed the start (else null). */
   bindingDowntimeId: string | null
+  /** When `bindingKind` is `operator`, the slow operator who inflated this op's run (else null). */
+  bindingOperatorId: string | null
   /** Required date (epoch ms) — carried through for lateness/earliness scoring. */
   requiredDateMs: number
   firmness: 'firm' | 'forecast'
@@ -201,7 +212,7 @@ export function sequence(
   resolveEffective?: ResolveEffective,
   policy?: SequencePolicy,
   resourceCalendars?: Map<string, WorkingCalendar>,
-  resolveOperatorFactor?: ResolveOperatorFactor,
+  resolveOperator?: ResolveOperator,
   minBatchByResource?: Map<string, number>,
   /**
    * Per-resource downtime windows (line-down / maintenance) for binder attribution. The windows
@@ -329,7 +340,8 @@ export function sequence(
     // effectiveCycle = baseCycle / performanceFactor — a DELIBERATE DIVIDE (higher factor = faster);
     // setup is untouched. Point-resolved at the cursor floor (the op's start), like the material
     // gate — one factor per placement, no intra-op split. No assignment → factor 1.0 (no-op).
-    const perf = resolveOperatorFactor?.(bestRes, floor) ?? 1
+    const operator = resolveOperator?.(bestRes, floor) ?? null
+    const perf = operator?.performanceFactor ?? 1
     const effCycle = perf > 0 ? eff.cycleTime / perf : eff.cycleTime
     // Minimum batch floor (C4): an op won't run below its resource type's minimum batch — a die
     // setup isn't worth a 3-part run. effectiveRunQty = max(demandQty, minBatch); when it binds it
@@ -394,6 +406,24 @@ export function sequence(
         bindingDowntimeId = bound.id
       }
     }
+    // Operator-performance root (C5): when this op is late because a SLOW operator inflated its run —
+    // at STANDARD (factor 1.0) it would NOT be at-risk — the operator is the marginal cause, not whichever
+    // floor the cursor sat on. Counterfactual: re-place the op at its standard cycle; if that fits the
+    // window AND finishes by due, the operator made the difference. Overrides only the op's OWN run-time
+    // bindings (working_window / release / origin — the late-finish cases), never an upstream cause
+    // (material / predecessor / resource / resource_downtime stand). Analog of the downtime tag.
+    let bindingOperatorId: string | null = null
+    if (atRisk && perf < 1 && operator && (bindingKind === 'working_window' || bindingKind === 'release' || bindingKind === 'origin')) {
+      const stdDurMs = (eff.setupTime + eff.cycleTime * effRunQty) * MS_PER_MINUTE
+      const placedStd = placeJob(cal, floor, stdDurMs, st.ot)
+      const endStd = placedStd ? placedStd.endMs : floor + stdDurMs
+      const stdAtRisk = placedStd === null || endStd > item.requiredDate
+      if (!stdAtRisk) {
+        bindingKind = 'operator'
+        blocker = null
+        bindingOperatorId = operator.id
+      }
+    }
     st.freeMs = endMs
     st.lastOpKey = { demandLineId: item.demandLineId, opSeq: item.opSeq }
     endByLineOp.set(`${item.demandLineId}:${item.opSeq}`, endMs) // precedence: successor floors on this
@@ -420,15 +450,18 @@ export function sequence(
         ? null
         : bindingKind === 'resource_downtime'
           ? 'resource_down'
-          : bindingKind === 'material'
-            ? 'material'
-            : bindingKind === 'working_window'
-              ? 'exceeds_working_window'
-              : 'late',
+          : bindingKind === 'operator'
+            ? 'slow_operator'
+            : bindingKind === 'material'
+              ? 'material'
+              : bindingKind === 'working_window'
+                ? 'exceeds_working_window'
+                : 'late',
       bindingKind,
       bindingBlockerDemandLineId: blocker?.demandLineId ?? null,
       bindingBlockerOpSeq: blocker?.opSeq ?? null,
       bindingDowntimeId,
+      bindingOperatorId,
       requiredDateMs: item.requiredDate,
       firmness: item.firmness,
       changeoverValue: item.changeoverValue,

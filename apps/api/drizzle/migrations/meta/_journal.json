@@ -127,6 +127,13 @@
       "when": 1782403979139,
       "tag": "0017_nosy_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1782482625355,
+      "tag": "0018_shocking_stellaris",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ const lk: LatenessLookups = {
   partNo: (id) => `P:${id}`,
   materialComponent: (id) => (id === 'fg' ? 'PV-22' : null),
   downtime: (id) => (id === 'dt1' ? { kind: 'line_down', reason: 'hydraulics' } : null),
+  operator: (id) => (id === 'op1' ? { name: 'Ana Reyes', performanceFactor: 0.25 } : null),
 }
 
 const op = (over: Partial<LatenessOp> & Pick<LatenessOp, 'demandLineId' | 'opSeq' | 'bindingKind'>): LatenessOp => ({
@@ -15,6 +16,7 @@ const op = (over: Partial<LatenessOp> & Pick<LatenessOp, 'demandLineId' | 'opSeq
   bindingBlockerDemandLineId: null,
   bindingBlockerOpSeq: null,
   bindingDowntimeId: null,
+  bindingOperatorId: null,
   ...over,
 })
 

@@ -110,7 +110,8 @@
   "riskReason": {
     "material": "material",
     "late": "late vs due",
-    "exceeds_working_window": "exceeds working window"
+    "exceeds_working_window": "exceeds working window",
+    "slow_operator": "slow operator"
   },
   "lateness": {
     "why": "Why late",
@@ -125,13 +126,15 @@
     "rootLineDown": "line down",
     "rootMaintenance": "maintenance window",
     "rootDowntimeReason": "{{base}} ({{reason}})",
+    "rootOperator": "running below standard ({{operator}} at {{pct}}%)",
     "withLever": "{{base}} — {{lever}}",
     "lever": {
       "material": "expedite the material or move the date",
       "working_window": "add overtime or a shift, or move the date",
       "capacity": "reprioritize, add overtime, or move the date",
       "due_before_start": "re-sequencing won't help; renegotiate the date or expedite",
-      "resource_downtime": "reroute to another line, add overtime, or move the date"
+      "resource_downtime": "reroute to another line, add overtime, or move the date",
+      "operator": "assign a faster operator, add overtime, or move the date"
     },
     "dueTimed": "due {{due}}, but the line can't start until {{start}} — re-sequencing won't help; renegotiate the date or expedite",
     "behindResource": "behind {{blocker}} on {{resource}}",

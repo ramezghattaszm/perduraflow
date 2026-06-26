@@ -20,6 +20,10 @@ export function latenessRootLabel(chain: LatenessChainDto, t: TFn): string {
     const base = rootHop?.downtimeKind === 'maintenance' ? t('lateness.rootMaintenance') : t('lateness.rootLineDown')
     return rootHop?.detail ? t('lateness.rootDowntimeReason', { base, reason: rootHop.detail }) : base
   }
+  if (chain.root === 'operator') {
+    // A slow operator inflated the run (the op fits at standard) — name them + the %.
+    return t('lateness.rootOperator', { operator: rootHop?.detail ?? '', pct: rootHop?.operatorPct ?? 0 })
+  }
   // rootWorking_window / rootCapacity / rootDue_before_start
   return t(`lateness.root${chain.root.charAt(0).toUpperCase()}${chain.root.slice(1)}`)
 }

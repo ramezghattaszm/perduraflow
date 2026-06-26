@@ -57,6 +57,7 @@ export const bindingKindSchema = z.enum([
   'origin',
   'working_window',
   'resource_downtime',
+  'operator',
 ])
 export type BindingKind = z.infer<typeof bindingKindSchema>
 
@@ -272,6 +273,7 @@ export const latenessRootSchema = z.enum([
   'capacity',
   'due_before_start',
   'resource_downtime',
+  'operator',
 ])
 export type LatenessRoot = z.infer<typeof latenessRootSchema>
 
@@ -293,6 +295,8 @@ export interface LatenessHop {
   detail: string | null
   /** On a `resource_downtime` root hop: line-down vs maintenance (drives copy nuance); else null. */
   downtimeKind?: ResourceDowntimeKind | null
+  /** On an `operator` root hop: the slow operator's performance % (e.g. 25). `detail` holds the name. */
+  operatorPct?: number | null
 }
 
 /**

@@ -27,6 +27,8 @@ export interface LatenessOp {
   bindingBlockerOpSeq: number | null
   /** When `bindingKind` is `resource_downtime`, the closure window that delayed the start. */
   bindingDowntimeId: string | null
+  /** When `bindingKind` is `operator`, the slow operator who inflated this op's run. */
+  bindingOperatorId: string | null
 }
 
 /** Lookups resolved by the caller (kept out of the pure walk so it stays deterministic + testable). */
@@ -37,6 +39,8 @@ export interface LatenessLookups {
   materialComponent: (partId: string) => string | null
   /** The downtime window (kind + reason) for a `resource_downtime` binding, or null. */
   downtime: (downtimeId: string | null) => { kind: ResourceDowntimeKind; reason: string | null } | null
+  /** The operator (name + factor) for an `operator` binding, or null. */
+  operator: (operatorId: string | null) => { name: string; performanceFactor: number } | null
 }
 
 const keyOf = (demandLineId: string, opSeq: number): string => `${demandLineId}:${opSeq}`
@@ -45,6 +49,7 @@ const keyOf = (demandLineId: string, opSeq: number): string => `${demandLineId}:
 function rootOf(kind: BindingKind, op: LatenessOp): LatenessRoot {
   if (kind === 'material') return 'material'
   if (kind === 'resource_downtime') return 'resource_downtime'
+  if (kind === 'operator') return 'operator'
   if (kind === 'working_window') return 'working_window'
   // release / origin: the op started as early as its day / the horizon allowed. If the op is itself
   // late, its DUE precedes the earliest feasible start (due_before_start); if it's on-time, the chain
@@ -58,6 +63,7 @@ function hopOf(
   detail: string | null,
   lk: LatenessLookups,
   downtimeKind: ResourceDowntimeKind | null = null,
+  operatorPct: number | null = null,
 ): LatenessHop {
   return {
     demandLineId: op.demandLineId,
@@ -68,6 +74,7 @@ function hopOf(
     kind,
     detail,
     downtimeKind,
+    operatorPct,
   }
 }
 
@@ -113,11 +120,12 @@ export function buildLatenessChain(
       // kind is null here is impossible (start guarded; blockers reached only via resource/predecessor
       // which set a non-null kind on the next op… but the next op could itself be a root kind).
       const r = rootOf(kind ?? 'origin', cur)
-      // Root specifics, grounded in stored facts: the material gate's component, or the downtime
-      // window's reason + kind (line-down vs maintenance) — never inferred.
+      // Root specifics, grounded in stored facts: the material gate's component, the downtime window's
+      // reason + kind (line-down vs maintenance), or the slow operator's name + % — never inferred.
       const dt = r === 'resource_downtime' ? lk.downtime(cur.bindingDowntimeId) : null
-      const detail = r === 'material' ? lk.materialComponent(cur.partId) : (dt?.reason ?? null)
-      hops.push(hopOf(cur, r, detail, lk, dt?.kind ?? null))
+      const opr = r === 'operator' ? lk.operator(cur.bindingOperatorId) : null
+      const detail = r === 'material' ? lk.materialComponent(cur.partId) : r === 'operator' ? (opr?.name ?? null) : (dt?.reason ?? null)
+      hops.push(hopOf(cur, r, detail, lk, dt?.kind ?? null, opr ? Math.round(opr.performanceFactor * 100) : null))
       root = r
       cur = undefined
     }

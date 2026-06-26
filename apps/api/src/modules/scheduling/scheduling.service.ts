@@ -50,7 +50,7 @@ import { SchedulingRepository } from './scheduling.repository'
 import type { DemandInput, ScheduledOperation } from './schema'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
-import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperatorFactor, type SequencerItem } from './sequencer'
+import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
 import { buildWorkingCalendar, startOfDayUtc, workingMinutesInRange, type WorkingCalendar } from './working-calendar'
 
 /** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
@@ -68,7 +68,7 @@ export interface BaseContext {
   /** Per-resource downtime windows (id + epoch-ms bounds) for binder attribution (→ `resource_downtime` root). */
   downtimeByResource: Map<string, Array<{ id: string; startMs: number; endMs: number }>>
   /** Operator performance (C5, §4.8): factor for the operator pinned to a resource at op start. */
-  resolveOperatorFactor: ResolveOperatorFactor
+  resolveOperator: ResolveOperator
   /** Minimum-batch floor (C4) per resource — run-quantity floor from the resource-type config. */
   minBatchByResource: Map<string, number>
   /** RESOLVED objective weights (Objective Policy, plant→tenant→global) the scorer uses (config-driven). */
@@ -257,6 +257,8 @@ export class SchedulingService {
     // Active windows (in-effect / future) resolve fully; a window already retracted or expired (e.g. the
     // line was brought back up) degrades to the generic line-down label — still a correct, grounded root.
     const downtimeById = new Map((await md.listActiveDowntime(tenantId, plantId)).map((d) => [d.id, d]))
+    // Operators by id — so an `operator` root names the slow operator (+ %) the engine recorded.
+    const operatorById = new Map((await md.listOperators(tenantId)).map((o) => [o.id, o]))
     const lk: LatenessLookups = {
       resourceName: (rid) => resName.get(rid) ?? rid,
       partNo: (pid) => partNo.get(pid) ?? pid,
@@ -264,6 +266,10 @@ export class SchedulingService {
       downtime: (id) => {
         const d = id ? downtimeById.get(id) : undefined
         return d ? { kind: d.kind, reason: d.reason } : null
+      },
+      operator: (id) => {
+        const o = id ? operatorById.get(id) : undefined
+        return o ? { name: o.name, performanceFactor: o.performanceFactor } : null
       },
     }
     const latenessOps: LatenessOp[] = ops.map((o) => ({
@@ -276,6 +282,7 @@ export class SchedulingService {
       bindingBlockerDemandLineId: o.bindingBlockerDemandLineId ?? null,
       bindingBlockerOpSeq: o.bindingBlockerOpSeq ?? null,
       bindingDowntimeId: o.bindingDowntimeId ?? null,
+      bindingOperatorId: o.bindingOperatorId ?? null,
     }))
     return buildLatenessChains(latenessOps, lk)
   }
@@ -585,7 +592,7 @@ export class SchedulingService {
     // Forecast boundary = today's start: a pre-adopted forecast applies forward only, never to the
     // rolling window's already-executed past (D44). Measured overlays are unaffected by this.
     const resolveEffective = await this.buildLearnedOverlay(tenantId, items, startOfDayUtc(Date.now()))
-    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, ctx.downtimeByResource)
+    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource, ctx.downtimeByResource)
     const run = await this.repo.createRun({
       tenantId,
       plantId,
@@ -628,6 +635,7 @@ export class SchedulingService {
         bindingBlockerDemandLineId: p.bindingBlockerDemandLineId,
         bindingBlockerOpSeq: p.bindingBlockerOpSeq,
         bindingDowntimeId: p.bindingDowntimeId,
+        bindingOperatorId: p.bindingOperatorId,
       })),
     )
     // Auto-reap: soft-delete the plant's prior (uncommitted) drafts so re-solving doesn't pile up
@@ -819,7 +827,6 @@ export class SchedulingService {
     const operators = await md.listOperators(tenantId)
     const operatorAssignments = await this.repo.listResourceOperatorAssignments(tenantId, plantId)
     const resolveOperator = buildOperatorResolver(operators, operatorAssignments)
-    const resolveOperatorFactor: ResolveOperatorFactor = (resourceId, atMs) => resolveOperator(resourceId, atMs)?.performanceFactor ?? 1
 
     // Minimum batch (C4): each resource's run-quantity floor from its resource-type config
     // (minBatchQty; 0 = no floor). The sequencer floors effRunQty = max(demandQty, minBatch).
@@ -848,7 +855,7 @@ export class SchedulingService {
       .sort()
     const baseInputsDigest = JSON.stringify({ op: opDigest, mb: minBatchDigest, rate: rateDigest, cal: calDigest })
 
-    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, downtime, downtimeByResource, resolveOperatorFactor, minBatchByResource, weights, weightSetVersion, baseInputsDigest }
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, downtime, downtimeByResource, resolveOperator, minBatchByResource, weights, weightSetVersion, baseInputsDigest }
   }
 
   /**

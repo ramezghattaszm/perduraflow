@@ -20,7 +20,7 @@ import { LEARNING_READ } from '../learning/learning-read.service'
 import { toScheduleVersionDto } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
 import { SchedulingService, type BaseContext } from './scheduling.service'
-import { sequence, type Placement, type ResolveEffective, type ResolveOperatorFactor, type SequencePolicy, type SequencerItem } from './sequencer'
+import { sequence, type Placement, type ResolveEffective, type ResolveOperator, type SequencePolicy, type SequencerItem } from './sequencer'
 import { buildLatenessChain, type LatenessOp } from './lateness'
 import type { WorkingCalendar } from './working-calendar'
 import { placementSignature } from './whatif.signature'
@@ -107,7 +107,7 @@ export class WhatIfService {
     // The live (current) plan — the comparison anchor + displacement reference. Uses the
     // plain (pre-disruption) calendars; the option world adds any line-down closures.
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource).placements
 
     // Apply the change-set to the items (feasibility-honest).
     const changed = this.applyChangeSet(ctx.items, changeSet)
@@ -119,7 +119,7 @@ export class WhatIfService {
 
     const specs = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements)
     const evaluated = specs.map((spec) =>
-      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, givenOt, ctx.weights, ctx.downtimeByResource),
+      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperator, ctx.minBatchByResource, givenOt, ctx.weights, ctx.downtimeByResource),
     )
 
     const feasible = evaluated.filter((e) => e.feasible)
@@ -202,7 +202,7 @@ export class WhatIfService {
     // predicate is RESOURCE-SCOPED: count only the firm-late work ON this resource, since adding R's
     // overtime can only affect R's own work.
     const firmLatePlacements = (cals: Map<string, WorkingCalendar>) =>
-      sequence(ctx.items, overlay, undefined, cals, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements.filter((p) => p.firmness === 'firm' && p.atRisk)
+      sequence(ctx.items, overlay, undefined, cals, ctx.resolveOperator, ctx.minBatchByResource).placements.filter((p) => p.firmness === 'firm' && p.atRisk)
     const onR = (p: Placement) => p.resourceId === resourceId
 
     const baseFirmLate = firmLatePlacements(ctx.resourceCalendars)
@@ -274,7 +274,7 @@ export class WhatIfService {
     const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
     if (ctx.infeasibleReason) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
-    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource).placements
+    const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource).placements
     const changed = this.applyChangeSet(ctx.items, changeSet)
     const rateByResource = this.rates(ctx.resourceById)
     const predicted = await this.predictedCycles(tenantId, changeSet)
@@ -282,7 +282,7 @@ export class WhatIfService {
 
     const spec = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
-    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet), ctx.weights, ctx.downtimeByResource)
+    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperator, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet), ctx.weights, ctx.downtimeByResource)
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
@@ -326,6 +326,7 @@ export class WhatIfService {
         bindingBlockerDemandLineId: p.bindingBlockerDemandLineId,
         bindingBlockerOpSeq: p.bindingBlockerOpSeq,
         bindingDowntimeId: p.bindingDowntimeId,
+        bindingOperatorId: p.bindingOperatorId,
       })),
     )
     // Auto-reap prior uncommitted drafts (same as solve) so applying options doesn't accumulate
@@ -396,7 +397,7 @@ export class WhatIfService {
     // opByKey over ALL placements (the chain walk follows blockers across orders). Minimal lookups —
     // only the chain ROOT is needed, which depends on binding kinds + at-risk state, not names/detail.
     const opByKey = new Map<string, LatenessOp>(basePlacements.map((p) => [`${p.demandLineId}:${p.opSeq}`, p]))
-    const lk = { resourceName: (id: string) => id, partNo: (id: string) => id, materialComponent: () => null, downtime: () => null }
+    const lk = { resourceName: (id: string) => id, partNo: (id: string) => id, materialComponent: () => null, downtime: () => null, operator: () => null }
     const eligByKey = new Map<string, string[]>(items.map((i) => [`${i.demandLineId}:${i.opSeq}`, i.eligibleResourceIds]))
 
     const drop = new Map<string, string>()
@@ -614,7 +615,7 @@ export class WhatIfService {
     basePlacements: Placement[],
     rateByResource: Map<string, ResourceRate>,
     resourceCalendars: Map<string, WorkingCalendar>,
-    resolveOperatorFactor: ResolveOperatorFactor,
+    resolveOperator: ResolveOperator,
     minBatchByResource: Map<string, number>,
     givenOvertimeHours: number,
     weights: ObjectiveWeights,
@@ -634,7 +635,7 @@ export class WhatIfService {
       spec.overtimeHours > 0
         ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.min(spec.overtimeHours * 60, c.otCeilingMinutes) }]))
         : resourceCalendars
-    const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor, minBatchByResource, downtimeByResource).placements
+    const placements = sequence(items, overlay, spec.policy, cals, resolveOperator, minBatchByResource, downtimeByResource).placements
     // OT magnitude for scoring = the larger of this option's proposed OT and the compound's
     // stipulated (given) OT, so stipulated overtime is costed in the factor + cost, never free.
     const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: Math.max(spec.overtimeHours, givenOvertimeHours), weights })
