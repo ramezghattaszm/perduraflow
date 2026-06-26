@@ -59,8 +59,8 @@ describe('sequence — calendar integration', () => {
 describe('sequence — operator performance (C5)', () => {
   it('divides run time by the performance factor on the assigned resource (setup untouched)', () => {
     const base = [item('a', 'A', 60, 2)] // 120m run, no setup
-    const slow = sequence(base, undefined, undefined, undefined, () => ({ id: 'op-slow', performanceFactor: 0.5 })).placements[0]! // 50% → ×2
-    const fast = sequence(base, undefined, undefined, undefined, () => ({ id: 'op-fast', performanceFactor: 2 })).placements[0]! // 200% → ÷2
+    const slow = sequence(base, undefined, undefined, undefined, () => ({ id: 'op-slow', performanceFactor: 0.5, laborRate: null })).placements[0]! // 50% → ×2
+    const fast = sequence(base, undefined, undefined, undefined, () => ({ id: 'op-fast', performanceFactor: 2, laborRate: null })).placements[0]! // 200% → ÷2
     const std = sequence(base).placements[0]!
     expect(std.plannedEndMs - std.plannedStartMs).toBe(2 * HOUR)
     expect(slow.plannedEndMs - slow.plannedStartMs).toBe(4 * HOUR) // baseCycle / 0.5
@@ -71,7 +71,7 @@ describe('sequence — operator performance (C5)', () => {
   it('only affects the resource its operator is pinned to; factor 1.0 / undefined are no-ops', () => {
     const r2 = { ...item('b', 'B', 60, 2), eligibleResourceIds: ['R2'] }
     const items = [item('a', 'A', 60, 2), r2]
-    const resolve = (resourceId: string) => ({ id: `op-${resourceId}`, performanceFactor: resourceId === 'R1' ? 0.5 : 1 })
+    const resolve = (resourceId: string) => ({ id: `op-${resourceId}`, performanceFactor: resourceId === 'R1' ? 0.5 : 1, laborRate: null })
     const withFactor = sequence(items, undefined, undefined, undefined, resolve).placements
     const plain = sequence(items).placements
     const a1 = withFactor.find((p) => p.demandLineId === 'a')!
@@ -83,7 +83,7 @@ describe('sequence — operator performance (C5)', () => {
 
   it('is deterministic with a resolver — identical inputs reproduce identical placements', () => {
     const items = [item('a', 'A', 60, 3), item('b', 'B', 90, 4)]
-    const resolve = () => ({ id: 'op-x', performanceFactor: 0.85 })
+    const resolve = () => ({ id: 'op-x', performanceFactor: 0.85, laborRate: null })
     expect(sequence(items, undefined, undefined, undefined, resolve)).toEqual(
       sequence(items, undefined, undefined, undefined, resolve),
     )

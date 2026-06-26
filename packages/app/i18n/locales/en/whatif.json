@@ -43,6 +43,7 @@
     "defer": "Defer (keep running)",
     "overtime": "Add overtime",
     "reroute": "Re-route to other line(s)",
+    "fasterOperator": "Assign a faster operator",
     "wait": "Wait for material",
     "resequence": "Re-sequence around the gap"
   },
@@ -60,6 +61,11 @@
     "changeover.count": "{{count}} changeover(s)"
   },
   "infeasible.noResource": "No eligible resource once the line is offline",
+  "infeasible.unrunnableOp": "Leaves a firm op that can't run as scheduled",
+  "demoted": "Also evaluated — none produce a runnable plan: {{levers}}",
+  "unremediable.atRisk": "No available remediation makes this op runnable as scheduled.",
+  "unremediable.atRiskLevers": "Split the op, re-promise the date, or change the requirement.",
+  "unremediable.generic": "No feasible plan for this change.",
   "trigger": {
     "title": "Conditions",
     "seeOptions": "See options",

@@ -13,6 +13,7 @@ import {
   type StructuredRationale,
   type WhatIfOption,
   type WhatIfResultDto,
+  type WhatIfUnremediable,
 } from '@perduraflow/contracts'
 import { Inject } from '@nestjs/common'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
@@ -25,6 +26,7 @@ import { buildLatenessChain, type LatenessOp } from './lateness'
 import type { WorkingCalendar } from './working-calendar'
 import { placementSignature } from './whatif.signature'
 import { scorePlan, type ResourceRate, type ScoredPlan } from './whatif.scoring'
+import { pickFasterOperator, type OperatorRosterEntry } from './whatif.operator-lever'
 import { ENGINE_VERSION, RATIONALE_SCHEMA_VERSION, WEIGHT_SET_VERSION } from './whatif.weights'
 
 /**
@@ -61,6 +63,8 @@ interface OptionSpec {
   itemTransform: (items: SequencerItem[]) => SequencerItem[]
   /** Wrap the learned overlay (e.g. inflate a worn line's cycle for "defer"). */
   overlayWrap?: (base: ResolveEffective) => ResolveEffective
+  /** Wrap the operator resolver (the faster-operator lever pins a faster operator on the contended line). */
+  operatorWrap?: (base: ResolveOperator) => ResolveOperator
 }
 
 /**
@@ -117,19 +121,17 @@ export class WhatIfService {
     const givenOt = this.givenOvertimeHours(ctx, changeSet)
     const requestedChanges = this.buildLedger(ctx, changeSet)
 
-    const specs = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements)
+    const specs = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements, ctx)
     const evaluated = specs.map((spec) =>
       this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperator, ctx.minBatchByResource, givenOt, ctx.weights, ctx.downtimeByResource),
     )
 
+    // NOTE: all-options-infeasible no longer throws here — it flows through to a stored result whose
+    // `toDto` derives the honest-unachievable `unremediable` outcome (Decision 2/3: a graceful structured
+    // verdict on every path, never a dead-end error). `feasible` below = options with a PLAN (not starved)
+    // — used only to collapse identical placements; the stricter SELECTABLE predicate (a plan that RUNS)
+    // is applied in `toDto`, so cached + fresh results transform identically (no engine bump).
     const feasible = evaluated.filter((e) => e.feasible)
-    if (feasible.length === 0) {
-      throw new AppException(
-        HttpStatus.UNPROCESSABLE_ENTITY,
-        'No feasible option for the change-set',
-        ERROR_CODES.WHATIF_INFEASIBLE,
-      )
-    }
 
     // Collapse options that produce the SAME plan (identical placement signature) so a
     // planner only ever sees DISTINCT alternatives — conditional, data-dependent: an
@@ -164,7 +166,7 @@ export class WhatIfService {
 
     const prior = await this.repo.findWhatIfByDeterminismKey(tenantId, determinismKey)
     if (prior) {
-      return this.toDto(prior.id, plantId, committed, changeSet, prior.baseKpis, prior.options as WhatIfOption[], prior.recommendedOptionId, determinismKey, prior.createdAt, requestedChanges)
+      return this.toDto(prior.id, plantId, committed, changeSet, prior.baseKpis, prior.options as WhatIfOption[], determinismKey, prior.createdAt, requestedChanges)
     }
 
     const row = await this.repo.createWhatIfResult({
@@ -178,7 +180,7 @@ export class WhatIfService {
       determinismKey,
       createdBy: userId,
     })
-    return this.toDto(row.id, plantId, committed, changeSet, baseKpis, options, recommendedOptionId, determinismKey, row.createdAt, requestedChanges)
+    return this.toDto(row.id, plantId, committed, changeSet, baseKpis, options, determinismKey, row.createdAt, requestedChanges)
   }
 
   /**
@@ -255,7 +257,7 @@ export class WhatIfService {
     // The persisted read returns a basic ledger (raw summaries) — the rich applied/clamped ledger
     // is computed and surfaced at evaluation time (the conversation echo); no consumer needs to
     // re-derive it on read, so this avoids rebuilding the full base context per what-if GET.
-    return this.toDto(row.id, row.plantId, row.baseVersionId, row.changeSet as ChangeSet, row.baseKpis as WhatIfResultDto['baseKpis'], row.options as WhatIfOption[], row.recommendedOptionId, row.determinismKey, row.createdAt, basicLedger(row.changeSet as ChangeSet))
+    return this.toDto(row.id, row.plantId, row.baseVersionId, row.changeSet as ChangeSet, row.baseKpis as WhatIfResultDto['baseKpis'], row.options as WhatIfOption[], row.determinismKey, row.createdAt, basicLedger(row.changeSet as ChangeSet))
   }
 
   /**
@@ -280,10 +282,14 @@ export class WhatIfService {
     const predicted = await this.predictedCycles(tenantId, changeSet)
     const optionCalendars = await this.optionCalendars(tenantId, ctx, changeSet)
 
-    const spec = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements).find((s) => s.id === optionId)
+    const spec = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements, ctx).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
     const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperator, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet), ctx.weights, ctx.downtimeByResource)
-    if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
+    // Apply guard (correctness, not UX): you can never commit a plan you can't run — starved (no plan)
+    // OR window-overflow (a firm op can't be placed). The offer-filter hides these; this rejects them
+    // even via a stale/crafted optionId. Same predicate as `isSelectable`, on the freshly re-run plan.
+    if (!run.feasible || (run.scored?.kpis.infeasibleFirmOps ?? 0) > 0)
+      throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option does not produce a runnable plan', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
     const horizonStartMs = Math.min(...run.placements.map((p) => p.plannedStartMs))
@@ -329,6 +335,25 @@ export class WhatIfService {
         bindingOperatorId: p.bindingOperatorId,
       })),
     )
+    // Faster-operator lever: the placements above already run the faster operator, but that's only in
+    // THIS version — a later fresh solve would revert to the slow operator and re-break the order. So
+    // persist the assignment too, bounding it to the op window, so who-runs-the-line sticks (and the
+    // committed plan's lane shows the faster operator, matching its cycle times). Recomputed from the
+    // same (changeSet, ctx, basePlacements) → the same candidate the evaluated option scored. The
+    // candidate was already vetted (present, same-plant, faster, not double-booked) at selection.
+    if (optionId === 'faster_operator') {
+      const targets = this.fasterOperatorTargets(changeSet, ctx, basePlacements)
+      for (const [resourceId, t] of targets ?? []) {
+        await this.repo.setResourceOperatorAssignment(
+          tenantId,
+          plantId,
+          resourceId,
+          t.candidate.id,
+          new Date(t.windowFromMs),
+          new Date(t.windowToMs),
+        )
+      }
+    }
     // Auto-reap prior uncommitted drafts (same as solve) so applying options doesn't accumulate
     // stale drafts in the version list — keep only this newest draft. Committed/superseded untouched.
     await this.repo.discardDraftsForPlant(tenantId, plantId, version.id)
@@ -412,6 +437,64 @@ export class WhatIfService {
     return drop.size > 0 ? drop : null
   }
 
+  // --- faster-operator lever (order-scoped, Part B) ---------------------------
+  /**
+   * For an `at_risk_remediation` change, the contended resources to put a FASTER operator on — but ONLY
+   * where a firm at-risk op's lateness ROOTS at the operator (Part A's `operator` binding: a slow operator
+   * inflated the run so it finishes late, where at STANDARD it would be on time) AND a faster, present,
+   * same-plant, un-double-booked operator actually exists. Returns `resourceId → candidate` (+ the op
+   * window the apply path assigns over), or null when no such op/candidate exists (honest-unavailable →
+   * the faster-operator option is simply not offered). Deterministic given (changeSet, ctx, basePlacements)
+   * so `evaluate` and `applyOption` pick the SAME candidate. Mirrors {@link standingRerouteTarget}, but the
+   * `operator` root is terminal (the op itself), so it needs no chain walk.
+   */
+  private fasterOperatorTargets(
+    changeSet: ChangeSet,
+    ctx: BaseContext,
+    basePlacements: Placement[],
+  ): Map<string, { candidate: OperatorRosterEntry; windowFromMs: number; windowToMs: number }> | null {
+    const targetLines = new Set(
+      changeSet.changes.filter((c): c is Extract<Change, { kind: 'at_risk_remediation' }> => c.kind === 'at_risk_remediation').map((c) => c.demandLineId),
+    )
+    if (targetLines.size === 0) return null
+
+    const roster: OperatorRosterEntry[] = ctx.operators.map((o) => ({
+      id: o.id,
+      name: o.name,
+      homePlantId: o.homePlantId,
+      performanceFactor: o.performanceFactor,
+      laborRate: o.laborRate,
+      available: o.available,
+      isActive: o.isActive,
+    }))
+    const assignments = ctx.operatorAssignments.map((a) => ({
+      resourceId: a.resourceId,
+      operatorId: a.operatorId,
+      effectiveFromMs: a.effectiveFrom?.getTime() ?? null,
+      effectiveToMs: a.effectiveTo?.getTime() ?? null,
+    }))
+
+    const targets = new Map<string, { candidate: OperatorRosterEntry; windowFromMs: number; windowToMs: number }>()
+    for (const p of basePlacements) {
+      if (!targetLines.has(p.demandLineId) || p.firmness !== 'firm' || !p.atRisk || p.bindingKind !== 'operator') continue
+      if (targets.has(p.resourceId)) continue // one candidate per contended line
+      const plantId = ctx.resourceById.get(p.resourceId)?.plantId
+      if (!plantId) continue
+      const currentFactor = ctx.resolveOperator(p.resourceId, p.plannedStartMs)?.performanceFactor ?? 1
+      const candidate = pickFasterOperator({
+        resourceId: p.resourceId,
+        plantId,
+        windowFromMs: p.plannedStartMs,
+        windowToMs: p.plannedEndMs,
+        currentFactor,
+        roster,
+        assignments,
+      })
+      if (candidate) targets.set(p.resourceId, { candidate, windowFromMs: p.plannedStartMs, windowToMs: p.plannedEndMs })
+    }
+    return targets.size > 0 ? targets : null
+  }
+
   // --- option specs -----------------------------------------------------------
   /**
    * The candidate option set for a change-set, branched by **trigger**:
@@ -428,7 +511,7 @@ export class WhatIfService {
    * - anything else (demand change, …) → the sequencing trade-off set
    *   **balanced / protect-delivery / minimise-changeover**.
    */
-  private optionSpecs(changeSet: ChangeSet, predicted: Map<string, number>, items: SequencerItem[], basePlacements: Placement[]): OptionSpec[] {
+  private optionSpecs(changeSet: ChangeSet, predicted: Map<string, number>, items: SequencerItem[], basePlacements: Placement[], ctx: BaseContext): OptionSpec[] {
     const wearChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'wear_remediation' }> => c.kind === 'wear_remediation')
     const windowChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'resource_window' }> => c.kind === 'resource_window')
     // `line_down` = the persisted-window line-down (the closure is already in base calendars); it selects
@@ -444,6 +527,9 @@ export class WhatIfService {
     // case, so a real condition's reroute (above) is never double-emitted. Null ⇒ not reroutable.
     const rerouteDrop = !isWear && !isLineDown ? this.standingRerouteTarget(changeSet, items, basePlacements) : null
     const isStandingReroute = rerouteDrop !== null
+    // Faster-operator lever (Part B): a standing at-risk order rooted at a slow operator → offer a faster
+    // operator on the contended line. Same no-injected-disruption gate as reroute; null ⇒ not offered.
+    const operatorTargets = !isWear && !isLineDown ? this.fasterOperatorTargets(changeSet, ctx, basePlacements) : null
 
     // ADDITIVE (conversation Pass A): a compound change-set composes the option families of
     // EVERY trigger it spans instead of collapsing to one. The change EFFECTS are GIVENS applied
@@ -495,6 +581,47 @@ export class WhatIfService {
           }),
       })
       add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
+    }
+    // Operator-rooted at-risk (a slow operator inflated the run) → the FULL cross-lever menu, all scored
+    // on real $ (wi-12 folds operator labor into cost, so they compare honestly):
+    //  - faster_operator: put a faster candidate on the contended line (overlay → re-solve). Adds the
+    //    candidate's LABOR but shortens the run.
+    //  - overtime: keep the slow operator, buy hours to finish on time (OT cost, already scored).
+    //  - reroute: move the slow op to a faster eligible line (only if multi-eligible — else not offered).
+    if (operatorTargets) {
+      add({
+        id: 'faster_operator',
+        labelKey: 'whatif.option.fasterOperator',
+        overtimeHours: 0,
+        itemTransform: (items) => items,
+        operatorWrap:
+          (base) =>
+          (resourceId, atMs) => {
+            const t = operatorTargets.get(resourceId)
+            return t ? { id: t.candidate.id, performanceFactor: t.candidate.performanceFactor, laborRate: t.candidate.laborRate } : base(resourceId, atMs)
+          },
+      })
+      add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
+      // Reroute the slow-operator op(s) off the contended line — only the multi-eligible ones (an
+      // alternative line exists); the transform drops the contended resource so the sequencer re-places.
+      const eligByKey = new Map<string, string[]>(items.map((i) => [`${i.demandLineId}:${i.opSeq}`, i.eligibleResourceIds]))
+      const opReroute = new Map<string, string>()
+      for (const p of basePlacements) {
+        if (p.bindingKind !== 'operator' || p.firmness !== 'firm' || !p.atRisk || !operatorTargets.has(p.resourceId)) continue
+        if ((eligByKey.get(`${p.demandLineId}:${p.opSeq}`) ?? []).length > 1) opReroute.set(`${p.demandLineId}:${p.opSeq}`, p.resourceId)
+      }
+      if (opReroute.size > 0) {
+        add({
+          id: 'reroute',
+          labelKey: 'whatif.option.reroute',
+          overtimeHours: 0,
+          itemTransform: (items) =>
+            items.map((i) => {
+              const contended = opReroute.get(`${i.demandLineId}:${i.opSeq}`)
+              return contended ? { ...i, eligibleResourceIds: i.eligibleResourceIds.filter((r) => r !== contended) } : i
+            }),
+        })
+      }
     }
     // Base trade-off family: a demand change — or NO disruption at all — yields the sequencing
     // trade-off set. In a compound (e.g. "delay X and take line Y down") this composes WITH the
@@ -627,6 +754,7 @@ export class WhatIfService {
       return { spec, feasible: false, infeasibleReasonKey: 'whatif.infeasible.noResource', scored: null, placements: [] }
     }
     const overlay = spec.overlayWrap ? spec.overlayWrap(baseOverlay) : baseOverlay
+    const operatorResolver = spec.operatorWrap ? spec.operatorWrap(resolveOperator) : resolveOperator
     // The overtime option grants the day's OT budget so placement may run past shift-end
     // into closed time — the requested hours, clamped to each resource's policy ceiling
     // (otCeilingMinutes). A normal solve spends none; this is the lever that opts in (D-shift).
@@ -635,7 +763,7 @@ export class WhatIfService {
       spec.overtimeHours > 0
         ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.min(spec.overtimeHours * 60, c.otCeilingMinutes) }]))
         : resourceCalendars
-    const placements = sequence(items, overlay, spec.policy, cals, resolveOperator, minBatchByResource, downtimeByResource).placements
+    const placements = sequence(items, overlay, spec.policy, cals, operatorResolver, minBatchByResource, downtimeByResource).placements
     // OT magnitude for scoring = the larger of this option's proposed OT and the compound's
     // stipulated (given) OT, so stipulated overtime is costed in the factor + cost, never free.
     const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: Math.max(spec.overtimeHours, givenOvertimeHours), weights })
@@ -657,7 +785,7 @@ export class WhatIfService {
           labelKey: r.spec.labelKey,
           feasible: false,
           infeasibleReasonKey: r.infeasibleReasonKey,
-          kpis: { otif: 0, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: null, throughput: null, churn: null },
+          kpis: { otif: 0, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: null, infeasibleFirmOps: null, throughput: null, churn: null },
           score: Number.POSITIVE_INFINITY,
           rationale: emptyRationale(r.spec.id),
         }
@@ -784,12 +912,15 @@ export class WhatIfService {
     changeSet: ChangeSet,
     baseKpis: WhatIfResultDto['baseKpis'],
     options: WhatIfOption[],
-    recommendedOptionId: string | null,
     determinismKey: string,
     createdAt: Date,
     requestedChanges: RequestedChange[],
   ): WhatIfResultDto {
-    return { id, plantId, baseVersionId, changeSet, baseKpis, options, recommendedOptionId, determinismKey, createdAt: createdAt.toISOString(), requestedChanges }
+    // Derive selectability HERE (read/DTO layer), not at store time — so a cached result transforms
+    // identically to a fresh one (no engine bump). The stored options carry the raw scores +
+    // `infeasibleFirmOps`; this re-labels non-options `feasible:false` and emits `unremediable`.
+    const { options: shown, recommendedOptionId, unremediable } = applySelectability(options, changeSet)
+    return { id, plantId, baseVersionId, changeSet, baseKpis, options: shown, recommendedOptionId, unremediable, determinismKey, createdAt: createdAt.toISOString(), requestedChanges }
   }
 }
 
@@ -797,6 +928,46 @@ export class WhatIfService {
 function shortDate(iso: string): string {
   const t = Date.parse(iso)
   return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : iso
+}
+
+/** A plan you can RUN: feasible (placeable) AND no firm op overflows the working window. */
+const isSelectable = (o: WhatIfOption): boolean => o.feasible && (o.kpis.infeasibleFirmOps ?? 0) === 0
+
+/**
+ * Turn the raw scored option set into the SELECTABLE set + verdict (Decision 1–3). Pure; applied in
+ * `toDto` so cached and fresh results transform identically (no engine bump):
+ * - ≥1 selectable → offer only selectable; the rest are re-labeled `feasible:false` (window-overflow
+ *   gets `unrunnableOp` reason; starved keeps its own) and demoted by consumers to a stat-less line.
+ *   `recommendedOptionId` = best (first) selectable.
+ * - 0 selectable → honest-unachievable: `unremediable` set (tailored levers for at-risk remediation,
+ *   generic otherwise); options stay (all `feasible:false`) so the base/problem state is still context,
+ *   but consumers show the message, not a list of non-options.
+ */
+export function applySelectability(
+  options: WhatIfOption[],
+  changeSet: ChangeSet,
+): { options: WhatIfOption[]; recommendedOptionId: string | null; unremediable: WhatIfUnremediable | null } {
+  // Re-label EVERY non-selectable option feasible:false (window-overflow gets the unrunnable reason;
+  // starved keeps its own). Done unconditionally so the unremediable case ALSO ends up all-feasible:false
+  // — then any consumer that filters on `feasible` gets no tiles/stats, consistent with "show the verdict,
+  // not a list of non-options". Inert when all selectable (relabeled === options → byte-identical).
+  const relabeled = options.map((o) =>
+    isSelectable(o)
+      ? o
+      : { ...o, feasible: false, infeasibleReasonKey: o.feasible ? 'whatif.infeasible.unrunnableOp' : o.infeasibleReasonKey },
+  )
+  const selectable = relabeled.filter(isSelectable)
+  if (selectable.length === 0) {
+    const isRemediation = changeSet.changes.some((c) => c.kind === 'at_risk_remediation')
+    return {
+      options: relabeled,
+      recommendedOptionId: null,
+      unremediable: isRemediation
+        ? { reasonKey: 'whatif.unremediable.atRisk', leversKey: 'whatif.unremediable.atRiskLevers' }
+        : { reasonKey: 'whatif.unremediable.generic', leversKey: null },
+    }
+  }
+  return { options: relabeled, recommendedOptionId: selectable[0]!.id, unremediable: null }
 }
 
 /** A raw ledger (no entity-name/ceiling resolution) for the persisted read path — see {@link WhatIfService.get}. */

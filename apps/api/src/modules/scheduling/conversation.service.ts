@@ -13,6 +13,7 @@ import {
   type RequestedChange,
   type ScreenContext,
   type WhatIfOption,
+  type WhatIfUnremediable,
   type WorkforceCoverageDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
@@ -25,7 +26,7 @@ import { PlanComparisonService } from './plan-comparison.service'
 import { SchedulingRepository } from './scheduling.repository'
 import { SchedulingService } from './scheduling.service'
 import { factorLabelEn, optionLabelEn } from './whatif.narration'
-import { WhatIfService, type GoalSeekResult } from './whatif.service'
+import { applySelectability, WhatIfService, type GoalSeekResult } from './whatif.service'
 
 /** The two tools the LLM routes among (the route IS the tool choice). */
 const RETRIEVE_TOOL: LlmTool = {
@@ -121,7 +122,7 @@ const CHANGE_ITEM_SCHEMA = {
 const EVALUATE_TOOL: LlmTool = {
   name: 'evaluate_what_if',
   description:
-    "Run the deterministic scheduling engine on a NEW scenario expressed as a change-set. Use when the question asks about a change not in the stored analysis (delay an order, add overtime, take a line down, change a quantity). To REMEDIATE a STANDING firm at-risk order (one late in the committed plan with no injected disruption — 'how do I fix / what are my options for order X'), use the at_risk_remediation change with that order's demandLineId: the engine returns reroute + overtime when the order's lateness is reroutable capacity contention on a line with an alternative, and otherwise only the base levers (so reroute is offered only when it genuinely helps — never for a material wait or a due-before-start order). Compound changes allowed — include one item per change; every requested change is reported back as applied / partial / unapplied.",
+    "Run the deterministic scheduling engine on a NEW scenario expressed as a change-set. Use when the question asks about a change not in the stored analysis (delay an order, add overtime, take a line down, change a quantity). To REMEDIATE a STANDING firm at-risk order (one late in the committed plan with no injected disruption — 'how do I fix / what are my options for order X'), use the at_risk_remediation change with that order's demandLineId: the engine matches the levers to the order's lateness ROOT — reroute + overtime when it's reroutable capacity contention on a line with an alternative; assign-a-faster-operator + overtime + reroute when it's running below standard because of a SLOW OPERATOR (the operator root); and otherwise only the base levers (so each lever is offered only when it genuinely helps — never reroute for a material wait or a due-before-start order). Do NOT treat an operator-rooted at-risk order as a tool-wear/prediction problem just because its line also shows a wear forecast — remediate the ORDER's root. Compound changes allowed — include one item per change; every requested change is reported back as applied / partial / unapplied.",
   parameters: {
     type: 'object',
     additionalProperties: false,
@@ -133,6 +134,7 @@ const EVALUATE_TOOL: LlmTool = {
           origin: {
             type: 'object',
             additionalProperties: false,
+            description: 'Optional — defaults to {type:"manual"} (a planner-initiated change). Only set it for a model-driven prediction/collision/demand scenario.',
             properties: {
               type: { type: 'string', enum: ['demand', 'prediction', 'collision', 'manual'] },
               ref: { type: 'string' },
@@ -141,7 +143,7 @@ const EVALUATE_TOOL: LlmTool = {
           },
           changes: { type: 'array', minItems: 1, items: CHANGE_ITEM_SCHEMA },
         },
-        required: ['origin', 'changes'],
+        required: ['changes'],
       },
     },
     required: ['changeSet'],
@@ -461,9 +463,10 @@ export class ConversationService {
               'No stored what-if analysis exists for this plant yet — describe a scenario to evaluate, or say you cannot answer.',
             groundedRefs: [],
           }
+        const sel = applySelectability(r.options as WhatIfOption[], r.changeSet as ChangeSet)
         return {
           content: JSON.stringify(
-            compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])
+            compactArtifact(r.id, sel.recommendedOptionId, r.baseKpis, sel.options, undefined, sel.unremediable)
           ),
           groundedRefs: [r.id],
         }
@@ -480,15 +483,22 @@ export class ConversationService {
           }
         // Same artifact as retrieve; the structured side-by-side TABLE is rendered client-side from
         // the result (the tool name is the render signal). The model narrates the trade-off only.
+        const sel = applySelectability(r.options as WhatIfOption[], r.changeSet as ChangeSet)
         return {
           content: JSON.stringify(
-            compactArtifact(r.id, r.recommendedOptionId, r.baseKpis, r.options as WhatIfOption[])
+            compactArtifact(r.id, sel.recommendedOptionId, r.baseKpis, sel.options, undefined, sel.unremediable)
           ),
           groundedRefs: [r.id],
         }
       }
       if (call.name === 'evaluate_what_if') {
-        const parsed = changeSetSchema.safeParse((call.input as { changeSet?: unknown }).changeSet)
+        // origin is optional in the tool schema (some models omit it); default to a planner-initiated
+        // 'manual' change so the Zod gate passes. The change KINDS — not origin — drive the option family.
+        const rawChangeSet = (call.input as { changeSet?: { origin?: unknown } }).changeSet
+        if (rawChangeSet && typeof rawChangeSet === 'object' && rawChangeSet.origin == null) {
+          rawChangeSet.origin = { type: 'manual' }
+        }
+        const parsed = changeSetSchema.safeParse(rawChangeSet)
         if (!parsed.success)
           return {
             content: `Invalid change-set: ${parsed.error.issues.map((i) => i.message).join('; ')}`,
@@ -505,7 +515,8 @@ export class ConversationService {
                 res.recommendedOptionId,
                 res.baseKpis,
                 res.options,
-                res.requestedChanges
+                res.requestedChanges,
+                res.unremediable
               )
             ),
             groundedRefs: [res.id],
@@ -745,18 +756,39 @@ const CONSTRAINT_LABEL: Record<string, string> = {
  * labels, never internal ids/keys (`protect_delivery`, `displacement`, `firm_delivery`),
  * so the model's prose reads naturally and can't leak an identifier.
  */
+// English for the model (the API has no i18next; mirrors the FE `whatif.json` `unremediable.*` keys).
+function unremediableReasonEn(key: string): string {
+  return key === 'whatif.unremediable.atRisk'
+    ? 'No available remediation makes this op runnable as scheduled.'
+    : 'No feasible plan for this change.'
+}
+function unremediableLeversEn(key: string): string {
+  return key === 'whatif.unremediable.atRiskLevers'
+    ? 'split the op, re-promise the date, or change the requirement'
+    : ''
+}
+
 function compactArtifact(
   id: string,
   recommendedOptionId: string | null,
   baseKpis: unknown,
   options: WhatIfOption[],
-  requestedChanges?: RequestedChange[]
+  requestedChanges?: RequestedChange[],
+  unremediable?: WhatIfUnremediable | null
 ) {
   const labelOf = (optId: string) =>
     optionLabelEn(options.find((o) => o.id === optId)?.labelKey ?? optId)
+  // Only SELECTABLE options (a runnable plan) get a stat block — a non-running plan's KPIs describe a
+  // plan that won't run, so showing them would dress a non-option up as comparable. The rest are demoted
+  // to lever NAMES only ("also evaluated — none make it runnable"), so the model can name them without
+  // implying they're choices. When NOTHING is selectable, the honest-unachievable verdict leads.
+  const selectable = options.filter((o) => o.feasible)
+  const demotedLevers = [...new Set(options.filter((o) => !o.feasible).map((o) => optionLabelEn(o.labelKey)))]
   return {
     resultId: id,
+    unremediable: unremediable ? { reason: unremediableReasonEn(unremediable.reasonKey), levers: unremediable.leversKey ? unremediableLeversEn(unremediable.leversKey) : null } : undefined,
     recommendedOption: recommendedOptionId ? labelOf(recommendedOptionId) : null,
+    demotedLevers: demotedLevers.length > 0 ? demotedLevers : undefined,
     // What the engine actually did with each requested change (Type-2 only) — so the model's prose
     // can speak to anything not fully applied. The planner-facing echo is rendered separately.
     requestedChanges: requestedChanges?.map((c) => ({
@@ -765,20 +797,24 @@ function compactArtifact(
       note: c.note,
     })),
     baseKpis,
-    options: options.map((o) => ({
+    options: selectable.map((o) => ({
       option: optionLabelEn(o.labelKey),
       rank: o.rank,
       feasible: o.feasible,
       infeasibleReason: o.infeasibleReasonKey ? 'no feasible schedule for this change' : null,
       score: o.score,
       kpis: o.kpis,
-      factors: o.rationale.factors.map((f) => ({
-        factor: factorLabelEn(f.key),
-        value: f.rawValue,
-        unit: f.unit,
-        contribution: f.contribution,
-        direction: f.direction,
-      })),
+      factors: o.rationale.factors.map((f) => {
+        // The lateness factor's rawValue folds in the infeasibility sentinel (100_000/op) for SCORING;
+        // never narrate that — show the honest due-late hours + the infeasible-op count instead, so the
+        // model never says "100000 hours late". (The sentinel stays in `contribution`/`score`, which is
+        // what actually ranks the option.)
+        const infeasibleOps = o.kpis.infeasibleFirmOps ?? 0
+        if (f.key === 'lateness' && infeasibleOps > 0) {
+          return { factor: factorLabelEn(f.key), value: o.kpis.firmLateHours ?? 0, unit: f.unit, infeasibleOps, contribution: f.contribution, direction: f.direction }
+        }
+        return { factor: factorLabelEn(f.key), value: f.rawValue, unit: f.unit, contribution: f.contribution, direction: f.direction }
+      }),
       constraints: o.rationale.constraints.map((c) => ({
         constraint: CONSTRAINT_LABEL[c.key] ?? c.key,
         binding: c.binding,

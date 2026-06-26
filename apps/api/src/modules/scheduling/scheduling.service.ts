@@ -47,7 +47,7 @@ import {
   toScheduleVersionDto,
 } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
-import type { DemandInput, ScheduledOperation } from './schema'
+import type { DemandInput, ResourceOperatorAssignment, ScheduledOperation } from './schema'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
@@ -69,6 +69,11 @@ export interface BaseContext {
   downtimeByResource: Map<string, Array<{ id: string; startMs: number; endMs: number }>>
   /** Operator performance (C5, §4.8): factor for the operator pinned to a resource at op start. */
   resolveOperator: ResolveOperator
+  /** The plant's operator roster (perf factor + labor rate + availability) — the faster-operator lever's
+   *  candidate pool (Part B). Same source as `resolveOperator`; exposed so the what-if lever can pick. */
+  operators: OperatorDto[]
+  /** Live operator→resource assignments (the double-booking guard's input for the faster-operator lever). */
+  operatorAssignments: ResourceOperatorAssignment[]
   /** Minimum-batch floor (C4) per resource — run-quantity floor from the resource-type config. */
   minBatchByResource: Map<string, number>
   /** RESOLVED objective weights (Objective Policy, plant→tenant→global) the scorer uses (config-driven). */
@@ -850,12 +855,18 @@ export class SchedulingService {
       .sort()
     const minBatchDigest = [...minBatchByResource.entries()].map(([rid, mb]) => `${rid}:${mb}`).sort()
     const rateDigest = resources.map((r) => `${r.id}:${r.runCostPerHour}:${r.setupCost}:${r.overheadPerUnit}`).sort()
+    // Operator attributes the cost factor (laborRate, wi-12) + the faster-operator lever (availability,
+    // home plant, factor) read — beyond the assignment-keyed opDigest, since the lever also considers
+    // UNASSIGNED candidates. A change to any busts the what-if cache (else a stale lever/score replays).
+    const operatorDigest = operators
+      .map((o) => `${o.id}:${o.performanceFactor}:${o.laborRate ?? 'n'}:${o.available ? 1 : 0}:${o.homePlantId}:${o.isActive ? 1 : 0}`)
+      .sort()
     const calDigest = [...resourceCalendars.entries()]
       .map(([rid, c]) => `${rid}:${c.workingDays.join('')}:${c.dayWindows.map((w) => w.join('-')).join(',')}:${[...c.holidays].sort().join('|')}:${c.splittable ? 1 : 0}:${c.otCeilingMinutes}`)
       .sort()
-    const baseInputsDigest = JSON.stringify({ op: opDigest, mb: minBatchDigest, rate: rateDigest, cal: calDigest })
+    const baseInputsDigest = JSON.stringify({ op: opDigest, opr: operatorDigest, mb: minBatchDigest, rate: rateDigest, cal: calDigest })
 
-    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, downtime, downtimeByResource, resolveOperator, minBatchByResource, weights, weightSetVersion, baseInputsDigest }
+    return { items, infeasibleReason, demand, resourceById, partNoById, resourceCalendars, downtime, downtimeByResource, resolveOperator, operators, operatorAssignments, minBatchByResource, weights, weightSetVersion, baseInputsDigest }
   }
 
   /**

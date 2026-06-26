@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { firmLatenessDominates, OBJECTIVE_DEFAULTS, type ObjectiveWeights } from '@perduraflow/contracts'
 import type { Placement } from './sequencer'
-import { scorePlan, type ResourceRate } from './whatif.scoring'
+import { INFEASIBLE_LATENESS_HOURS, scorePlan, type ResourceRate } from './whatif.scoring'
 
 const HOUR = 3_600_000
 const REQ = Date.UTC(2024, 0, 1, 12) // the firm order's required date
@@ -24,12 +24,14 @@ const firmOp = (resourceId: string, endMs: number): Placement => ({
   setupConfidence: null,
   cycleConfidence: null,
   atRisk: endMs > REQ,
+  placedFeasible: true,
   atRiskReason: endMs > REQ ? 'late' : null,
   bindingKind: endMs > REQ ? 'release' : 'origin',
   bindingBlockerDemandLineId: null,
   bindingBlockerOpSeq: null,
   bindingDowntimeId: null,
   bindingOperatorId: null,
+  operatorLaborRate: null,
   requiredDateMs: REQ,
   firmness: 'firm',
   changeoverValue: null,
@@ -87,6 +89,28 @@ describe('scorePlan — cost factor (C6) & firm-lateness dominance lock', () => 
     expect(Number.isNaN(scored.score)).toBe(false)
   })
 
+  it('folds operator LABOR into per-unit cost — a pricier operator scores worse, all else equal (wi-12)', () => {
+    // Same on-time op on the same (overhead-only) resource; only the operator's $/hr differs.
+    // 60 min/unit × 100 units = 6000 run-min = 100 working-hours → labor = laborRate × 100, over 100 units.
+    const op = (laborRate: number | null): Placement => ({
+      ...firmOp('R', REQ),
+      cycleTime: 60,
+      operatorLaborRate: laborRate,
+    })
+    const rateByResource = new Map<string, ResourceRate>([['R', rate(0)]]) // resource cost 0 → isolate labor
+    const cheap = scorePlan([op(5)], { rateByResource, basePlacements: [op(5)], overtimeHours: 0 })
+    const pricey = scorePlan([op(20)], { rateByResource, basePlacements: [op(20)], overtimeHours: 0 })
+    const none = scorePlan([op(null)], { rateByResource, basePlacements: [op(null)], overtimeHours: 0 })
+
+    // labor cost / unit = laborRate × 100h / 100 units = laborRate. Resource cost is 0, so costPerUnit == laborRate.
+    expect(cheap.kpis.costPerUnit).toBe(5)
+    expect(pricey.kpis.costPerUnit).toBe(20)
+    expect(none.kpis.costPerUnit).toBe(0) // no operator → labor cost-neutral, never NaN
+    // Both on time → cost decides; the pricier operator's higher LABOR makes its plan score strictly worse.
+    expect(pricey.score).toBeGreaterThan(cheap.score)
+    expect(Number.isNaN(none.score)).toBe(false)
+  })
+
   it('among on-time plans, the cheaper one wins (cost discriminates when lateness ties)', () => {
     const cheap = [firmOp('CHEAP', REQ)]
     const pricey = [firmOp('EXP', REQ)]
@@ -97,6 +121,55 @@ describe('scorePlan — cost factor (C6) & firm-lateness dominance lock', () => 
     const cheapScore = scorePlan(cheap, { rateByResource, basePlacements: cheap, overtimeHours: 0 })
     const priceyScore = scorePlan(pricey, { rateByResource, basePlacements: pricey, overtimeHours: 0 })
     expect(cheapScore.score).toBeLessThan(priceyScore.score) // both on time → cost decides
+  })
+})
+
+describe('scorePlan — window-overflow infeasibility folded into lateness (wi-13)', () => {
+  // A firm op that can't fit any working segment: placedFeasible=false. Its recorded end is a fictional
+  // contiguous fallback (here ON TIME, end===REQ) — exactly the blind spot: due-lateness sees nothing.
+  const infeasibleOnTime = (resourceId = 'R'): Placement => ({ ...firmOp(resourceId, REQ), placedFeasible: false })
+
+  it('an infeasible firm op scores STRICTLY WORSE than any feasible plan — even a feasible-but-LATE one', () => {
+    const rate = (perUnit: number): ResourceRate => ({ setupCost: 0, runCostPerHour: 0, overheadPerUnit: perUnit })
+    const rates = new Map<string, ResourceRate>([['R', rate(1)]])
+    const infeasible = [infeasibleOnTime()] // on-time by the fictional end, but can't actually run
+    const feasibleLate = [firmOp('R', REQ + 5 * HOUR)] // genuinely 5h firm-late, but it CAN run
+    const inf = scorePlan(infeasible, { rateByResource: rates, basePlacements: infeasible, overtimeHours: 0 })
+    const late = scorePlan(feasibleLate, { rateByResource: rates, basePlacements: feasibleLate, overtimeHours: 0 })
+    // The blind spot is closed: the un-runnable plan is worse than a feasible-but-late one.
+    expect(inf.score).toBeGreaterThan(late.score)
+    // KPI honesty: firmLateHours stays the HONEST due figure (0 here — the fallback lands on time); the
+    // sentinel is NEVER in firmLateHours. The legible signal is the separate count.
+    expect(inf.kpis.firmLateHours).toBe(0)
+    expect(inf.kpis.infeasibleFirmOps).toBe(1)
+    // The legibility lock, generalised: lateness RAW === honest firmLateHours + infeasibleFirmOps × sentinel.
+    const lateF = inf.factors.find((f) => f.key === 'lateness')!
+    expect(lateF.rawValue).toBe(inf.kpis.firmLateHours! + inf.kpis.infeasibleFirmOps! * INFEASIBLE_LATENESS_HOURS)
+  })
+
+  it('TWO infeasible firm ops score worse than ONE (monotonic in the count)', () => {
+    const one = [infeasibleOnTime('A')]
+    const two = [infeasibleOnTime('A'), infeasibleOnTime('B')]
+    const s1 = scorePlan(one, { rateByResource: new Map(), basePlacements: one, overtimeHours: 0 })
+    const s2 = scorePlan(two, { rateByResource: new Map(), basePlacements: two, overtimeHours: 0 })
+    expect(s2.kpis.infeasibleFirmOps).toBe(2)
+    expect(s2.score).toBeGreaterThan(s1.score)
+  })
+
+  it('FORECAST infeasibility is NOT scored (firm-only scope, matching the lateness factor)', () => {
+    const forecastInfeasible: Placement = { ...firmOp('R', REQ), firmness: 'forecast', placedFeasible: false }
+    const s = scorePlan([forecastInfeasible], { rateByResource: new Map(), basePlacements: [forecastInfeasible], overtimeHours: 0 })
+    expect(s.kpis.infeasibleFirmOps).toBe(0)
+    expect(s.factors.find((f) => f.key === 'lateness')!.rawValue).toBe(0)
+  })
+
+  it('is INERT when all firm ops fit — feasible-plan scores are byte-identical to pre-wi-13 (the safety check)', () => {
+    // Same plan, the only difference being the (now-always-true) placedFeasible flag → no infeasible op →
+    // rawValue === firmLateHours, contribution/score unchanged. This is what makes the change safe.
+    const plan = [firmOp('R', REQ + HOUR)] // feasible, 1h late
+    const s = scorePlan(plan, { rateByResource: new Map(), basePlacements: plan, overtimeHours: 0 })
+    expect(s.kpis.infeasibleFirmOps).toBe(0)
+    expect(s.factors.find((f) => f.key === 'lateness')!.rawValue).toBe(s.kpis.firmLateHours) // the original lock, intact
   })
 })
 

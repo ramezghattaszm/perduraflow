@@ -733,6 +733,13 @@ export interface CostedKpis {
    *  a plan with fewer late orders but larger total breach is correctly NOT recommended. `null` when
    *  not tracked (historical/execution baselines, which don't carry per-op due breaches). */
   firmLateHours: number | null
+  /** Count of FIRM ops that can't be placed in working time (window-overflow infeasibility — the op is
+   *  longer than any working segment and can't split). The scoring analog of the `stranded` /
+   *  `exceeds_working_window` status: such an op can't run as planned, so the objective treats it as the
+   *  worst firm-delivery outcome (a large folded firm-lateness penalty), while THIS count stays the honest
+   *  legible signal ("N ops can't be scheduled") — `firmLateHours` never shows the sentinel. 0 = all firm
+   *  ops fit. `null` when not tracked (historical/execution baselines). */
+  infeasibleFirmOps: number | null
   /** Total placed quantity over the horizon. */
   throughput: number | null
   /** Sequence churn vs the base plan (0–1); null when not applicable. */
@@ -761,6 +768,18 @@ export interface WhatIfOption {
  * the same base + learned overlay + weights yields the same `determinismKey` and
  * the same options/rationale. Persisted (rationale jsonb) as the phase-6 substrate.
  */
+/**
+ * Honest-unachievable verdict for a what-if whose every option leaves a plan you can't run (all
+ * options infeasible — starved OR window-overflow). Mirrors goal-seek's `outcome:'unachievable'`: an
+ * EXPLICIT structured outcome (not inferred from `options:[]`), so a consumer branches cleanly on
+ * "is this unremediable?" rather than guessing. `reasonKey` states it; `leversKey` (null for a generic
+ * change-set) points at the structural fixes (split the op / re-promise / change the requirement).
+ */
+export interface WhatIfUnremediable {
+  reasonKey: string
+  leversKey: string | null
+}
+
 export interface WhatIfResultDto {
   id: string
   plantId: string
@@ -768,8 +787,14 @@ export interface WhatIfResultDto {
   changeSet: ChangeSet
   /** The base (current) plan's KPIs — the comparison anchor for option deltas. */
   baseKpis: CostedKpis
+  /** The SELECTABLE options (a runnable plan: `feasible && infeasibleFirmOps===0`) — the real choices.
+   *  Non-options (a plan you can't run) are re-labeled `feasible:false` and demoted by consumers to a
+   *  stat-less "also evaluated" line, never shown as tiles (their KPIs describe a plan that won't run). */
   options: WhatIfOption[]
   recommendedOptionId: string | null
+  /** Set when NO option yields a runnable plan — the honest-unachievable outcome (then `options` are all
+   *  non-options / `recommendedOptionId` is null). Null when ≥1 selectable option exists. */
+  unremediable: WhatIfUnremediable | null
   /** Hash of (base inputs + change-set + overlay + weights) — same → same result. */
   determinismKey: string
   createdAt: string

@@ -53,8 +53,17 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * `wi-11` = order-release floor (rolling window) — each item floors at `min(today, startOfDay(due))`
  * so PAST-dated demand sits on its past day while today/future still front-loads from today. A
  * no-op for all-future demand (equals the origin), but the placement floor changed, so bump.
+ * `wi-12` = operator labor folded into the cost factor (C6) — costPerUnit now includes `laborRate ·
+ * working-hours` for the op's assigned operator, so an operator swap's true labor cost is scored
+ * (a faster, pricier operator no longer rides for free). Scoring changed (placement unchanged), so
+ * cached results must be invalidated. Honesty fix that lets cross-lever remediation rank on real $.
+ * `wi-13` = window-overflow infeasibility folded into the lateness factor — a firm op that can't fit
+ * any working segment (`placedFeasible=false`) counts as the worst firm-delivery outcome (a large
+ * sentinel folded into lateness, weight 10), so a remediation that makes it FIT (faster operator)
+ * earns scored credit. Additive on the infeasible case only — feasible-plan scores are unchanged —
+ * but it's a scoring change, so bump. `firmLateHours` KPI stays honest; `infeasibleFirmOps` is the count.
  */
-export const ENGINE_VERSION = 'wi-11'
+export const ENGINE_VERSION = 'wi-13'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000

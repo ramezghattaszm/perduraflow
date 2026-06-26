@@ -3,6 +3,16 @@ import type { Placement } from './sequencer'
 
 const MS_PER_HOUR = 3_600_000
 
+/**
+ * Firm-lateness equivalent of ONE window-overflow-infeasible firm op (an op longer than any working
+ * segment that can't split → `placedFeasible=false`). A large fixed deterministic sentinel (mirrors
+ * `EXPEDITE_BONUS_HOURS`): folded into the lateness factor so an op that CAN'T run as scheduled is the
+ * worst firm-delivery outcome — it dominates any realistic late-hours total and rides weight 10, so
+ * firm-lateness dominance is preserved with no weight/guard change. NOT shown anywhere: the honest
+ * `firmLateHours` KPI excludes it; the legible signal is the separate `infeasibleFirmOps` count.
+ */
+export const INFEASIBLE_LATENESS_HOURS = 100_000
+
 /** Per-resource cost rates (Tier-B), keyed by resource id. */
 export interface ResourceRate {
   setupCost: number
@@ -74,6 +84,7 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
   const w = ctx.weights ?? OBJECTIVE_DEFAULTS
   let firmLateHours = 0
   let earlyHours = 0
+  let infeasibleFirmOps = 0
   let cost = 0
   let costedQty = 0
   let totalQty = 0
@@ -82,6 +93,10 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
 
   for (const p of placements) {
     totalQty += p.qty
+    // Window-overflow infeasibility (C-late): a firm op that can't fit any working segment CAN'T run as
+    // scheduled — its recorded end is a fictional contiguous fallback. Count it (firm only, matching the
+    // lateness scope); folded into the lateness factor below as the worst firm-delivery outcome.
+    if (!p.placedFeasible && p.firmness === 'firm') infeasibleFirmOps += 1
     const lateMs = p.plannedEndMs - p.requiredDateMs
     if (lateMs > 0) {
       lateLines.add(p.demandLineId)
@@ -90,9 +105,14 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
       earlyHours += -lateMs / MS_PER_HOUR
     }
     const rate = ctx.rateByResource.get(p.resourceId)
-    if (rate && p.qty > 0) {
+    if (p.qty > 0 && (rate || p.operatorLaborRate != null)) {
       const runMin = p.setupTime + p.cycleTime * p.qty
-      cost += rate.setupCost + rate.runCostPerHour * (runMin / 60) + rate.overheadPerUnit * p.qty
+      if (rate) cost += rate.setupCost + rate.runCostPerHour * (runMin / 60) + rate.overheadPerUnit * p.qty
+      // Operator LABOR ($/hr × the op's working hours): folds the cost of WHO ran the op into the same
+      // per-unit cost objective. A faster operator shortens runMin (less labor time) but a pricier one
+      // bills more per hour — so the genuine labor trade-off of an operator swap is now scored, not free.
+      // null laborRate (no operator) → 0 (cost-neutral); never NaN.
+      if (p.operatorLaborRate != null) cost += p.operatorLaborRate * (runMin / 60)
       costedQty += p.qty
     }
   }
@@ -104,19 +124,27 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
   const otCost = otHours * (avgRunRate(ctx.rateByResource) ?? 0)
   const costPerUnit = costedQty > 0 ? r2((cost + otCost) / costedQty) : null
 
+  // Lateness factor RAW = honest due-late hours + a large sentinel per infeasible firm op (folded in so
+  // an op that can't run as scheduled is the worst firm-delivery outcome, riding weight 10 → dominance
+  // preserved, no weight/guard change). The `firmLateHours` KPI below stays the HONEST due-late figure
+  // (never the sentinel); `infeasibleFirmOps` is the legible count. Inert when no infeasible firm op
+  // (raw === firmLateHours) → feasible-plan scores are byte-identical to before. detailParams stay honest.
+  const latenessRaw = r2(firmLateHours + infeasibleFirmOps * INFEASIBLE_LATENESS_HOURS)
   const factors: RationaleFactor[] = [
-    factor('lateness', 'h', r2(firmLateHours), w.lateness, 'whatif.factor.lateness', {
+    factor('lateness', 'h', latenessRaw, w.lateness, 'whatif.factor.lateness', {
       hours: r2(firmLateHours),
       orders: lateLines.size,
+      infeasible: infeasibleFirmOps,
     }),
     factor('changeover', '', changeovers, w.changeover, 'whatif.factor.changeover', { count: changeovers }),
     factor('overtime', 'h', r2(otHours), w.overtime, 'whatif.factor.overtime', { hours: r2(otHours) }),
     factor('inventory', 'h', r2(earlyHours), w.inventory, 'whatif.factor.inventory', { hours: r2(earlyHours) }),
     factor('displacement', '', displaced, w.displacement, 'whatif.factor.displacement', { count: displaced }),
-    // Cost (C6): per-unit economics in the objective. rawValue = costPerUnit, with a non-null
-    // guard — an uncosted plan (no rated resource → costPerUnit null) contributes 0 (cost-neutral),
-    // never NaN; the seed rates every resource, so this only fires on misconfigured data. Weight 4
-    // keeps cost a real discriminator while staying far below lateness (firm-lateness dominance).
+    // Cost (C6): per-unit economics in the objective — resource cost (setup/run/overhead) + OT premium
+    // + operator LABOR ($/hr × working hours). rawValue = costPerUnit, with a non-null guard: an uncosted
+    // plan (no rated resource AND no operator → costPerUnit null) contributes 0 (cost-neutral), never NaN;
+    // the seed rates every resource, so this only fires on misconfigured data. Weight 4 keeps cost a real
+    // discriminator (the levers compare on $) while staying far below lateness (firm-lateness dominance).
     factor('cost', '', costPerUnit ?? 0, w.cost, 'whatif.factor.cost', { cost: costPerUnit ?? 0 }),
   ]
   const score = r4(factors.reduce((s, f) => s + f.contribution, 0))
@@ -157,8 +185,10 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
     oee: null,
     lateOrders: lateLines.size,
     // The scored quantity (firm-lateness dominance) — surfaced as the headline late metric so the
-    // recommendation is legible (fewer total breach-hours wins, even with more late orders).
+    // recommendation is legible (fewer total breach-hours wins, even with more late orders). HONEST
+    // due-lateness only — the infeasibility sentinel never appears here (it's in `infeasibleFirmOps`).
     firmLateHours: r2(firmLateHours),
+    infeasibleFirmOps,
     throughput: totalQty,
     churn: ctx.basePlacements.length > 0 ? r4(displaced / placements.length) : null,
   }

@@ -529,6 +529,11 @@ export async function seed(): Promise<void> {
     const brunoG = await mkOp('Bruno García', ramos!.id, true, 24.5)
     const ana = await mkOp('Ana Reyes', saltillo!.id, true, 26.0, 0.85) // 85% — slower, lengthens Press Line A
     const sofia = await mkOp('Sofía Ramírez', saltillo!.id, true, 25.5, 1.1) // 110% — faster, shortens Press Line B
+    // A FREE faster Saltillo operator (present, unassigned) — the candidate the "assign a faster operator"
+    // remediation draws on when Ana's slow run roots an order late. Faster than Ana (1.05) AND pricier
+    // ($31.5/h) so applying him clears the lateness but adds visible LABOR cost (wi-12) — the cost-honest
+    // trade-off that lets the engine rank faster-operator vs overtime vs reroute on real $ (Part B).
+    const mateo = await mkOp('Mateo Ríos', saltillo!.id, true, 31.5, 1.05)
     await db.insert(operatorQualification).values([
       { tenantId, operatorId: luis, certificationId: leak },
       { tenantId, operatorId: luis, certificationId: torque },
@@ -541,6 +546,7 @@ export async function seed(): Promise<void> {
       { tenantId, operatorId: brunoG, certificationId: cmm },
       { tenantId, operatorId: ana, certificationId: torque },
       { tenantId, operatorId: sofia, certificationId: torque },
+      { tenantId, operatorId: mateo, certificationId: torque },
     ])
 
     // Operator performance assignments (C5, §4.8) — a couple of POINTED pins (not a full roster):
@@ -997,7 +1003,7 @@ export async function seed(): Promise<void> {
     })
 
     console.log(
-      '  ✓ Magna de México scenario: 3 plants, 4 customers, 5 resources, 6 parts, 4 certs, 7 operators, 14 demand lines'
+      '  ✓ Magna de México scenario: 3 plants, 4 customers, 5 resources, 6 parts, 4 certs, 8 operators, 14 demand lines'
     )
     console.log(
       '  ✓ historical outcomes: 9 rows (Saltillo + Press Line A + Ramos); Monterrey/Press Line B = none (empty-state)'

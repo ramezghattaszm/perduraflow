@@ -72,6 +72,7 @@ export class PlanComparisonService {
       oee: sc.oee,
       lateOrders: sc.atRisk.length,
       firmLateHours: null, // execution baseline — per-op due breaches aren't tracked here
+      infeasibleFirmOps: null, // execution baseline — not a plan-feasibility measure
       throughput: sc.throughputAttainment,
       churn: null,
     }
@@ -125,6 +126,7 @@ function aggregate(rows: HistoricalRow[]): CostedKpis {
     oee: a != null && p != null && q != null ? { availability: a, performance: p, quality: q, oee: r4(a * p * q) } : null,
     lateOrders: Math.round(rows.reduce((s, r) => s + r.lateOrders, 0) / n),
     firmLateHours: null, // historical baseline — per-op due breaches aren't tracked here
+    infeasibleFirmOps: null, // historical baseline — not a plan-feasibility measure
     throughput: avg(rows.map((r) => r.throughput)),
     churn: null,
   }

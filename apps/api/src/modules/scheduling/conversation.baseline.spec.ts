@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CostedKpis, PlanComparisonDto } from '@perduraflow/contracts'
 import { compactBaseline } from './conversation.service'
 
-const kpis = (over: Partial<CostedKpis>): CostedKpis => ({ otif: 1, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: null, throughput: null, churn: null, ...over })
+const kpis = (over: Partial<CostedKpis>): CostedKpis => ({ otif: 1, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: null, infeasibleFirmOps: null, throughput: null, churn: null, ...over })
 const dto = (over: Partial<PlanComparisonDto>): PlanComparisonDto => ({
   source: 'frozen_engine_snapshot',
   emptyState: false,

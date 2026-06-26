@@ -3,6 +3,7 @@ import type { CostedKpis, WhatIfOption, WhatIfResultDto } from '@perduraflow/con
 import {
   NarrationBlock,
   OptionCard,
+  P,
   RationaleView,
   XStack,
   YStack,
@@ -45,7 +46,15 @@ function delta(
   return { delta: txt, tone }
 }
 
-function kpiCells(k: CostedKpis, base: CostedKpis, t: (k: string, opts?: Record<string, unknown>) => string) {
+// Non-options (a plan you can't run) are never tiles — they're demoted to a single stat-less line (see
+// the render). So every tile here is SELECTABLE (a runnable plan); the firm-late/cost/OTIF cells describe
+// a plan that actually runs. The "why the recommendation wins" signal moved to the demote line + the
+// honest-unachievable verdict, not a per-tile infeasibility column.
+function kpiCells(
+  k: CostedKpis,
+  base: CostedKpis,
+  t: (k: string, opts?: Record<string, unknown>) => string
+) {
   return [
     {
       label: t('whatif:kpi.otif'),
@@ -128,11 +137,14 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
   )
   const [appliedId, setAppliedId] = useState<string | null>(null)
   const apply = useApplyOption()
-  const feasibleCount = result.options.filter((o) => o.feasible).length
-
   const optionLabel = (o: WhatIfOption) => resolveKey(o.labelKey)
+  // Only SELECTABLE options (a runnable plan) become tiles. Non-options are demoted to a single
+  // stat-less line below — their KPIs describe a plan that won't run, so they're never tiles.
+  const selectable = result.options.filter((o) => o.feasible)
+  const demoted = result.options.filter((o) => !o.feasible)
+  const feasibleCount = selectable.length
 
-  const cards = result.options.map((o, idx) => {
+  const cards = selectable.map((o, idx) => {
     const isRec = o.id === result.recommendedOptionId
     const rationale = o.feasible ? (
       <RationaleView
@@ -188,7 +200,7 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
           infeasibleReason={o.infeasibleReasonKey ? resolveKey(o.infeasibleReasonKey) : undefined}
           scoreLabel={t('whatif:score')}
           score={o.score}
-          kpis={o.feasible ? kpiCells(o.kpis, result.baseKpis, t) : []}
+          kpis={kpiCells(o.kpis, result.baseKpis, t)}
           expanded={isExpanded}
           onToggle={onToggle}
           rationale={rationale}
@@ -218,6 +230,36 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
     )
   })
 
+  // Honest-unachievable: no option yields a runnable plan. Don't show a list of non-options — show the
+  // verdict + the structural levers (split / re-promise / change requirement). The base plan stays the
+  // CONTEXT (the problem being remediated) via the board it was launched from; we surface the message.
+  if (result.unremediable) {
+    return (
+      <YStack
+        gap="$2"
+        padding="$3"
+        borderRadius="$3"
+        backgroundColor="$backgroundHover"
+      >
+        <P
+          size={3}
+          weight="b"
+          color="$textPrimary"
+        >
+          {resolveKey(result.unremediable.reasonKey)}
+        </P>
+        {result.unremediable.leversKey ? (
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {resolveKey(result.unremediable.leversKey)}
+          </P>
+        ) : null}
+      </YStack>
+    )
+  }
+
   return (
     <YStack gap="$3">
       {/* The across-options "why the winner won" — ONE place, not on every card. */}
@@ -237,6 +279,16 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
       >
         {cards}
       </XStack>
+      {/* Non-options demoted to ONE stat-less line — lever names + the disqualifying fact. A
+          non-running plan gets a sentence, not a stat block (it's not a comparable alternative). */}
+      {demoted.length > 0 ? (
+        <P
+          size={5}
+          color="$textTertiary"
+        >
+          {t('whatif:demoted', { levers: demoted.map(optionLabel).join(', ') })}
+        </P>
+      ) : null}
     </YStack>
   )
 }

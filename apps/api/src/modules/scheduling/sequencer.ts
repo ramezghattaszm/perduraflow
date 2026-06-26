@@ -104,7 +104,10 @@ export type ResolveEffective = (
  * — a DELIBERATE DIVIDE (higher factor = faster). Setup is untouched. **Pure** (built by the service
  * from the §4.8 assignment table + operator factors) so the sequencer stays deterministic.
  */
-export type ResolveOperator = (resourceId: string, atMs: number) => { id: string; performanceFactor: number } | null
+export type ResolveOperator = (
+  resourceId: string,
+  atMs: number,
+) => { id: string; performanceFactor: number; laborRate: number | null } | null
 
 /**
  * Which floor component set this op's start — the immediate, computed cause of its placement (D-late).
@@ -144,6 +147,14 @@ export interface Placement {
   cycleConfidence: number | null
   atRisk: boolean
   atRiskReason: string | null
+  /**
+   * Did the op actually fit a working segment? `false` when `placeJob` returns null — the op is longer
+   * than any working segment and can't split, so it CAN'T run as scheduled; the recorded start/end are a
+   * defensive contiguous fallback (running through closed time — fictional). The scorer reads this to
+   * penalize window-overflow infeasibility as firm-lateness (a fact `bindingKind` can't carry, since the
+   * operator counterfactual overwrites it). `true` for every normally-placed op.
+   */
+  placedFeasible: boolean
   /** The floor component that set this op's start (causal-chain attribution). */
   bindingKind: BindingKind
   /** When `bindingKind` is `resource`/`predecessor`, the op that pushed this one (else null). */
@@ -153,6 +164,13 @@ export interface Placement {
   bindingDowntimeId: string | null
   /** When `bindingKind` is `operator`, the slow operator who inflated this op's run (else null). */
   bindingOperatorId: string | null
+  /**
+   * The hourly labor rate ($/hr) of the operator working this op, or null when no operator covers it
+   * (then labor is cost-neutral). Carried so the cost objective folds operator LABOR into per-unit cost
+   * (`laborRate · workingHours`) — so a faster, pricier operator's true cost is scored, not invisible.
+   * Scoring-only: derived per-solve from the assignment table, NOT persisted on the row.
+   */
+  operatorLaborRate: number | null
   /** Required date (epoch ms) — carried through for lateness/earliness scoring. */
   requiredDateMs: number
   firmness: 'firm' | 'forecast'
@@ -446,6 +464,7 @@ export function sequence(
       setupConfidence: eff.setupConfidence,
       cycleConfidence: eff.cycleConfidence,
       atRisk,
+      placedFeasible: placed !== null, // false → window-overflow infeasibility (can't run as scheduled)
       atRiskReason: !atRisk
         ? null
         : bindingKind === 'resource_downtime'
@@ -462,6 +481,7 @@ export function sequence(
       bindingBlockerOpSeq: blocker?.opSeq ?? null,
       bindingDowntimeId,
       bindingOperatorId,
+      operatorLaborRate: operator?.laborRate ?? null, // labor cost input (scoring-only); null = no operator
       requiredDateMs: item.requiredDate,
       firmness: item.firmness,
       changeoverValue: item.changeoverValue,
