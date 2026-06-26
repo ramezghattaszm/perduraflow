@@ -19,7 +19,7 @@
     "material": "How can I resolve order {{order}}? It's at-risk waiting on material — evaluate expediting the material or moving the due date.",
     "due_before_start": "How can I resolve order {{order}}? It's due before the line can start it — evaluate moving the due date or expediting; re-sequencing can't fix it.",
     "working_window": "How can I resolve order {{order}}? It won't fit the open shift time before due — evaluate adding overtime or moving the due date.",
-    "capacity": "How can I resolve order {{order}}? Its line is at capacity — how much overtime clears it, or should I move the due date?",
+    "capacity": "How can I resolve order {{order}}? Its line is at capacity — evaluate my options to clear it (reroute to another line, add overtime, or move the due date).",
     "default": "How can I resolve order {{order}}? Evaluate the options to bring it back on time."
   },
   "autoBadge": "Auto",

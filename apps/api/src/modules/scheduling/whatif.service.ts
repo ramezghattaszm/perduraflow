@@ -21,6 +21,7 @@ import { toScheduleVersionDto } from './scheduling.mapper'
 import { SchedulingRepository } from './scheduling.repository'
 import { SchedulingService, type BaseContext } from './scheduling.service'
 import { sequence, type Placement, type ResolveEffective, type ResolveOperatorFactor, type SequencePolicy, type SequencerItem } from './sequencer'
+import { buildLatenessChain, type LatenessOp } from './lateness'
 import type { WorkingCalendar } from './working-calendar'
 import { placementSignature } from './whatif.signature'
 import { scorePlan, type ResourceRate, type ScoredPlan } from './whatif.scoring'
@@ -116,7 +117,7 @@ export class WhatIfService {
     const givenOt = this.givenOvertimeHours(ctx, changeSet)
     const requestedChanges = this.buildLedger(ctx, changeSet)
 
-    const specs = this.optionSpecs(changeSet, predicted)
+    const specs = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements)
     const evaluated = specs.map((spec) =>
       this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, givenOt, ctx.weights, ctx.downtimeByResource),
     )
@@ -279,7 +280,7 @@ export class WhatIfService {
     const predicted = await this.predictedCycles(tenantId, changeSet)
     const optionCalendars = await this.optionCalendars(tenantId, ctx, changeSet)
 
-    const spec = this.optionSpecs(changeSet, predicted).find((s) => s.id === optionId)
+    const spec = this.optionSpecs(changeSet, predicted, ctx.items, basePlacements).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
     const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet), ctx.weights, ctx.downtimeByResource)
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
@@ -359,15 +360,55 @@ export class WhatIfService {
         }
         return items.map((i) => (i.demandLineId === change.demandLineId ? { ...i, requiredDate: ms } : i))
       }
-      // resource_window / line_down / overtime / material_arrival are option-level levers (handled by
-      // option specs) and the material gate lives in the data — pass through unchanged.
+      // resource_window / line_down / overtime / material_arrival / at_risk_remediation are
+      // option-level levers (handled by option specs — the reroute family's targeted re-routing of the
+      // at-risk order happens in the option's itemTransform, not here) and the material gate lives in
+      // the data — pass through unchanged.
       case 'resource_window':
       case 'line_down':
       case 'overtime':
       case 'wear_remediation':
       case 'material_arrival':
+      case 'at_risk_remediation':
         return items
     }
+  }
+
+  // --- standing at-risk reroute (order-scoped) --------------------------------
+  /**
+   * For an `at_risk_remediation` change, the per-op contended resource the reroute family should move
+   * the at-risk order OFF — but ONLY for a firm at-risk op whose causal chain roots at reroutable
+   * **capacity contention** AND whose op is **multi-eligible** (an alternative line exists). Returns a
+   * `${demandLineId}:${opSeq}` → contended-resourceId map, or null when no such op exists.
+   *
+   * Null ⇒ the reroute family is NOT emitted (honest-unavailable): a `material` root → expedite, a
+   * `due_before_start` root → renegotiate (structurally unfixable), a `resource_downtime` root is the
+   * line-down condition flow (not standing), and a single-eligible op can't be rerouted at all. Built
+   * from the committed base plan (`basePlacements`) so it matches the causal chain the planner sees.
+   * Pure given (changeSet, items, basePlacements).
+   */
+  private standingRerouteTarget(changeSet: ChangeSet, items: SequencerItem[], basePlacements: Placement[]): Map<string, string> | null {
+    const targetLines = new Set(
+      changeSet.changes.filter((c): c is Extract<Change, { kind: 'at_risk_remediation' }> => c.kind === 'at_risk_remediation').map((c) => c.demandLineId),
+    )
+    if (targetLines.size === 0) return null
+
+    // opByKey over ALL placements (the chain walk follows blockers across orders). Minimal lookups —
+    // only the chain ROOT is needed, which depends on binding kinds + at-risk state, not names/detail.
+    const opByKey = new Map<string, LatenessOp>(basePlacements.map((p) => [`${p.demandLineId}:${p.opSeq}`, p]))
+    const lk = { resourceName: (id: string) => id, partNo: (id: string) => id, materialComponent: () => null, downtime: () => null }
+    const eligByKey = new Map<string, string[]>(items.map((i) => [`${i.demandLineId}:${i.opSeq}`, i.eligibleResourceIds]))
+
+    const drop = new Map<string, string>()
+    for (const p of basePlacements) {
+      if (!targetLines.has(p.demandLineId) || p.firmness !== 'firm' || !p.atRisk) continue
+      const chain = buildLatenessChain(p, opByKey, lk)
+      if (!chain || chain.root !== 'capacity') continue // reroutable contention only — NOT material/due/downtime
+      const elig = eligByKey.get(`${p.demandLineId}:${p.opSeq}`) ?? []
+      if (elig.length <= 1) continue // single-eligible: no alternative line → reroute impossible
+      drop.set(`${p.demandLineId}:${p.opSeq}`, p.resourceId)
+    }
+    return drop.size > 0 ? drop : null
   }
 
   // --- option specs -----------------------------------------------------------
@@ -379,10 +420,14 @@ export class WhatIfService {
    * - **line down** (a bare `resource_window`, no wear) → **reroute / overtime** —
    *   **no defer** (the line is *down*; you can't keep running on it). Reroute drops
    *   the line and re-solves onto the rest (honestly infeasible if no alternative).
+   * - **standing at-risk** (`at_risk_remediation`, no injected disruption) whose order's chain roots
+   *   at reroutable capacity contention on a multi-eligible op → **reroute / overtime** (the reroute
+   *   moves that order off its contended line via a targeted eligibility transform). Composes with the
+   *   base trade-offs below (protect-delivery = expedite is also a valid lever here).
    * - anything else (demand change, …) → the sequencing trade-off set
    *   **balanced / protect-delivery / minimise-changeover**.
    */
-  private optionSpecs(changeSet: ChangeSet, predicted: Map<string, number>): OptionSpec[] {
+  private optionSpecs(changeSet: ChangeSet, predicted: Map<string, number>, items: SequencerItem[], basePlacements: Placement[]): OptionSpec[] {
     const wearChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'wear_remediation' }> => c.kind === 'wear_remediation')
     const windowChanges = changeSet.changes.filter((c): c is Extract<Change, { kind: 'resource_window' }> => c.kind === 'resource_window')
     // `line_down` = the persisted-window line-down (the closure is already in base calendars); it selects
@@ -394,6 +439,10 @@ export class WhatIfService {
     const isLineDown = windowChanges.length > 0 || lineDownChanges.length > 0
     const downResources = [...wearChanges, ...windowChanges, ...lineDownChanges].map((c) => c.resourceId)
     const rid = downResources[0] ?? ''
+    // Standing at-risk reroute target (order-scoped) — only computed in the no-injected-disruption
+    // case, so a real condition's reroute (above) is never double-emitted. Null ⇒ not reroutable.
+    const rerouteDrop = !isWear && !isLineDown ? this.standingRerouteTarget(changeSet, items, basePlacements) : null
+    const isStandingReroute = rerouteDrop !== null
 
     // ADDITIVE (conversation Pass A): a compound change-set composes the option families of
     // EVERY trigger it spans instead of collapsing to one. The change EFFECTS are GIVENS applied
@@ -428,6 +477,22 @@ export class WhatIfService {
       // lives in the calendars (a hypothetical `resource_window` adds it in optionCalendars; a persisted
       // `line_down` already has it in the base), so the sequencer flows around the down period either way.
       add({ id: 'reroute', labelKey: 'whatif.option.reroute', overtimeHours: 0, itemTransform: (items) => items })
+      add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
+    } else if (isStandingReroute) {
+      // Standing at-risk reroute — no closure here (the line isn't down, just saturated), so an identity
+      // reroute would reproduce the base plan. Instead, drop the contended resource from the at-risk
+      // order's binding op so the sequencer must place it on an alternative line (a genuine reroute →
+      // a distinct plan). Overtime composes (add hours on the contended line instead of moving the work).
+      add({
+        id: 'reroute',
+        labelKey: 'whatif.option.reroute',
+        overtimeHours: 0,
+        itemTransform: (items) =>
+          items.map((i) => {
+            const contended = rerouteDrop!.get(`${i.demandLineId}:${i.opSeq}`)
+            return contended ? { ...i, eligibleResourceIds: i.eligibleResourceIds.filter((r) => r !== contended) } : i
+          }),
+      })
       add({ id: 'overtime', labelKey: 'whatif.option.overtime', overtimeHours: 8, itemTransform: (items) => items })
     }
     // Base trade-off family: a demand change — or NO disruption at all — yields the sequencing
@@ -529,6 +594,8 @@ export class WhatIfService {
           return { kind: c.kind, summary: `${c.action} on ${resName(c.resourceId)}`, status: 'applied', note: null }
         case 'material_arrival':
           return { kind: c.kind, summary: `${c.componentPartId} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
+        case 'at_risk_remediation':
+          return { kind: c.kind, summary: `remediate at-risk ${orderRef(c.demandLineId)}`, status: 'applied', note: null }
         case 'overtime': {
           const ceilingHours = (ctx.resourceCalendars.get(c.resourceId)?.otCeilingMinutes ?? 0) / 60
           const summary = `add ${c.hours}h overtime on ${resName(c.resourceId)}`
@@ -749,6 +816,8 @@ function basicLedger(changeSet: ChangeSet): RequestedChange[] {
         return { kind: c.kind, summary: `${c.action} on ${c.resourceId}`, status: 'applied', note: null }
       case 'material_arrival':
         return { kind: c.kind, summary: `${c.componentPartId} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
+      case 'at_risk_remediation':
+        return { kind: c.kind, summary: `remediate at-risk ${c.demandLineId}`, status: 'applied', note: null }
     }
   })
 }

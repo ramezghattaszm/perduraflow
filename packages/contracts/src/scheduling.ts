@@ -575,6 +575,15 @@ export const changeSchema = z.discriminatedUnion('kind', [
     componentPartId: z.string().min(1),
     availableAt: z.string().min(1),
   }),
+  // Standing at-risk REMEDIATION marker (order-scoped): a firm order is late in the COMMITTED plan
+  // with no injected disruption. The "condition" is the order's own firm-lateness. The engine offers
+  // the reroute family ONLY when this order's causal chain roots at reroutable capacity contention AND
+  // its binding op is multi-eligible (an alternative line exists) — otherwise reroute is honestly
+  // unavailable (material → expedite, due-before-start → renegotiate) and only the base levers apply.
+  z.object({
+    kind: z.literal('at_risk_remediation'),
+    demandLineId: z.string().min(1),
+  }),
 ])
 export type Change = z.infer<typeof changeSchema>
 

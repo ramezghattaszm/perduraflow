@@ -107,12 +107,21 @@ const CHANGE_ITEM_SCHEMA = {
       },
       required: ['kind', 'resourceId', 'action'],
     },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', enum: ['at_risk_remediation'] },
+        demandLineId: { type: 'string', description: 'the firm at-risk order to remediate (standing lateness, no injected disruption)' },
+      },
+      required: ['kind', 'demandLineId'],
+    },
   ],
 }
 const EVALUATE_TOOL: LlmTool = {
   name: 'evaluate_what_if',
   description:
-    'Run the deterministic scheduling engine on a NEW scenario expressed as a change-set. Use when the question asks about a change not in the stored analysis (delay an order, add overtime, take a line down, change a quantity). Compound changes allowed — include one item per change; every requested change is reported back as applied / partial / unapplied.',
+    "Run the deterministic scheduling engine on a NEW scenario expressed as a change-set. Use when the question asks about a change not in the stored analysis (delay an order, add overtime, take a line down, change a quantity). To REMEDIATE a STANDING firm at-risk order (one late in the committed plan with no injected disruption — 'how do I fix / what are my options for order X'), use the at_risk_remediation change with that order's demandLineId: the engine returns reroute + overtime when the order's lateness is reroutable capacity contention on a line with an alternative, and otherwise only the base levers (so reroute is offered only when it genuinely helps — never for a material wait or a due-before-start order). Compound changes allowed — include one item per change; every requested change is reported back as applied / partial / unapplied.",
   parameters: {
     type: 'object',
     additionalProperties: false,
@@ -1032,6 +1041,8 @@ export function renderActiveScenario(
         return `${c.action} on ${resName(c.resourceId)}`
       case 'material_arrival':
         return `material ${c.componentPartId} arrives ${c.availableAt}`
+      case 'at_risk_remediation':
+        return `remediate at-risk order ${orderRef(c.demandLineId)}`
     }
   }
   return changeSet.changes.map(describe).join('; ')
