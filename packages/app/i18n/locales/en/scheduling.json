@@ -62,7 +62,8 @@
       "subtitle": "Line offline",
       "pill": "Down",
       "title": "This line is down",
-      "body": "Down {{from}}–{{to}} — {{count}} op(s) overlap the outage and need re-sequencing around it."
+      "body": "Down {{from}}–{{to}} — {{count}} op(s) overlap the outage and need re-sequencing around it.",
+      "bodyClear": "Down {{from}}–{{to}} — no scheduled ops overlap the outage; the line is clear (conflicts already re-sequenced)."
     }
   },
   "legend": {

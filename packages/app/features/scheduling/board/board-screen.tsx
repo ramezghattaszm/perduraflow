@@ -855,14 +855,19 @@ export function BoardContent() {
         status={{ label: t('board.down.pill'), tone: 'danger' }}
         warning={{
           title: t('board.down.title'),
-          body: t('board.down.body', {
+          // 0 ops overlapping is the RESOLVED state (a reroute/remediation moved the conflicting
+          // ops off this line) — say so, instead of the contradictory "0 op(s) … need re-sequencing".
+          // The line still shows "down" because the outage is a real fact until it's brought back up.
+          body: t(lineOpsN > 0 ? 'board.down.body' : 'board.down.bodyClear', {
             count: lineOpsN,
             resource: resName,
             ...(selectedWindow ? fmtWindow(selectedWindow.from, selectedWindow.to) : { from: '—', to: '—' }),
           }),
         }}
+        // No conflicting ops → nothing to remediate, so drop the "See options" CTA (the schedule is
+        // already clear of the outage). Bringing the line back up lives in the simulator, not here.
         action={
-          readOnly
+          readOnly || lineOpsN === 0
             ? undefined
             : {
                 label: t('whatif:trigger.seeOptions'),
