@@ -101,13 +101,14 @@ export function latenessLines(chain: LatenessChainDto, t: TFn): string[] {
 }
 
 /** Chain roots that map to a tailored remediation prompt; any other root falls to `default`. */
-const TAILORED_REMEDIATION_ROOTS: readonly LatenessRoot[] = ['material', 'due_before_start', 'working_window', 'capacity']
+const TAILORED_REMEDIATION_ROOTS: readonly LatenessRoot[] = ['material', 'due_before_start', 'working_window', 'capacity', 'operator']
 
 /**
  * The i18n key (in the `exceptions` namespace) for the Copilot remediation prompt that matches an
  * at-risk order's causal-chain ROOT — so "Evaluate options" opens the Copilot pre-seeded with the
  * lever that actually addresses the cause (expedite for material, overtime for capacity/window,
- * renegotiate for due-before-start). Shared by every at-risk surface (exception queue, board bar
+ * renegotiate for due-before-start, a FASTER OPERATOR / OT / reroute for an operator-rooted slow run).
+ * Shared by every at-risk surface (exception queue, board bar
  * panel, work-list) so the prompt stays one source. Returns a namespaced key — call with any `t`.
  */
 export function remediationPromptKey(root: LatenessRoot | null | undefined): string {
