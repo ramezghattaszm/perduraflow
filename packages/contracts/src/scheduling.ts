@@ -123,6 +123,8 @@ export interface OperationActualDto {
  * resource at its start → the op ran at standard (factor 1.0).
  */
 export interface AssignedOperatorDto {
+  /** The operator id — lets the lane lever compare the plan's operator to the live assignment. */
+  id: string
   name: string
   /**
    * "Percent of standard" as a ratio: 1.0 = standard, >1.0 = faster, <1.0 = slower. The engine divides

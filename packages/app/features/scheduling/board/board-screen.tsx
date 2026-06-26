@@ -837,7 +837,11 @@ export function BoardContent() {
         emptyText={t('board.pred.healthy')}
       />
       {/* Planner assign/switch operator lever (C5) — current operator + Assign/Switch on the lane. */}
-      <OperatorAssignControl plantId={plantId ?? undefined} resourceId={selectedResourceId} />
+      <OperatorAssignControl
+        plantId={plantId ?? undefined}
+        resourceId={selectedResourceId}
+        planOperator={(detail?.operations ?? []).find((o) => o.resourceId === selectedResourceId && o.operator)?.operator ?? null}
+      />
       </YStack>
     ) : null
 

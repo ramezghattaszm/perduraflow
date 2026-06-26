@@ -87,8 +87,11 @@
     "meta": "· {{pct}}% of standard · home: {{plant}}",
     "option": "{{name}} · {{pct}}% · {{where}}",
     "whereUnassigned": "Unassigned",
+    "out": "Out",
     "placeholder": "Assign / switch operator",
     "unassign": "Unassign",
+    "cancelSwitch": "Cancel switch",
+    "switchCancelled": "Switch cancelled — back to the plan's operator.",
     "assigned": "Operator assigned — re-solve to apply.",
     "unassigned": "Operator unassigned — re-solve to apply.",
     "reSolveHint": "Re-solve the board to apply on this line's run times."

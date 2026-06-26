@@ -370,7 +370,7 @@ export class SchedulingService {
               }
             : null,
           latenessChain: chains.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
-          operator: op ? { name: op.name, performanceFactor: op.performanceFactor, laborRate: op.laborRate } : null,
+          operator: op ? { id: op.id, name: op.name, performanceFactor: op.performanceFactor, laborRate: op.laborRate } : null,
         }
       }),
     }
@@ -434,6 +434,8 @@ export class SchedulingService {
     if (!resource) throw new AppException(HttpStatus.BAD_REQUEST, 'Resource not found in this plant', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
     const operator = (await md.listOperators(tenantId)).find((o) => o.id === dto.operatorId && o.isActive)
     if (!operator) throw new AppException(HttpStatus.BAD_REQUEST, 'Operator not found', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
+    // Can't run a line if you're not present next shift (sick / vacation / not scheduled).
+    if (!operator.available) throw new AppException(HttpStatus.CONFLICT, `${operator.name} is out (not available)`, ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
 
     // Double-booking guard (tenant-wide, cross-plant): the operator can't cover ANOTHER resource in a
     // window that overlaps this one. Same resource is fine — that's the replace-open switch.
