@@ -157,6 +157,36 @@ export function useSetResourceOperatorAssignment(plantId: string | undefined) {
   })
 }
 
+/**
+ * **Planner lever (C5)** — assign/switch the operator on a resource (`POST
+ * /admin/scheduling/operator-assignments`, product, both guards). Resource-grain + time-windowed,
+ * replace-open per resource. The engine reacts on the next re-solve (no auto-solve). Invalidates the
+ * plant's assignments so the lane reflects the new operator.
+ */
+export function useAssignOperator(plantId: string | undefined) {
+  return useMutation({
+    mutationFn: (body: { resourceId: string; operatorId: string; effectiveFrom?: string | null; effectiveTo?: string | null }) =>
+      post<ResourceOperatorAssignmentDto, { plantId: string; resourceId: string; operatorId: string; effectiveFrom: string | null; effectiveTo: string | null }>(
+        '/admin/scheduling/operator-assignments',
+        { plantId: plantId ?? '', resourceId: body.resourceId, operatorId: body.operatorId, effectiveFrom: body.effectiveFrom ?? null, effectiveTo: body.effectiveTo ?? null },
+      ),
+    onSuccess: () => {
+      if (plantId) void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.operatorAssignments(plantId) })
+    },
+  })
+}
+
+/** Unassign an operator from a resource (`DELETE /admin/scheduling/operator-assignments/:id`) — the
+ *  line reverts to standard on the next re-solve. Invalidates the plant's assignments. */
+export function useUnassignOperator(plantId: string | undefined) {
+  return useMutation({
+    mutationFn: (id: string) => del<void>(`/admin/scheduling/operator-assignments/${id}`),
+    onSuccess: () => {
+      if (plantId) void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.scheduling.operatorAssignments(plantId) })
+    },
+  })
+}
+
 /** Runs the deterministic sequencer for a plant → a new `draft` version; invalidates the version list. */
 export function useSolveSchedule() {
   return useMutation({

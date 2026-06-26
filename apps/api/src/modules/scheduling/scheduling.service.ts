@@ -14,6 +14,7 @@ import {
   type MasterDataReadContract,
   type MaterialAvailabilityDto,
   type MaterialConditionDto,
+  type AssignOperatorRequest,
   type ResourceOperatorAssignmentDto,
   type OeeDto,
   type OperatorAbsenceReason,
@@ -121,6 +122,15 @@ function downtimeMaps(downtime: ResourceDowntimeDto[]): {
     ;(windows.get(d.resourceId) ?? windows.set(d.resourceId, []).get(d.resourceId)!).push({ id: d.id, startMs, endMs })
   }
   return { closed, windows }
+}
+
+/** Do two half-open windows `[from, to)` overlap? `null` bound = open (±∞). */
+function windowsOverlap(aFrom: Date | null, aTo: Date | null, bFrom: Date | null, bTo: Date | null): boolean {
+  const af = aFrom?.getTime() ?? Number.NEGATIVE_INFINITY
+  const at = aTo?.getTime() ?? Number.POSITIVE_INFINITY
+  const bf = bFrom?.getTime() ?? Number.NEGATIVE_INFINITY
+  const bt = bTo?.getTime() ?? Number.POSITIVE_INFINITY
+  return af < bt && bf < at
 }
 
 /** The operator assigned to a resource at an instant — null when none covers it (→ standard). */
@@ -387,6 +397,7 @@ export class SchedulingService {
     const resourceName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
     const operators = new Map((await md.listOperators(tenantId)).map((o) => [o.id, o]))
     return (await this.repo.listResourceOperatorAssignments(tenantId, plantId)).map((a) => ({
+      id: a.id,
       resourceId: a.resourceId,
       resourceName: resourceName.get(a.resourceId) ?? a.resourceId,
       operatorId: a.operatorId,
@@ -395,6 +406,65 @@ export class SchedulingService {
       effectiveFrom: a.effectiveFrom?.toISOString() ?? null,
       effectiveTo: a.effectiveTo?.toISOString() ?? null,
     }))
+  }
+
+  /**
+   * Assign (or switch) the operator on a resource — the PLANNER lever (C5). Resource-grain +
+   * time-windowed, replace-open per resource (switching a line's operator is one call). The planner
+   * assigns; the engine reacts on the next re-solve (no auto-re-solve). Validation:
+   * - `effectiveFrom < effectiveTo` when both set;
+   * - **per-operator overlap** rejected (tenant-wide, cross-plant) — one operator can't be on two
+   *   resources at once;
+   * - **per-resource** is one-operator-per-resource by construction (the replace-open upsert).
+   * Cross-plant is ALLOWED (operators float between plants day-to-day); home plant is informational,
+   * not enforced. The "no cross-plant move mid-shift" rule needs the shift model — deferred.
+   * @throws OPERATOR_ASSIGNMENT_INVALID bad window; resource/operator not in the tenant
+   * @throws OPERATOR_DOUBLE_BOOKED the operator already covers another line in an overlapping window
+   */
+  async assignOperator(tenantId: string, dto: AssignOperatorRequest): Promise<ResourceOperatorAssignmentDto> {
+    const from = dto.effectiveFrom ? new Date(dto.effectiveFrom) : null
+    const to = dto.effectiveTo ? new Date(dto.effectiveTo) : null
+    if (from && Number.isNaN(from.getTime())) throw new AppException(HttpStatus.BAD_REQUEST, 'Invalid effectiveFrom', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
+    if (to && Number.isNaN(to.getTime())) throw new AppException(HttpStatus.BAD_REQUEST, 'Invalid effectiveTo', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
+    if (from && to && from.getTime() >= to.getTime())
+      throw new AppException(HttpStatus.BAD_REQUEST, 'effectiveFrom must precede effectiveTo', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
+
+    const md = await this.resolveMasterData(tenantId)
+    const resource = (await md.listResources(tenantId)).find((r) => r.id === dto.resourceId && r.plantId === dto.plantId)
+    if (!resource) throw new AppException(HttpStatus.BAD_REQUEST, 'Resource not found in this plant', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
+    const operator = (await md.listOperators(tenantId)).find((o) => o.id === dto.operatorId && o.isActive)
+    if (!operator) throw new AppException(HttpStatus.BAD_REQUEST, 'Operator not found', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
+
+    // Double-booking guard (tenant-wide, cross-plant): the operator can't cover ANOTHER resource in a
+    // window that overlaps this one. Same resource is fine — that's the replace-open switch.
+    const others = (await this.repo.listAssignmentsByOperator(tenantId, dto.operatorId)).filter((a) => a.resourceId !== dto.resourceId)
+    const clash = others.find((a) => windowsOverlap(from, to, a.effectiveFrom, a.effectiveTo))
+    if (clash) {
+      throw new AppException(HttpStatus.CONFLICT, `${operator.name} is already assigned to another line in an overlapping window`, ERROR_CODES.OPERATOR_DOUBLE_BOOKED)
+    }
+
+    const row = await this.repo.setResourceOperatorAssignment(tenantId, dto.plantId, dto.resourceId, dto.operatorId, from, to)
+    if (!row) throw new AppException(HttpStatus.INTERNAL_SERVER_ERROR, 'Assignment write failed', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
+    return {
+      id: row.id,
+      resourceId: row.resourceId,
+      resourceName: resource.name,
+      operatorId: row.operatorId,
+      operatorName: operator.name,
+      performanceFactor: operator.performanceFactor,
+      effectiveFrom: row.effectiveFrom?.toISOString() ?? null,
+      effectiveTo: row.effectiveTo?.toISOString() ?? null,
+    }
+  }
+
+  /**
+   * Unassign an operator from a resource — the line reverts to standard (factor 1.0) on the next
+   * re-solve. Tenant-scoped delete (the ownership guard).
+   * @throws OPERATOR_ASSIGNMENT_NOT_FOUND no such assignment for this tenant
+   */
+  async unassignOperator(tenantId: string, id: string): Promise<void> {
+    const deleted = await this.repo.deleteResourceOperatorAssignment(tenantId, id)
+    if (!deleted) throw new AppException(HttpStatus.NOT_FOUND, 'Operator assignment not found', ERROR_CODES.OPERATOR_ASSIGNMENT_NOT_FOUND)
   }
 
   /**

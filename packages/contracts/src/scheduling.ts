@@ -501,6 +501,8 @@ export interface MaterialConditionDto {
  * The operator's `performanceFactor` (master-data) modifies the line's run time when scheduled.
  */
 export interface ResourceOperatorAssignmentDto {
+  /** The assignment row id — the target for DELETE /admin/scheduling/operator-assignments/:id. */
+  id: string
   resourceId: string
   resourceName: string
   operatorId: string
@@ -535,6 +537,24 @@ export const setResourceOperatorAssignmentSchema = z
 export type SetResourceOperatorAssignmentRequest = z.infer<
   typeof setResourceOperatorAssignmentSchema
 >
+
+/**
+ * `POST /admin/scheduling/operator-assignments` — the PLANNER assign/switch lever (C5, product). Pins
+ * (or switches) the operator on a resource for an optional window; the engine reacts on the next
+ * re-solve. Resource-grain + time-windowed (matches the model + shift staffing); the planner assigns,
+ * the engine never optimizes the roster (labor stays external). Cross-plant is allowed — operators
+ * float between plants day-to-day; home plant is an informational default, not a constraint.
+ */
+export const assignOperatorSchema = z
+  .object({
+    plantId: z.string().min(1),
+    resourceId: z.string().min(1),
+    operatorId: z.string().min(1),
+    effectiveFrom: z.string().nullable().default(null),
+    effectiveTo: z.string().nullable().default(null),
+  })
+  .strict()
+export type AssignOperatorRequest = z.infer<typeof assignOperatorSchema>
 
 // =============================================================================
 // Phase 5 — what-if (D55) + plan-comparison/baselines (D57) + narration (A19)

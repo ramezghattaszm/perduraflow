@@ -26,6 +26,7 @@ import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
 import { remediationPromptKey } from '../../../utils/lateness'
 import { OpDetailCard } from '../op-detail-card'
+import { OperatorAssignControl } from '../operator-assign-control'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts, useResourceDowntime } from '../../../hooks/useMasterData'
@@ -759,6 +760,7 @@ export function BoardContent() {
     )
   const resourcePanel =
     selectedResourceId && !selectedDown ? (
+      <YStack gap="$3">
       <ResourceWearPanel
         title={resName}
         subtitle={t('board.pred.lineSubtitle')}
@@ -834,6 +836,9 @@ export function BoardContent() {
         }
         emptyText={t('board.pred.healthy')}
       />
+      {/* Planner assign/switch operator lever (C5) — current operator + Assign/Switch on the lane. */}
+      <OperatorAssignControl plantId={plantId ?? undefined} resourceId={selectedResourceId} />
+      </YStack>
     ) : null
 
   // Every click-detail surface opens in the GLOBAL POPUP (usePopup): the op card (a clicked job/bar),

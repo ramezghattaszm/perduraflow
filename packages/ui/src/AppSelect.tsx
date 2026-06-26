@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Dimensions } from 'react-native'
 import { ChevronDown } from '@tamagui/lucide-icons'
 import { Portal, ScrollView, XStack, YStack } from 'tamagui'
 import { P } from './typography'
@@ -7,6 +8,8 @@ import { P } from './typography'
 export interface AppSelectOption {
   value: string
   label: string
+  /** Greyed out + not selectable (e.g. an operator already assigned to another line). */
+  disabled?: boolean
 }
 
 /** Props for {@link AppSelect}. */
@@ -15,6 +18,13 @@ export interface AppSelectProps {
   value: string | null
   onChange: (value: string) => void
   placeholder?: string
+  /**
+   * Trigger style: `box` (default) is the bordered field; `inline` is a dashed-underlined text link
+   * (no border/box) — for "click the value to edit it" affordances inside dense panels.
+   */
+  variant?: 'box' | 'inline'
+  /** Override the text shown on the trigger (else the selected option's label / placeholder). */
+  triggerLabel?: string
 }
 
 interface Measurable {
@@ -22,8 +32,11 @@ interface Measurable {
 }
 interface Anchor {
   x: number
-  y: number
+  /** Anchored from the top (opens down) or the bottom (opens up) — whichever keeps it on-screen. */
+  y?: number
+  bottom?: number
   width: number
+  maxHeight: number
 }
 
 /**
@@ -36,52 +49,96 @@ interface Anchor {
  * @example
  * <AppSelect options={plants} value={plantId} onChange={setPlantId} placeholder="Plant" />
  */
-export function AppSelect({ options, value, onChange, placeholder = 'Select…' }: AppSelectProps) {
+export function AppSelect({ options, value, onChange, placeholder = 'Select…', variant = 'box', triggerLabel }: AppSelectProps) {
   const triggerRef = useRef<Measurable | null>(null)
   const [anchor, setAnchor] = useState<Anchor | null>(null)
   const selected = options.find((o) => o.value === value)
+  const label = triggerLabel ?? selected?.label ?? placeholder
+  const inline = variant === 'inline'
 
+  // Position the dropdown so it always stays on-screen: open DOWN when there's room below, otherwise
+  // open UP (anchored to the trigger's top); clamp the left edge to the viewport; and cap the height
+  // to the available space so a long list scrolls within view instead of running off the screen.
   const open = () => {
     const node = triggerRef.current
-    if (node?.measureInWindow) {
-      node.measureInWindow((x, y, width, height) => setAnchor({ x, y: y + height + 4, width }))
-    } else {
-      setAnchor({ x: 0, y: 0, width: 240 })
+    const screen = Dimensions.get('window')
+    if (!node?.measureInWindow) {
+      setAnchor({ x: 8, y: 8, width: 240, maxHeight: 300 })
+      return
     }
+    node.measureInWindow((x, y, width, height) => {
+      const gap = 4
+      const spaceBelow = screen.height - (y + height) - 8
+      const spaceAbove = y - 8
+      const openUp = spaceBelow < 160 && spaceAbove > spaceBelow
+      const maxHeight = Math.max(120, Math.min(300, openUp ? spaceAbove : spaceBelow))
+      // An inline trigger is just the text, so its width can't size the dropdown — give the list a
+      // generous minimum so option labels aren't truncated; box triggers keep their own width. Always
+      // clamp to the viewport so a wide list never runs off the right edge.
+      const w = Math.min(screen.width - 16, Math.max(width, inline ? 360 : 240))
+      const left = Math.max(8, Math.min(x, screen.width - w - 8))
+      setAnchor(
+        openUp
+          ? { x: left, bottom: screen.height - y + gap, width: w, maxHeight }
+          : { x: left, y: y + height + gap, width: w, maxHeight },
+      )
+    })
   }
 
   return (
     <YStack>
-      <XStack
-        ref={triggerRef as never}
-        onPress={() => (anchor ? setAnchor(null) : open())}
-        cursor="pointer"
-        alignItems="center"
-        justifyContent="space-between"
-        gap="$2"
-        height={40}
-        paddingHorizontal="$3"
-        borderWidth={1}
-        borderColor="$borderColor"
-        borderRadius="$4"
-        backgroundColor="$surface"
-        hoverStyle={{ borderColor: '$primary' }}
-        role="button"
-        aria-label={selected?.label ?? placeholder}
-      >
-        <P
-          size={3}
-          weight={selected ? 'm' : 'r'}
-          color={selected ? '$textPrimary' : '$textSecondary'}
-          numberOfLines={1}
+      {inline ? (
+        <XStack
+          ref={triggerRef as never}
+          onPress={() => (anchor ? setAnchor(null) : open())}
+          cursor="pointer"
+          alignSelf="flex-start"
+          hoverStyle={{ opacity: 0.7 }}
+          role="button"
+          aria-label={label}
         >
-          {selected?.label ?? placeholder}
-        </P>
-        <ChevronDown
-          size={16}
-          color="$textSecondary"
-        />
-      </XStack>
+          <P
+            size={3}
+            weight="m"
+            color="$textPrimary"
+            numberOfLines={1}
+            style={{ textDecorationLine: 'underline', textDecorationStyle: 'dashed' }}
+          >
+            {label}
+          </P>
+        </XStack>
+      ) : (
+        <XStack
+          ref={triggerRef as never}
+          onPress={() => (anchor ? setAnchor(null) : open())}
+          cursor="pointer"
+          alignItems="center"
+          justifyContent="space-between"
+          gap="$2"
+          height={40}
+          paddingHorizontal="$3"
+          borderWidth={1}
+          borderColor="$borderColor"
+          borderRadius="$4"
+          backgroundColor="$surface"
+          hoverStyle={{ borderColor: '$primary' }}
+          role="button"
+          aria-label={label}
+        >
+          <P
+            size={3}
+            weight={selected ? 'm' : 'r'}
+            color={selected ? '$textPrimary' : '$textSecondary'}
+            numberOfLines={1}
+          >
+            {label}
+          </P>
+          <ChevronDown
+            size={16}
+            color="$textSecondary"
+          />
+        </XStack>
+      )}
 
       {anchor ? (
         <Portal>
@@ -97,7 +154,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…' 
           />
           <YStack
             position="fixed"
-            top={anchor.y}
+            {...(anchor.y != null ? { top: anchor.y } : { bottom: anchor.bottom })}
             left={anchor.x}
             width={anchor.width}
             zIndex={250001}
@@ -109,47 +166,45 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…' 
             elevation="$4"
             overflow="hidden"
           >
-            {/* maxHeight lives on the ScrollView (not just the frame) so a long list
-                caps the scroll container and actually scrolls instead of being clipped. */}
-            <ScrollView maxHeight={300}>
-              {/* Options wrap side by side (chips) rather than one full-width row each, so a long
-                  list (e.g. orders) stays compact; long labels still take a full row by wrapping. */}
-              <XStack
-                flexWrap="wrap"
-                gap="$2"
-                padding="$2"
-              >
-                {options.map((o) => (
+            {/* maxHeight (computed from the available space) lives on the ScrollView so a long list
+                caps the scroll container and scrolls within view instead of being clipped/off-screen. */}
+            <ScrollView maxHeight={anchor.maxHeight}>
+              {/* A basic vertical list: full-width rows (click anywhere to select), a thin divider
+                  between rows (no per-item border/pill), and compact padding. */}
+              <YStack>
+                {options.map((o, i) => (
                   <XStack
                     key={o.value}
-                    onPress={() => {
-                      onChange(o.value)
-                      setAnchor(null)
-                    }}
-                    cursor="pointer"
+                    onPress={
+                      o.disabled
+                        ? undefined
+                        : () => {
+                            onChange(o.value)
+                            setAnchor(null)
+                          }
+                    }
+                    cursor={o.disabled ? 'default' : 'pointer'}
+                    opacity={o.disabled ? 0.45 : 1}
                     paddingHorizontal="$3"
-                    paddingVertical="$2"
-                    borderRadius="$3"
-                    borderWidth={1}
-                    borderColor={o.value === value ? '$primary' : '$borderColor'}
+                    paddingVertical="$1.5"
                     backgroundColor={o.value === value ? '$primarySoft' : 'transparent'}
-                    hoverStyle={{
-                      backgroundColor: o.value === value ? '$primarySoft' : '$hoverFill',
-                    }}
+                    hoverStyle={o.disabled ? undefined : { backgroundColor: o.value === value ? '$primarySoft' : '$hoverFill' }}
+                    {...(i > 0 ? { borderTopWidth: 1, borderTopColor: '$borderColor' } : {})}
                     role="button"
                     aria-label={o.label}
+                    aria-disabled={o.disabled}
                   >
                     <P
                       size={3}
                       weight={o.value === value ? 'b' : 'r'}
-                      color={o.value === value ? '$primary' : '$textPrimary'}
+                      color={o.disabled ? '$textTertiary' : o.value === value ? '$primary' : '$textPrimary'}
                       numberOfLines={1}
                     >
                       {o.label}
                     </P>
                   </XStack>
                 ))}
-              </XStack>
+              </YStack>
             </ScrollView>
           </YStack>
         </Portal>

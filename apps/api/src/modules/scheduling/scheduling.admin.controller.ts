@@ -1,5 +1,12 @@
 import { Body, Controller, Delete, Param, Post, UseGuards } from '@nestjs/common'
-import { applyOptionSchema, solveScheduleSchema, type ApplyOptionRequest, type SolveScheduleRequest } from '@perduraflow/contracts'
+import {
+  applyOptionSchema,
+  assignOperatorSchema,
+  solveScheduleSchema,
+  type ApplyOptionRequest,
+  type AssignOperatorRequest,
+  type SolveScheduleRequest,
+} from '@perduraflow/contracts'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { ConfigureGuard } from '../../common/guards/configure.guard'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
@@ -55,5 +62,23 @@ export class SchedulingAdminController {
     @Body(new ZodValidationPipe(applyOptionSchema)) dto: ApplyOptionRequest,
   ) {
     return this.whatIf.applyOption(user.tenantId, id, dto.optionId, user.sub)
+  }
+
+  /**
+   * `POST /admin/scheduling/operator-assignments` — assign/switch the operator on a resource (C5
+   * planner lever, replace-open per resource). The engine reacts on the next re-solve (no auto-solve).
+   */
+  @Post('operator-assignments')
+  assignOperator(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(assignOperatorSchema)) dto: AssignOperatorRequest,
+  ) {
+    return this.scheduling.assignOperator(user.tenantId, dto)
+  }
+
+  /** `DELETE /admin/scheduling/operator-assignments/:id` — unassign (the line reverts to standard). */
+  @Delete('operator-assignments/:id')
+  unassignOperator(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.scheduling.unassignOperator(user.tenantId, id)
   }
 }

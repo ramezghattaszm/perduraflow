@@ -8,7 +8,6 @@ import {
   ToastProvider,
   config,
 } from '@perduraflow/ui'
-import { PopupHost } from './PopupHost'
 import { SafeArea } from './safe-area'
 
 /**
@@ -35,7 +34,8 @@ export function Provider({
           {children}
           <AppToast />
           <AppToastViewport />
-          <PopupHost />
+          {/* PopupHost is mounted per-app INSIDE the QueryClientProvider (next to CopilotHost), so popup
+              content can use data hooks (e.g. the operator assign/switch lever). See each app layout. */}
         </ToastProvider>
       </SafeArea>
     </TamaguiProvider>

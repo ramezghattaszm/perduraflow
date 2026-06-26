@@ -2,7 +2,11 @@
 
 > The engineering-truth ledger of the scheduling engine: every constraint considered (and whether it's hard, soft, simplified, deferred, or deliberately out-of-scope), how the heuristic scoring engine actually works (documented against the as-built code), the objective weights and how they should be configured in production, the authority model that relates the engine to the ML/LLM layers, and the production-build roadmap. This is **Chapter 1 of the production build plan.**
 >
-> *As-built against `sequencer.ts`, `whatif.scoring.ts`, `whatif.weights.ts` (ENGINE_VERSION `wi-8`, WEIGHT_SET_VERSION `aps-w1`).*
+> *As-built against `sequencer.ts`, `whatif.scoring.ts`, `whatif.weights.ts` (ENGINE_VERSION `wi-11`, WEIGHT_SET_VERSION `aps-w2`).*
+>
+> <!-- TODO(RG): version NUMBERS synced to code (wi-11 / aps-w2, here + Part 2 + Part 3). Remaining: the per-version lineage TEXT for wi-9/wi-10/wi-11 (RG to supply). -->
+
+> *Labor-model note (this session): the labor boundary in 1E was sharpened (roster-generation external; crew-to-line allocation is scheduling's — see 1E). Production-vs-model staffing framing added to 1C; crew-per-line + labor-as-capacity/multi-tending added to 1D and Part 5.*
 
 ---
 
@@ -31,6 +35,7 @@ Five categories: **hard** (must hold — infeasible if violated), **soft** (pena
 
 ### 1C. Simplified (built, but approximate vs. the real model)
 - **Operator performance** (C5) — a **consumed** factor (`performanceFactor`, divides run time) from a **seeded** pinned assignment. Production: factor is **seeded from an external system initially, then derived from actuals** (observed output vs. standard, same learning-overlay shape as cycle times). Assignment from a real roster/MES. Factor is on the operator (not task-specific); per-operator-per-resource override is a future refinement.
+- **One operator per line / "no assignment = standard, not unmanned"** — the assignment table (`resource_operator_assignment`) holds at most one operator per resource per window (replace-open). A resource with NO assignment row is NOT unstaffed — standard cycle/setup times are rated to a standard qualified operator (IE 100%-rating convention; `performanceFactor` 1.0 = standard), so "no row = runs at standard via an implicit standard operator," never "no labor." The assignment table is a **performance-and-attribution overlay** (names the person + their deviation from standard + labor rate), not a presence flag. Two simplifications vs. real production: (1) **no crew** — a line carries one named operator, not a multi-person crew (so labor cost = that operator's rate, understating a 2–3 person crew — see 1D); (2) **one operator per line** — doesn't model multi-machine tending where one operator covers several automated lines (see labor-as-capacity, 1D / Part 5).
 - **Inspection as a station** (vs. cert-skill pool) — see 1A.
 - **Material availability as a seeded date** (vs. ERP on-hand + receipts) — see 1A.
 - **The optimizer itself** — the whole engine is a **deterministic EDD heuristic stand-in** (SKIP-03) for the real optimizer (D18/AQ6). See Part 2.
@@ -41,10 +46,12 @@ Five categories: **hard** (must hold — infeasible if violated), **soft** (pena
 - **Net-requirements module** (D20) — finished-good / independent-demand netting (CUM-based, PAB). Spec-only, not built; **distinct** from the scheduler material gate (NR = finished-good netting; scheduler = component availability).
 - **Quantity-phased material netting** — current model is one availability date per component, not a quantity-over-time curve.
 - **Labor-availability intersection** — the resource operating calendar narrowed by actual staffing.
+- **Crew per line** — multiple operators on one line → a combined performance factor + **summed** labor cost. Today one operator per line; labor cost = single rate.
+- **Labor-as-capacity / multi-line tending** — whether one operator can run multiple lines depends on each line's **attention demand**: a manual line (hand-load every cycle) consumes ~100% of an operator (one operator, one line); an automated/auto-fed/robot-tended line consumes a fraction, so one operator can tend several (multi-machine tending — normal for automated CNC/stamping/weld cells). Realistic model: an operator has a tending CAPACITY; each line consumes some by attention-demand; an operator covers multiple lines if combined demand fits. The per-operator double-booking guard (built this session — one operator can't be two places) is the **manual-case first step**; it relaxes to "combined attention-demand ≤ tending-capacity" once multi-tending is modeled (3 automated lines valid; 2 manual not). Relates to "labor-availability intersection" above.
 
 ### 1E. Boundary — deliberately OUT of the engine (and why)
 - **Cost as an optimization objective** — cost is **computed and reported** (`costPerUnit` KPI) but is **NOT a scoring factor** — the engine does not optimize for it. *(Demo TODO C6 changes this — see Part 3 & the note below.)*
-- **Labor optimization / rostering** — the sequencer is labor-*aware* (consumes operator performance, cert gaps surface in the Workforce view) but never *assigns* or *optimizes* labor. Rostering is permanently external (SKIP-14); the sequencer only *consumes* a given assignment.
+- **Labor rostering (who works) — external; but crew-to-line allocation (which line) is scheduling's.** The boundary is sharper than "labor is external." **The test: changing *who works* = external (workforce mgmt); changing *which line a present, qualified worker runs* = scheduling.** What's fed in: the **roster** — who is employed, certified, and scheduled to work each shift (from workforce-mgmt/MES/HR). Scheduling does NOT generate or optimize the roster. What scheduling owns: (a) **knowing** the roster + reasoning over its schedule impact (assignment → durations/sequencing — built, the C5 consumed factor), and (b) **crew-to-line allocation** — deciding which present, qualified operator runs which line to best meet the objective IS scheduling (it allocates a fed resource), not workforce mgmt. **Today** that allocation is a MANUAL planner lever (the assign/switch control — built this session: resource-grain, time-windowed, cross-plant allowed since operators float day-to-day, per-operator double-booking rejected). The engine consumes assignments but does not itself reallocate crew — that (crew-allocation as an optimization variable, bounded by roster+certs+tending-capacity) is the labor-as-capacity roadmap (Part 5). (Supersedes the earlier "rostering permanently external, SKIP-14" framing, which was too broad.)
 - **Certification as a hard scheduling gate** — LEAK/CMM/TORQUE certs are soft/advisory (Workforce Coverage view, gap detection) and never read by the sequencer. The station gates capacity (hard); the cert gates *who staffs it* (soft).
 - **Cross-line dynamic re-optimization** — the heuristic places greedily; it doesn't globally re-optimize across lines. That's the real optimizer's job (Part 2).
 
@@ -88,16 +95,16 @@ For an evaluated plan: **score = Σ (rawValue × weight)** over five factors; **
 **Comparatives** — precomputed deltas between options (the "why not B" substrate): each option carries its factor contributions + constraint bindings, so the relative reasoning is addressable without re-solving (phase-5 §5.1 / phase-6 Type-1).
 
 ### Versioning
-- **`WEIGHT_SET_VERSION = 'aps-w1'`** — stamped into every stored rationale so contributions stay interpretable if weights re-tune.
+- **`WEIGHT_SET_VERSION = 'aps-w2'`** (`= OBJECTIVE_DEFAULT_VERSION`) — stamped into every stored rationale so contributions stay interpretable if weights re-tune.
 - **`RATIONALE_SCHEMA_VERSION = '1.0'`** — the rationale shape (independent of weights).
-- **`ENGINE_VERSION = 'wi-8'`** — in the determinism key; a bump invalidates cached what-if results. Lineage: `wi-2` distinct-plan de-dup · `wi-3` line-down option set · `wi-4` calendar-aware placement · `wi-5` material gate · `wi-6` inspection + precedence · `wi-7` operator performance · `wi-8` minimum batch.
+- **`ENGINE_VERSION = 'wi-11'`** — in the determinism key; a bump invalidates cached what-if results. Lineage: `wi-2` distinct-plan de-dup · `wi-3` line-down option set · `wi-4` calendar-aware placement · `wi-5` material gate · `wi-6` inspection + precedence · `wi-7` operator performance · `wi-8` minimum batch · `wi-9`/`wi-10`/`wi-11` (descriptions TBD — RG to supply).
 
 ---
 
 ## Part 3 — Weights & configuration
 
 ### The current weights (hardcoded → must become config)
-The five weights are **hardcoded constants** (`WEIGHTS` in `whatif.weights.ts`), versioned by `aps-w1`. They are the engine's **objective function** — the business value system (how much firm-lateness matters vs. changeover vs. holding vs. stability).
+The five weights are **hardcoded constants** (`WEIGHTS` in `whatif.weights.ts`), versioned by `aps-w2`. They are the engine's **objective function** — the business value system (how much firm-lateness matters vs. changeover vs. holding vs. stability).
 
 ### Production: weights → DB, hierarchical resolution — **global → tenant → plant** (stop at plant)
 Cascading override: each level inherits from above and may override. Resolution order: **plant → tenant → global default** (most specific wins; global is the shipped-default floor, D48).
@@ -150,6 +157,8 @@ The non-negotiable hierarchy — the safety architecture:
 - **Real material availability** (§4.8/D35) — on-hand + inbound receipts from ERP, replacing the seeded date; quantity-phased netting.
 - **Inspection: reconcile to cert-skill-pool** (D29/D54) or formally fold cert-staffing into the sequencer.
 - **Labor-availability intersection** — narrow the operating calendar by real staffing.
+- **Labor-as-capacity (crew allocation as a scheduling optimization)** — let the scheduler treat crew-to-line allocation as an optimization variable: on re-solve, reallocate present qualified operators across lines to best meet the objective, BOUNDED by the fed roster (can't invent crew) + qualifications (cert-gating) + tending-capacity (attention-demand). Scheduling optimizing within the fed pool — NOT importing workforce mgmt. The double-booking guard is its first constraint.
+- **Crew per line** — multi-operator assignment → combined factor + summed labor cost.
 - **Minimum-batch surplus disposition** — where `effRunQty − demandQty` goes (inventory/netting) when min-batch binds.
 
 ### ML engine (cross-ref the "ML engine — production build TODO" in REMAINING-ITEMS.md)

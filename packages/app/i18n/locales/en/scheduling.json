@@ -80,12 +80,28 @@
   "atRisk": "At risk",
   "atRiskWithReason": "At risk: {{reason}}",
   "strandedStatus": "Can't run — line down",
+  "operatorAssign": {
+    "label": "Operator",
+    "none": "No named operator — runs at standard. The standard cycle assumes a standard-rate operator; pin one to model a faster/slower operator or track labor.",
+    "current": "{{name}} · {{pct}}% of standard · home: {{plant}}",
+    "meta": "· {{pct}}% of standard · home: {{plant}}",
+    "option": "{{name}} · {{pct}}% · {{where}}",
+    "whereUnassigned": "Unassigned",
+    "placeholder": "Assign / switch operator",
+    "unassign": "Unassign",
+    "assigned": "Operator assigned — re-solve to apply.",
+    "unassigned": "Operator unassigned — re-solve to apply.",
+    "reSolveHint": "Re-solve the board to apply on this line's run times."
+  },
   "operator": {
     "label": "Operator",
     "ofStandard": "{{pct}}% of standard",
+    "standardName": "No named operator",
+    "standardBadge": "Standard",
     "effectSlower": "Running at {{pct}}% of standard — ~{{delta}}% slower; this op's cycle reflects it.",
     "effectFaster": "Running at {{pct}}% of standard — ~{{delta}}% faster; this op's cycle reflects it.",
     "effectStandard": "Running at standard (100%) — no operator adjustment on this op's cycle.",
+    "effectUnassigned": "Running at standard — no operator pinned to this line. The standard cycle already assumes a standard-rate operator (this isn't an unstaffed line).",
     "rate": "{{rate}}/hr"
   },
   "riskReason": {

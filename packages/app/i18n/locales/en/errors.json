@@ -47,5 +47,8 @@
   "WHATIF_RESULT_NOT_FOUND": "That what-if result no longer exists.",
   "WHATIF_OPTION_NOT_FOUND": "That option no longer exists.",
   "NARRATION_UNAVAILABLE": "The plain-language explanation is unavailable.",
+  "OPERATOR_ASSIGNMENT_INVALID": "That operator assignment isn't valid — check the operator, line, and window.",
+  "OPERATOR_DOUBLE_BOOKED": "That operator is already assigned to another line in an overlapping window.",
+  "OPERATOR_ASSIGNMENT_NOT_FOUND": "That operator assignment no longer exists.",
   "GENERIC": "Something went wrong. Please try again."
 }

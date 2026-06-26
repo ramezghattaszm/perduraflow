@@ -120,7 +120,19 @@ export function OpDetailCard({ op, learned, resourceName, partNo, strandedWindow
   // 0.85 runs ~18% slower (1/0.85 − 1); 1.10 runs ~9% faster (1 − 1/1.10).
   const opOperator = (() => {
     const o = op.operator
-    if (!o) return undefined
+    if (!o) {
+      // No named operator pinned → the op ran at STANDARD. The standard cycle already assumes a
+      // standard-rate operator (IE standard-time convention); a missing assignment is NOT an unstaffed
+      // line. Show the honest standard framing rather than an empty/missing state.
+      return {
+        label: t('operator.label'),
+        name: t('operator.standardName'),
+        badge: t('operator.standardBadge'),
+        tone: 'neutral' as const,
+        effect: t('operator.effectUnassigned'),
+        rate: undefined,
+      }
+    }
     const f = o.performanceFactor
     const pct = Math.round(f * 100)
     const delta = Math.round(Math.abs(1 / f - 1) * 100)

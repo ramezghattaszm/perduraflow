@@ -12,6 +12,7 @@ import { restoreSession } from '@perduraflow/app/lib/session'
 import { useThemePreference } from '@perduraflow/app/stores/ui.store'
 import { initI18n } from '@perduraflow/app/i18n'
 import { CopilotHost } from '@perduraflow/app/features/conversation/copilot-host'
+import { PopupHost } from '@perduraflow/app/provider/PopupHost'
 
 initI18n()
 SplashScreen.preventAutoHideAsync()
@@ -49,6 +50,7 @@ export default function RootLayout() {
           <Provider defaultTheme={theme}>
             <Stack screenOptions={{ headerShown: false }} />
             <CopilotHost />
+            <PopupHost />
           </Provider>
         </QueryClientProvider>
       </SafeAreaProvider>

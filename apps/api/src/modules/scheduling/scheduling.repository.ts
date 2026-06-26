@@ -113,6 +113,24 @@ export class SchedulingRepository {
       .where(and(eq(resourceOperatorAssignment.tenantId, tenantId), eq(resourceOperatorAssignment.plantId, plantId)))
   }
 
+  /** All assignments for ONE operator across the tenant (every plant) — for the double-booking
+   *  validation (an operator can't be on two resources/plants in overlapping windows). */
+  listAssignmentsByOperator(tenantId: string, operatorId: string): Promise<ResourceOperatorAssignment[]> {
+    return this.db
+      .select()
+      .from(resourceOperatorAssignment)
+      .where(and(eq(resourceOperatorAssignment.tenantId, tenantId), eq(resourceOperatorAssignment.operatorId, operatorId)))
+  }
+
+  /** Remove an assignment by id (tenant-scoped — the ownership guard). Returns whether a row was deleted. */
+  async deleteResourceOperatorAssignment(tenantId: string, id: string): Promise<boolean> {
+    const rows = await this.db
+      .delete(resourceOperatorAssignment)
+      .where(and(eq(resourceOperatorAssignment.id, id), eq(resourceOperatorAssignment.tenantId, tenantId)))
+      .returning()
+    return rows.length > 0
+  }
+
   /**
    * Pin (or re-pin) the operator on a resource (scenario launcher) — upsert by (tenant, plant,
    * resource), so swapping the assigned operator for a line is one call. Window optional.
