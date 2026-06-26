@@ -118,7 +118,7 @@ export class WhatIfService {
 
     const specs = this.optionSpecs(changeSet, predicted)
     const evaluated = specs.map((spec) =>
-      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, givenOt, ctx.weights),
+      this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, givenOt, ctx.weights, ctx.downtimeByResource),
     )
 
     const feasible = evaluated.filter((e) => e.feasible)
@@ -281,7 +281,7 @@ export class WhatIfService {
 
     const spec = this.optionSpecs(changeSet, predicted).find((s) => s.id === optionId)
     if (!spec) throw new AppException(HttpStatus.NOT_FOUND, 'Option not found', ERROR_CODES.WHATIF_OPTION_NOT_FOUND)
-    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet), ctx.weights)
+    const run = this.runOption(spec, changed, baseOverlay, basePlacements, rateByResource, optionCalendars, ctx.resolveOperatorFactor, ctx.minBatchByResource, this.givenOvertimeHours(ctx, changeSet), ctx.weights, ctx.downtimeByResource)
     if (!run.feasible) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, 'Option is infeasible', ERROR_CODES.WHATIF_INFEASIBLE)
 
     const startedAt = new Date()
@@ -318,6 +318,13 @@ export class WhatIfService {
         cycleConfidence: p.cycleConfidence,
         atRisk: p.atRisk,
         atRiskReason: p.atRiskReason,
+        // Persist the causal-chain binding the sequencer computed (mirror solve()) — without this the
+        // applied plan's at-risk orders have no lateness chain (binding_kind null → buildLatenessChain
+        // returns null). With it, applied/committed plans trace the same as solved ones.
+        bindingKind: p.bindingKind,
+        bindingBlockerDemandLineId: p.bindingBlockerDemandLineId,
+        bindingBlockerOpSeq: p.bindingBlockerOpSeq,
+        bindingDowntimeId: p.bindingDowntimeId,
       })),
     )
     // Auto-reap prior uncommitted drafts (same as solve) so applying options doesn't accumulate
@@ -544,6 +551,7 @@ export class WhatIfService {
     minBatchByResource: Map<string, number>,
     givenOvertimeHours: number,
     weights: ObjectiveWeights,
+    downtimeByResource: BaseContext['downtimeByResource'],
   ): { spec: OptionSpec; feasible: boolean; infeasibleReasonKey: string | null; scored: ScoredPlan | null; placements: Placement[] } {
     const items = spec.itemTransform(changed)
     const starved = items.find((i) => i.eligibleResourceIds.length === 0)
@@ -559,7 +567,7 @@ export class WhatIfService {
       spec.overtimeHours > 0
         ? new Map([...resourceCalendars].map(([id, c]) => [id, { ...c, otCapMinutes: Math.min(spec.overtimeHours * 60, c.otCeilingMinutes) }]))
         : resourceCalendars
-    const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor, minBatchByResource).placements
+    const placements = sequence(items, overlay, spec.policy, cals, resolveOperatorFactor, minBatchByResource, downtimeByResource).placements
     // OT magnitude for scoring = the larger of this option's proposed OT and the compound's
     // stipulated (given) OT, so stipulated overtime is costed in the factor + cost, never free.
     const scored = scorePlan(placements, { rateByResource, basePlacements, overtimeHours: Math.max(spec.overtimeHours, givenOvertimeHours), weights })
