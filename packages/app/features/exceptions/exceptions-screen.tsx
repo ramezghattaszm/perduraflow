@@ -16,7 +16,7 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
-import { latenessSummary } from '../../utils/lateness'
+import { latenessSummary, remediationPromptKey } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources, useWorkList } from '../../hooks/useScheduling'
@@ -126,18 +126,8 @@ export function ExceptionsContent() {
   // the planner gets the right what-if (expedite/move-date for material & due_before_start; overtime
   // for capacity/window) in one click instead of selecting the row and knowing what to ask.
   const openCopilotWith = useOpenCopilotWith()
-  const resolvePrompt = (a: WorkListRowDto): string => {
-    const order = a.releaseReference ?? a.demandLineId
-    const root = a.chain?.root
-    const key =
-      root === 'material' ||
-      root === 'due_before_start' ||
-      root === 'working_window' ||
-      root === 'capacity'
-        ? `resolvePrompt.${root}`
-        : 'resolvePrompt.default'
-    return t(key, { order })
-  }
+  const resolvePrompt = (a: WorkListRowDto): string =>
+    t(remediationPromptKey(a.chain?.root), { order: a.releaseReference ?? a.demandLineId })
 
   return (
     <>

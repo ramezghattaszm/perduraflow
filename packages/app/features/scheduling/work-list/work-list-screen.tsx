@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { ArrowUp, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
+  AppButton,
   AppSelect,
   type Column,
   DataTable,
@@ -19,10 +20,11 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../../i18n'
-import { latenessLines, latenessSummary } from '../../../utils/lateness'
+import { latenessLines, latenessSummary, remediationPromptKey } from '../../../utils/lateness'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useWorkList } from '../../../hooks/useScheduling'
+import { useOpenCopilotWith } from '../../../stores/copilot.store'
 import { AdminShell } from '../../shell/admin-shell'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -94,6 +96,7 @@ export function WorkListTable({
   versionId,
 }: { plantId: string | undefined; versionId?: string }) {
   const { t } = useTranslation(['workList', 'scheduling'])
+  const openCopilotWith = useOpenCopilotWith()
   const { data, isLoading } = useWorkList(plantId, versionId)
   const [filter, setFilter] = useState<FilterValue>('all')
   const [search, setSearch] = useState('')
@@ -402,6 +405,26 @@ export function WorkListTable({
                 expandLabel={t('scheduling:lateness.expand')}
                 collapseLabel={t('scheduling:lateness.collapse')}
               />
+            ) : null}
+            {/* Per-order remediation entry point — a firm at-risk order gets "Evaluate options" right
+                from the work-list, opening the Copilot pre-seeded with the root-cause-matched lever
+                (one source: same prompt as the exception queue + board). Firm-only, matching scope. */}
+            {selected.status === 'at_risk' && selected.firmness === 'firm' ? (
+              <XStack>
+                <AppButton
+                  variant="light"
+                  size="$3"
+                  onPress={() =>
+                    openCopilotWith(
+                      t(remediationPromptKey(selected.chain?.root), {
+                        order: selected.releaseReference ?? selected.demandLineId,
+                      })
+                    )
+                  }
+                >
+                  {t('exceptions:evaluateOptions')}
+                </AppButton>
+              </XStack>
             ) : null}
           </YStack>
         </Panel>

@@ -33,7 +33,7 @@ import {
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
-import { latenessLines, latenessSummary } from '../../../utils/lateness'
+import { latenessLines, latenessSummary, remediationPromptKey } from '../../../utils/lateness'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts, useResourceDowntime } from '../../../hooks/useMasterData'
@@ -46,12 +46,14 @@ import {
   useScheduleVersion,
   useScheduleVersions,
   useSolveSchedule,
+  useWorkList,
 } from '../../../hooks/useScheduling'
 import { useLearnedParameters, usePredictions, useVariance } from '../../../hooks/useLearning'
 import { useWhatIf } from '../../../hooks/useWhatIf'
 import { useToast } from '../../../hooks/useToast'
 import { useSessionState } from '../../../hooks/useSessionState'
 import { useSetScreenContext } from '../../../stores/screenContext.store'
+import { useOpenCopilotWith } from '../../../stores/copilot.store'
 import { AdminShell } from '../../shell/admin-shell'
 import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
 import { WorkListTable } from '../work-list/work-list-screen'
@@ -89,12 +91,16 @@ export function BoardContent() {
   )
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
   const { data: variance } = useVariance(versionId ?? undefined)
+  // Same query key as the embedded WorkListTable → React Query dedupes (no extra request). Used for
+  // the per-order firm at-risk "Evaluate options" affordance on the op panel.
+  const { data: workList } = useWorkList(plantId ?? undefined, versionId ?? undefined)
   const { data: learned = [] } = useLearnedParameters()
   const { data: predictions = [] } = usePredictions(plantId ?? undefined)
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
   const discard = useDiscardDraft()
   const whatIf = useWhatIf()
+  const openCopilotWith = useOpenCopilotWith()
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
   const [whatIfError, setWhatIfError] = useState<string | null>(null)
   // Which condition produced the visible option-set — lets that condition's CTA toggle
@@ -316,6 +322,19 @@ export function BoardContent() {
   const firmLineIds = useMemo(
     () => new Set(demand.filter((d) => d.firmness === 'firm').map((d) => d.demandLineId)),
     [demand]
+  )
+  // Firm at-risk orders, keyed by demand line, from the WORK-LIST (the order-grain single source the
+  // exception queue uses) — NOT the demand endpoint, which omits warm-start/synthetic lines and so
+  // can't see every at-risk order. This drives the per-order "Evaluate options" action: it carries the
+  // row's causal-chain root (for the root-matched prompt) and the order reference (the prompt label).
+  const firmAtRiskByLine = useMemo(
+    () =>
+      new Map(
+        (workList?.rows ?? [])
+          .filter((r) => r.status === 'at_risk' && r.firmness === 'firm')
+          .map((r) => [r.demandLineId, r])
+      ),
+    [workList]
   )
   const atRiskFirmCount = new Set(
     kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
@@ -705,7 +724,6 @@ export function BoardContent() {
 
   const tl = (k: string, o?: Record<string, unknown>): string => t(k, o ?? {})
   const opPanel = selectedOp ? (
-    <YStack gap="$2.5">
       <LearnedParamPanel
         title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
         subtitle={`op ${selectedOp.opSeq}`}
@@ -776,17 +794,45 @@ export function BoardContent() {
               }
             : undefined
         }
+        // The "why late" chain + the per-order "Evaluate options" remediation action live INSIDE the
+        // card (the footer slot), not as loose siblings below it. The action is the per-order entry
+        // point (not only the exception queue): firm at-risk only, opening the Copilot pre-seeded with
+        // the lever matching the causal-chain root — firmness/root/order ref all from the work-list row.
+        footer={(() => {
+          const row = !readOnly ? firmAtRiskByLine.get(selectedOp.demandLineId) : undefined
+          if (!selectedOp.latenessChain && !row) return undefined
+          return (
+            <>
+              {selectedOp.latenessChain ? (
+                <LatenessChain
+                  title={t('lateness.why')}
+                  summary={latenessSummary(selectedOp.latenessChain, tl)}
+                  lines={latenessLines(selectedOp.latenessChain, tl)}
+                  expandLabel={t('lateness.expand')}
+                  collapseLabel={t('lateness.collapse')}
+                />
+              ) : null}
+              {row ? (
+                <XStack>
+                  <AppButton
+                    variant="light"
+                    size="$3"
+                    onPress={() =>
+                      openCopilotWith(
+                        t(remediationPromptKey(row.chain?.root), {
+                          order: row.releaseReference ?? row.demandLineId,
+                        })
+                      )
+                    }
+                  >
+                    {t('exceptions:evaluateOptions')}
+                  </AppButton>
+                </XStack>
+              ) : null}
+            </>
+          )
+        })()}
       />
-      {selectedOp.latenessChain ? (
-        <LatenessChain
-          title={t('lateness.why')}
-          summary={latenessSummary(selectedOp.latenessChain, tl)}
-          lines={latenessLines(selectedOp.latenessChain, tl)}
-          expandLabel={t('lateness.expand')}
-          collapseLabel={t('lateness.collapse')}
-        />
-      ) : null}
-    </YStack>
   ) : null
 
   // ===== Resource / line wear surface (click a lane) — RESOURCE-LEVEL ONLY =====

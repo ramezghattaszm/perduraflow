@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { ArrowUpRight } from '@tamagui/lucide-icons'
 import { XStack, YStack } from 'tamagui'
 import { StatusPill, type StatusTone } from './StatusPill'
@@ -69,6 +70,10 @@ export interface LearnedParamPanelProps {
   /** A small pointer to the line surface when the resource has a wear forecast — the
    *  prediction itself lives on {@link ResourceWearPanel}, never in the op panel. */
   wearPointer?: { label: string; onPress: () => void }
+  /** Extra content rendered INSIDE the card, below the metric/performance — e.g. an at-risk op's
+   *  lateness chain ("why late") + a remediation action. Kept generic: the caller supplies the node,
+   *  the panel frames it (top-border separator) so it reads as part of the card, not a loose sibling. */
+  footer?: ReactNode
 }
 
 /**
@@ -95,6 +100,7 @@ export function LearnedParamPanel({
   predicted,
   performance,
   wearPointer,
+  footer,
 }: LearnedParamPanelProps) {
   const isMeasured = provenance === 'measured' && Boolean(measured)
   const isPredicted = provenance === 'predicted' && Boolean(predicted)
@@ -269,6 +275,14 @@ export function LearnedParamPanel({
             </P>
             <ArrowUpRight size={16} color="$warning" />
           </XStack>
+        ) : null}
+
+        {/* Caller-supplied footer (e.g. the lateness chain + remediation action) — framed inside the
+            card so it belongs to the panel, not floating below it. */}
+        {footer ? (
+          <YStack gap="$2.5" marginTop="$1" borderTopWidth={1} borderTopColor="$borderColor" paddingTop="$3">
+            {footer}
+          </YStack>
         ) : null}
       </YStack>
     </YStack>
