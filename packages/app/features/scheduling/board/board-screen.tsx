@@ -2,14 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { CircleCheck, TriangleAlert } from '@tamagui/lucide-icons'
-import type {
-  GanttBar,
-  MeasuredDetail,
-  ParamProvenance,
-  PredictedDetail,
-  VarianceChip,
-  WearPrediction,
-} from '@perduraflow/ui'
+import type { GanttBar, VarianceChip, WearPrediction } from '@perduraflow/ui'
 import type { ChangeSet, WhatIfResultDto } from '@perduraflow/contracts'
 import {
   AppButton,
@@ -18,8 +11,6 @@ import {
   H,
   KpiTile,
   KpiTileRow,
-  LatenessChain,
-  LearnedParamPanel,
   P,
   PageHeader,
   Panel,
@@ -33,7 +24,8 @@ import {
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
-import { latenessLines, latenessSummary, remediationPromptKey } from '../../../utils/lateness'
+import { remediationPromptKey } from '../../../utils/lateness'
+import { OpDetailCard } from '../op-detail-card'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useParts, useResourceDowntime } from '../../../hooks/useMasterData'
@@ -610,115 +602,13 @@ export function BoardContent() {
         return `${w.from} – ${w.to}`
       })()
     : null
-  const scheduleRows = selectedOp
-    ? [
-        {
-          label: t('board.tooltip.resource'),
-          value: resourceName.get(selectedOp.resourceId) ?? '—',
-        },
-        { label: t('board.tooltip.demandLine'), value: selectedOp.demandLineId ?? '—' },
-        {
-          label: t('board.tooltip.scheduled'),
-          value: `${fmtTime(new Date(selectedOp.plannedStart).getTime())} – ${fmtTime(new Date(selectedOp.plannedEnd).getTime())}`,
-        },
-        // Stranded: the line is down across this op's slot → it can't run as planned.
-        ...(selectedStrandedWindowLabel
-          ? [{ label: t('board.tooltip.downWindow'), value: selectedStrandedWindowLabel }]
-          : []),
-        { label: t('board.tooltip.setup'), value: `${Math.round(selectedOp.setupTime)} min` },
-        {
-          label: t('board.tooltip.run'),
-          value: `${Math.round(selectedOp.cycleTime * selectedOp.plannedQty)} min`,
-        },
-      ]
-    : []
-
-  const r2 = (n: number) => Number(n.toFixed(2)) // round to ≤2 decimals (drops trailing zeros)
   const fmtH = (min: number) =>
     min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${Math.round(min)}m`
 
   // ===== Operation panel (click a bar) — OPERATION-LEVEL ONLY =====
-  // Provenance reflects the cycle the SCHEDULE PLANNED THIS OP WITH — `selectedOp.cycleSource`,
-  // which is per-op and date-aware (the forward-only gate already reverted past ops to std). We do
-  // NOT read the line's live overlay row here: that single record is date-agnostic, so after a
-  // pre-adopt it would mislabel an already-run op (cycleSource=standard, with actuals) as
-  // "predicted". Actuals, when present, render in the Performance section below — independent of
-  // provenance (an executed op shows its planned source + its actuals, never "predicted").
-  const opSource = selectedOp?.cycleSource
-  const opProvenance: ParamProvenance =
-    opSource === 'ml_predicted' ? 'predicted' : opSource === 'ml_adjusted' ? 'measured' : 'standard'
-
-  let opMeasured: MeasuredDetail | undefined
-  if (opProvenance === 'measured' && selectedLearned?.source === 'ml_adjusted' && selectedLearned.learnedValue != null) {
-    const std = selectedLearned.stdBaseline
-    const lv = selectedLearned.learnedValue
-    opMeasured = {
-      standardText: `${r2(std)}m`,
-      learnedText: `${r2(lv)}m`,
-      deltaText: `${lv >= std ? '+' : ''}${Math.round(((lv - std) / std) * 100)}%`,
-      basisText: t('learned.basis', { count: selectedLearned.sampleCount }),
-      settledText: t('learned.settled'),
-    }
-  }
-
-  // Adopted-but-not-applied: a held learned value EXISTS for this op, yet the committed plan still
-  // runs it on standard (the plan is stale until re-solve). This is NOT "still accruing / not enough
-  // to adopt" — adoption already happened; the schedule just hasn't picked it up. Keep the two
-  // honestly distinct so the op panel never claims "not enough actuals" when the learner has adopted.
-  const opAdoptedStale =
-    opProvenance === 'standard' && selectedLearned?.status === 'held' && selectedLearned.learnedValue != null
-  const opLearnedDeltaPct =
-    selectedLearned && selectedLearned.learnedValue != null && selectedLearned.stdBaseline > 0
-      ? Math.round(((selectedLearned.learnedValue - selectedLearned.stdBaseline) / selectedLearned.stdBaseline) * 100)
-      : 0
-
-  let opPredicted: PredictedDetail | undefined
-  if (opProvenance === 'predicted' && selectedLearned?.source === 'ml_predicted' && selectedLearned.learnedValue != null) {
-    const std = selectedLearned.stdBaseline
-    const pv = selectedLearned.learnedValue
-    opPredicted = {
-      standardText: `${r2(std)}m`,
-      predictedText: `${r2(pv)}m`,
-      deltaText: `${pv >= std ? '+' : ''}${Math.round(((pv - std) / std) * 100)}%`,
-      basisText: t('learned.predictedBasis'),
-      noteText: t('learned.predictedNote'),
-    }
-  }
-
-  // Performance — planned vs actual; shown WHENEVER the op has actuals (independent of any forecast).
-  type PerfRow = { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }
-  let perfRows: PerfRow[] | undefined
-  if (selectedOp?.actual) {
-    const a = selectedOp.actual
-    const plannedRun = selectedOp.setupTime + selectedOp.cycleTime * selectedOp.plannedQty
-    const actualRun = (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000
-    const runDelta = plannedRun > 0 ? (actualRun - plannedRun) / plannedRun : 0
-    perfRows = [
-      {
-        label: t('board.perf.cycle'),
-        value:
-          a.actualCycleTime != null
-            ? `${r2(selectedOp.cycleTime)} → ${r2(a.actualCycleTime)} min`
-            : '—',
-        tone:
-          a.actualCycleTime == null
-            ? undefined
-            : a.actualCycleTime > selectedOp.cycleTime
-              ? 'warn'
-              : 'ok',
-      },
-      {
-        label: t('board.perf.run'),
-        value: `${Math.round(plannedRun)} → ${Math.round(actualRun)} min (${runDelta >= 0 ? '+' : ''}${Math.round(runDelta * 100)}%)`,
-        tone: runDelta > 0.02 ? 'warn' : runDelta < -0.02 ? 'ok' : undefined,
-      },
-      {
-        label: t('board.perf.output'),
-        value: `${a.goodQty} / ${a.scrapQty}`,
-        tone: a.scrapQty > 0 ? 'bad' : 'ok',
-      },
-    ]
-  }
+  // The op-detail derivation (provenance, learned/predicted, performance, operator, schedule rows)
+  // lives in the shared OpDetailCard so the board + work-list render the same card. The board only
+  // computes the two board-specific actions below (wear pointer + Evaluate options).
 
   // A pointer to the line surface when the op's resource has a live forecast (the
   // prediction itself lives on the resource panel, never the op panel).
@@ -726,117 +616,38 @@ export function BoardContent() {
     ? predictions.some((p) => p.resourceId === selectedOp.resourceId)
     : false
 
-  const tl = (k: string, o?: Record<string, unknown>): string => t(k, o ?? {})
+  // The clicked Gantt bar opens the shared OpDetailCard (the SAME card the work-list drills into). The
+  // board supplies the op + its learned record + the two context actions: a wear pointer that jumps to
+  // the resource lane (board-only) and the firm-at-risk "Evaluate options" (gated off the work-list row).
   const opPanel = selectedOp ? (
-      <LearnedParamPanel
-        title={`${partNo.get(selectedOp.partId) ?? selectedOp.partId} · ${resourceName.get(selectedOp.resourceId) ?? ''}`}
-        subtitle={`op ${selectedOp.opSeq}`}
-        status={
-          selectedOp.atRisk
-            ? {
-                label: selectedOp.atRiskReason
-                  ? t('atRiskWithReason', {
-                      reason: t(`riskReason.${selectedOp.atRiskReason}`, {
-                        defaultValue: selectedOp.atRiskReason,
-                      }),
-                    })
-                  : t('atRisk'),
-                tone: 'danger',
-              }
-            : selectedOp.stranded
-              ? // FACT, not a prediction: the line is down across this op's slot — it can't run as
-                // planned (re-sequence). Amber (warning), distinct from at-risk red. See the down-window
-                // row + the line-down condition card's options.
-                { label: t('strandedStatus'), tone: 'warning' as const }
-              : undefined
-        }
-        scheduleRows={scheduleRows}
-        metricLabel={
-          opProvenance === 'measured'
-            ? t('learned.cycle')
-            : opProvenance === 'predicted'
-              ? t('learned.cyclePredicted')
-              : t('learned.cycleStd')
-        }
-        sourceText={
-          opProvenance === 'measured'
-            ? t('source.ml_adjusted')
-            : opProvenance === 'predicted'
-              ? t('source.ml_predicted')
-              : t('source.standard')
-        }
-        provenance={opProvenance}
-        standardText={`${r2(selectedOp.cycleTime)}m`}
-        secondary={{ label: t('learned.setupRow'), value: `${selectedOp.setupTime}m` }}
-        standardNote={
-          opAdoptedStale
-            ? t('learned.staleAdopted', {
-                delta: opLearnedDeltaPct,
-                count: selectedLearned?.sampleCount ?? 0,
-              })
-            : selectedLearned && selectedLearned.sampleCount > 0
-              ? t('learned.accruing', { count: selectedLearned.sampleCount })
-              : t('learned.noAdjustment')
-        }
-        measured={opMeasured}
-        predicted={opPredicted}
-        performance={
-          selectedOp.actual
-            ? { label: t('board.perf.title'), rows: perfRows, emptyText: t('board.perf.empty') }
-            : undefined
-        }
-        wearPointer={
-          opResourceHasPrediction
-            ? {
-                label: t('board.pred.pointer', {
-                  resource: resourceName.get(selectedOp.resourceId) ?? '',
-                }),
-                onPress: () => {
-                  setSelectedResourceId(selectedOp.resourceId)
-                  setSelectedBarId(null)
-                },
-              }
-            : undefined
-        }
-        // The "why late" chain + the per-order "Evaluate options" remediation action live INSIDE the
-        // card (the footer slot), not as loose siblings below it. The action is the per-order entry
-        // point (not only the exception queue): firm at-risk only, opening the Copilot pre-seeded with
-        // the lever matching the causal-chain root — firmness/root/order ref all from the work-list row.
-        footer={(() => {
-          const row = !readOnly ? firmAtRiskByLine.get(selectedOp.demandLineId) : undefined
-          if (!selectedOp.latenessChain && !row) return undefined
-          return (
-            <>
-              {selectedOp.latenessChain ? (
-                <LatenessChain
-                  title={t('lateness.why')}
-                  summary={latenessSummary(selectedOp.latenessChain, tl)}
-                  lines={latenessLines(selectedOp.latenessChain, tl)}
-                  expandLabel={t('lateness.expand')}
-                  collapseLabel={t('lateness.collapse')}
-                />
-              ) : null}
-              {row ? (
-                <XStack>
-                  <AppButton
-                    variant="light"
-                    size="$3"
-                    onPress={() =>
-                      evaluateOptions(
-                        t(remediationPromptKey(row.chain?.root), {
-                          order: row.releaseReference ?? row.demandLineId,
-                        })
-                      )
-                    }
-                  >
-                    {t('exceptions:evaluateOptions')}
-                  </AppButton>
-                </XStack>
-              ) : null}
-            </>
-          )
-        })()}
-      />
+    <OpDetailCard
+      op={selectedOp}
+      learned={selectedLearned}
+      resourceName={resourceName.get(selectedOp.resourceId) ?? ''}
+      partNo={partNo.get(selectedOp.partId) ?? selectedOp.partId}
+      strandedWindowLabel={selectedStrandedWindowLabel}
+      wearPointer={
+        opResourceHasPrediction
+          ? {
+              label: t('board.pred.pointer', { resource: resourceName.get(selectedOp.resourceId) ?? '' }),
+              onPress: () => {
+                setSelectedResourceId(selectedOp.resourceId)
+                setSelectedBarId(null)
+              },
+            }
+          : undefined
+      }
+      evaluateOptions={(() => {
+        const row = !readOnly ? firmAtRiskByLine.get(selectedOp.demandLineId) : undefined
+        return row
+          ? {
+              label: t('exceptions:evaluateOptions'),
+              onPress: () =>
+                evaluateOptions(t(remediationPromptKey(row.chain?.root), { order: row.releaseReference ?? row.demandLineId })),
+            }
+          : undefined
+      })()}
+    />
   ) : null
 
   // ===== Resource / line wear surface (click a lane) — RESOURCE-LEVEL ONLY =====

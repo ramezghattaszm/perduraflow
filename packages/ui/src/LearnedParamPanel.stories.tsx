@@ -78,3 +78,30 @@ export const Standard: Story = {
     </YStack>
   ),
 }
+
+/** With the operator the engine applied (C5): a slower-than-standard operator (warn) whose factor
+ *  stretched this op's cycle — shown as provenance alongside the cycle source. */
+export const WithOperator: Story = {
+  render: () => (
+    <YStack maxWidth={400}>
+      <LearnedParamPanel
+        title="FG-2001 · Press Line A"
+        subtitle="op 10"
+        provenance="standard"
+        metricLabel="Cycle time"
+        sourceText="std"
+        standardText="1.50m"
+        secondary={{ label: 'Setup', value: '20m' }}
+        standardNote="Running on standard times — not enough actuals to adopt a learned value."
+        operator={{
+          label: 'Operator',
+          name: 'Ana Reyes',
+          badge: '85% of standard',
+          tone: 'warn',
+          effect: "Running at 85% of standard — ~18% slower; this op's cycle reflects it.",
+          rate: '$26.00/hr',
+        }}
+      />
+    </YStack>
+  ),
+}

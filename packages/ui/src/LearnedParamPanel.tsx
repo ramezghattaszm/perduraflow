@@ -70,6 +70,10 @@ export interface LearnedParamPanelProps {
   /** A small pointer to the line surface when the resource has a wear forecast — the
    *  prediction itself lives on {@link ResourceWearPanel}, never in the op panel. */
   wearPointer?: { label: string; onPress: () => void }
+  /** The operator the engine applied to this op (C5) — name + performance + the timing effect, shown
+   *  as provenance (like the cycle source). The caller passes already-formatted/i18n strings; the
+   *  panel only styles them. `tone`: faster = ok, slower = warn, standard = neutral. */
+  operator?: { label: string; name: string; badge: string; tone: 'ok' | 'warn' | 'neutral'; effect: string; rate?: string }
   /** Extra content rendered INSIDE the card, below the metric/performance — e.g. an at-risk op's
    *  lateness chain ("why late") + a remediation action. Kept generic: the caller supplies the node,
    *  the panel frames it (top-border separator) so it reads as part of the card, not a loose sibling. */
@@ -100,12 +104,22 @@ export function LearnedParamPanel({
   predicted,
   performance,
   wearPointer,
+  operator,
   footer,
 }: LearnedParamPanelProps) {
+  const opTone =
+    operator?.tone === 'ok'
+      ? { bg: '$successSoft' as const, fg: '$success' as const }
+      : operator?.tone === 'warn'
+        ? { bg: '$warningSoft' as const, fg: '$warning' as const }
+        : { bg: '$surfaceRaised' as const, fg: '$textSecondary' as const }
   const isMeasured = provenance === 'measured' && Boolean(measured)
   const isPredicted = provenance === 'predicted' && Boolean(predicted)
   return (
-    <YStack backgroundColor="$surface" borderWidth={1} borderColor="$borderColor" borderRadius="$5" overflow="hidden">
+    // Chromeless + full-width: no outer border/radius so it sits flush inside its container (e.g. the
+    // popup) rather than reading as a nested card. The PARENT controls width (and any chrome), so the
+    // same component drops into a popup, a sidebar panel, or a page section without changes.
+    <YStack backgroundColor="$surface" width="100%">
       <YStack padding="$4" borderBottomWidth={1} borderBottomColor="$borderColor" gap="$1">
         <XStack justifyContent="space-between" alignItems="flex-start" gap="$2">
           <YStack flex={1} gap="$1">
@@ -230,6 +244,36 @@ export function LearnedParamPanel({
             ) : null}
           </>
         )}
+
+        {/* Operator (C5) — who the engine applied to this op + the factor that shaped its cycle.
+            Provenance, like the cycle source: name · rate, a performance badge, and the timing effect. */}
+        {operator ? (
+          <YStack gap="$2" marginTop="$1" borderTopWidth={1} borderTopColor="$borderColor" paddingTop="$3">
+            <XStack alignItems="center" justifyContent="space-between" gap="$2" flexWrap="wrap">
+              <P size={5} weight="b" caps color="$textTertiary">
+                {operator.label}
+              </P>
+              <XStack backgroundColor={opTone.bg} borderRadius="$3" paddingHorizontal="$2" paddingVertical="$0.5">
+                <P size={5} weight="b" color={opTone.fg}>
+                  {operator.badge}
+                </P>
+              </XStack>
+            </XStack>
+            <XStack alignItems="baseline" gap="$2" flexWrap="wrap">
+              <P size={3} weight="m" color="$textPrimary">
+                {operator.name}
+              </P>
+              {operator.rate ? (
+                <P size={4} color="$textSecondary">
+                  · {operator.rate}
+                </P>
+              ) : null}
+            </XStack>
+            <P size={4} color="$textSecondary">
+              {operator.effect}
+            </P>
+          </YStack>
+        ) : null}
 
         {/* Performance — planned vs actual for THIS op; shown whenever actuals exist
             (independent of any line forecast). */}

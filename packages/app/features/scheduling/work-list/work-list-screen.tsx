@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
+import { ArrowUp, ChevronRight, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
   AppButton,
@@ -22,9 +22,12 @@ import { useTranslation } from '../../../i18n'
 import { latenessLines, latenessSummary, remediationPromptKey } from '../../../utils/lateness'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
-import { useWorkList } from '../../../hooks/useScheduling'
+import { useScheduleVersion, useWorkList } from '../../../hooks/useScheduling'
+import { useLearnedParameters } from '../../../hooks/useLearning'
+import { useParts } from '../../../hooks/useMasterData'
 import { useEvaluateOptions } from '../../../hooks/useEvaluateOptions'
 import { useActivePopup, usePopup } from '../../../stores/popup.store'
+import { OpDetailCard } from '../op-detail-card'
 import { AdminShell } from '../../shell/admin-shell'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -103,6 +106,25 @@ export function WorkListTable({
   const [filter, setFilter] = useState<FilterValue>('all')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // The op the user drilled into from the order rollup (null = showing the rollup). Drives whether the
+  // popup shows the order rollup or the shared op card; "back" just clears it.
+  const [drilledOpSeq, setDrilledOpSeq] = useState<number | null>(null)
+
+  // Drill-in: an op row in the order rollup opens the SHARED OpDetailCard (the same card the board's
+  // Gantt bar opens). The work-list rows carry only a thin op summary, so resolve the full op from the
+  // version detail (same scheduleVersionId the work-list was computed against) + its learned record.
+  const { data: versionDetail } = useScheduleVersion(data?.scheduleVersionId ?? undefined)
+  const { data: learnedParams = [] } = useLearnedParameters()
+  const { data: partsList = [] } = useParts()
+  const fullOpByKey = useMemo(
+    () => new Map((versionDetail?.operations ?? []).map((op) => [`${op.demandLineId}:${op.opSeq}`, op])),
+    [versionDetail],
+  )
+  const learnedCycleByKey = useMemo(
+    () => new Map(learnedParams.filter((l) => l.param === 'cycle').map((l) => [`${l.resourceId}:${l.routingOperationId}`, l])),
+    [learnedParams],
+  )
+  const partNoById = useMemo(() => new Map(partsList.map((p) => [p.id, p.partNo])), [partsList])
 
   const counts = data?.counts ?? { total: 0, completed: 0, atRisk: 0, stranded: 0, inProgress: 0, scheduled: 0 }
   const rows = data?.rows ?? []
@@ -143,6 +165,32 @@ export function WorkListTable({
   }, [rows, filter, search, t])
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
 
+  // The drilled-into op card (the SAME component the board's Gantt bar opens), shown in the popup when
+  // an op row is clicked. Resolves the full op from the version detail + its learned record; carries a
+  // "back" to the rollup and (for firm at-risk) the same "Evaluate options" the board uses. Null when
+  // not drilled in or the full op isn't resolved yet → the popup shows the order rollup instead.
+  const drilledOp = selected && drilledOpSeq != null ? selected.ops.find((o) => o.opSeq === drilledOpSeq) : undefined
+  const drilledFullOp = selected && drilledOpSeq != null ? fullOpByKey.get(`${selected.demandLineId}:${drilledOpSeq}`) : undefined
+  const opCardContent =
+    selected && drilledOp && drilledFullOp ? (
+      <OpDetailCard
+        op={drilledFullOp}
+        learned={learnedCycleByKey.get(`${drilledFullOp.resourceId}:${drilledFullOp.routingOperationId}`)}
+        resourceName={drilledOp.resourceName}
+        partNo={partNoById.get(drilledFullOp.partId) ?? drilledFullOp.partId}
+        onBack={{ label: t('detail.back'), onPress: () => setDrilledOpSeq(null) }}
+        evaluateOptions={
+          selected.status === 'at_risk' && selected.firmness === 'firm'
+            ? {
+                label: t('exceptions:evaluateOptions'),
+                onPress: () =>
+                  evaluateOptions(t(remediationPromptKey(selected.chain?.root), { order: selected.releaseReference ?? selected.demandLineId })),
+              }
+            : undefined
+        }
+      />
+    ) : null
+
   // The row detail (ops + "why late" chain + the firm-at-risk "Evaluate options" action) opens in the
   // GLOBAL POPUP (usePopup) when a row is clicked — same as the board op card. Content only; the popup
   // supplies the frame + title. A snapshot of the selected row.
@@ -151,25 +199,43 @@ export function WorkListTable({
       <P size={5} weight="b" caps color="$textTertiary">
         {t('detail.ops')}
       </P>
-      {selected.ops.map((o) => (
-        <XStack key={o.opSeq} gap="$3" alignItems="center" flexWrap="wrap">
-          <StatusPill tone={STATUS_TONE[o.status]}>{t(`status.${o.status}`)}</StatusPill>
-          <P size={3} weight="m" color="$textPrimary">
-            {t('detail.op', { opSeq: o.opSeq })} · {o.resourceName}
-          </P>
-          <P size={4} color="$textSecondary">
-            {t('detail.planned', { start: fmtDayTime(o.plannedStart), end: fmtDayTime(o.plannedEnd) })}
-          </P>
-        </XStack>
-      ))}
+      {/* Each op drills into the shared op card (chevron = clickable). Multiple ops are split by a thin
+          divider (like the work-list rows) with minimal vertical padding. */}
+      <YStack>
+        {selected.ops.map((o, i) => (
+          <XStack
+            key={o.opSeq}
+            gap="$3"
+            alignItems="center"
+            cursor="pointer"
+            hoverStyle={{ opacity: 0.7 }}
+            onPress={() => setDrilledOpSeq(o.opSeq)}
+            paddingVertical="$1.5"
+            {...(i > 0 ? { borderTopWidth: 1, borderTopColor: '$borderColor' } : {})}
+          >
+            <XStack flex={1} gap="$3" alignItems="center" flexWrap="wrap">
+              <StatusPill tone={STATUS_TONE[o.status]}>{t(`status.${o.status}`)}</StatusPill>
+              <P size={3} weight="m" color="$textPrimary">
+                {t('detail.op', { opSeq: o.opSeq })} · {o.resourceName}
+              </P>
+              <P size={4} color="$textSecondary">
+                {t('detail.planned', { start: fmtDayTime(o.plannedStart), end: fmtDayTime(o.plannedEnd) })}
+              </P>
+            </XStack>
+            <ChevronRight size={16} color="$textTertiary" />
+          </XStack>
+        ))}
+      </YStack>
       {selected.status === 'at_risk' && selected.chain ? (
-        <LatenessChain
-          title={t('detail.why')}
-          summary={latenessSummary(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
-          lines={latenessLines(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
-          expandLabel={t('scheduling:lateness.expand')}
-          collapseLabel={t('scheduling:lateness.collapse')}
-        />
+        <YStack marginTop="$2">
+          <LatenessChain
+            title={t('detail.why')}
+            summary={latenessSummary(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
+            lines={latenessLines(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
+            expandLabel={t('scheduling:lateness.expand')}
+            collapseLabel={t('scheduling:lateness.collapse')}
+          />
+        </YStack>
       ) : null}
       {/* Firm at-risk → "Evaluate options" (same root-matched prompt as the board + exception queue).
           On small screens this dismisses the sheet first (useEvaluateOptions) before the Copilot. */}
@@ -198,16 +264,24 @@ export function WorkListTable({
   // selection only changes via dismiss → no row→row race.
   const detailPopupOpenRef = useRef(false)
   useEffect(() => {
-    if (selected) showPopup({ title: t('detail.title', { label: selected.label }), content: detailContent, size: 'medium' })
-    else if (detailPopupOpenRef.current) hidePopup()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-show only on selection change; content is a snapshot
-  }, [selectedId])
-  // Dismissed (overlay / escape / drag) → clear the row selection so the same row can be reopened.
+    if (!selected) {
+      if (detailPopupOpenRef.current) hidePopup()
+      return
+    }
+    // Drilled into an op → the shared op card (with a back to the rollup); else the order rollup.
+    if (opCardContent) showPopup({ size: 'medium', content: opCardContent })
+    else showPopup({ title: t('detail.title', { label: selected.label }), content: detailContent, size: 'medium' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-show only on selection / drill change; content is a snapshot
+  }, [selectedId, drilledOpSeq])
+  // Dismissed (overlay / escape / drag) → clear the row + drill so the same row can be reopened.
   // Fire only on the open→closed transition (a fresh selection's show() hasn't applied yet this render).
   useEffect(() => {
     const wasOpen = detailPopupOpenRef.current
     detailPopupOpenRef.current = Boolean(activePopup)
-    if (wasOpen && !activePopup && selectedId) setSelectedId(null)
+    if (wasOpen && !activePopup && selectedId) {
+      setSelectedId(null)
+      setDrilledOpSeq(null)
+    }
   }, [activePopup, selectedId])
   // Don't leak the popup onto the next screen if the table unmounts while it's open.
   useEffect(() => () => { if (detailPopupOpenRef.current) hidePopup() }, [hidePopup])
@@ -425,7 +499,10 @@ export function WorkListTable({
         columns={columns}
         rows={filtered}
         isLoading={isLoading}
-        onRowPress={(r) => setSelectedId((cur) => (cur === r.id ? null : r.id))}
+        onRowPress={(r) => {
+          setDrilledOpSeq(null)
+          setSelectedId((cur) => (cur === r.id ? null : r.id))
+        }}
         emptyTitle={rows.length === 0 ? t('empty') : t('emptyFiltered')}
         minRowWidth={980}
         rowsMatchHeader

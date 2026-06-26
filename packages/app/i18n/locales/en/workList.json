@@ -44,6 +44,7 @@
     "op": "op {{opSeq}}",
     "planned": "{{start}} → {{end}}",
     "why": "Why at-risk",
+    "back": "Back to order",
     "selectHint": "Select a row to see its operations."
   }
 }

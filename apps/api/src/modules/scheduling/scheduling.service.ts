@@ -122,6 +122,46 @@ function downtimeMaps(downtime: ResourceDowntimeDto[]): {
   }
   return { closed, windows }
 }
+
+/** The operator assigned to a resource at an instant — null when none covers it (→ standard). */
+export interface AssignedOperator {
+  id: string
+  name: string
+  performanceFactor: number
+  laborRate: number | null
+}
+
+/**
+ * Build the operator resolver the engine + the read path SHARE (C5): given the plant's operators and
+ * their resource assignments, return the operator covering a (resource, instant) — the assignments
+ * whose `[effectiveFrom, effectiveTo)` window contains the instant, picked deterministically (latest
+ * `effectiveFrom`, then lowest operatorId). Null when none covers it → factor 1.0 (standard), exactly
+ * like a component with no material row = on-hand. The factor lives on the operator, not the
+ * assignment. One source so the sequencer's run-time scaling and the op card's "who ran this" agree.
+ */
+export function buildOperatorResolver(
+  operators: Array<{ id: string; name: string; performanceFactor: number; laborRate: number | null }>,
+  assignments: Array<{ resourceId: string; operatorId: string; effectiveFrom: Date | null; effectiveTo: Date | null }>,
+): (resourceId: string, atMs: number) => AssignedOperator | null {
+  const byId = new Map(operators.map((o) => [o.id, o]))
+  const byResource = new Map<string, Array<{ operatorId: string; from: number; to: number }>>()
+  for (const a of assignments) {
+    const arr = byResource.get(a.resourceId) ?? []
+    arr.push({
+      operatorId: a.operatorId,
+      from: a.effectiveFrom?.getTime() ?? Number.NEGATIVE_INFINITY,
+      to: a.effectiveTo?.getTime() ?? Number.POSITIVE_INFINITY,
+    })
+    byResource.set(a.resourceId, arr)
+  }
+  return (resourceId, atMs) => {
+    const candidates = (byResource.get(resourceId) ?? []).filter((a) => atMs >= a.from && atMs < a.to)
+    if (candidates.length === 0) return null
+    candidates.sort((x, y) => y.from - x.from || (x.operatorId < y.operatorId ? -1 : 1))
+    const op = byId.get(candidates[0]!.operatorId)
+    return op ? { id: op.id, name: op.name, performanceFactor: op.performanceFactor, laborRate: op.laborRate } : null
+  }
+}
 /**
  * The daily working window spanning a set of resource calendars — the earliest shift
  * open to the latest shift close (minutes from midnight), for the Gantt axis (D-shift).
@@ -292,12 +332,21 @@ export class SchedulingService {
     // Stranded ops (committed op ∩ active line-down window) — a FACT the board marks "can't run as
     // planned", distinct from at-risk. One source (same helper feeds the work-list).
     const stranded = await this.strandedOpIds(tenantId, version.plantId, ops)
+    // The operator the engine applied per op — same (resource, op-start) assignment lookup the
+    // sequencer used (buildOperatorResolver), so the card shows WHO ran it + the factor that shaped
+    // this op's cycle. Resolved against current assignments (the board flags staleness separately).
+    const md = await this.resolveMasterData(tenantId)
+    const resolveOperator = buildOperatorResolver(
+      await md.listOperators(tenantId),
+      await this.repo.listResourceOperatorAssignments(tenantId, version.plantId),
+    )
     return {
       version: toScheduleVersionDto(version),
       run: toOptimizerRunDto(run!),
       workingWindow,
       operations: ops.map((o) => {
         const a = actualByOp.get(o.id)
+        const op = resolveOperator(o.resourceId, o.plannedStart.getTime())
         return {
           ...toScheduledOperationDto(o),
           stranded: stranded.has(o.id),
@@ -311,6 +360,7 @@ export class SchedulingService {
               }
             : null,
           latenessChain: chains.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
+          operator: op ? { name: op.name, performanceFactor: op.performanceFactor, laborRate: op.laborRate } : null,
         }
       }),
     }
@@ -694,24 +744,10 @@ export class SchedulingService {
     // never assigns. Per resource: the assignments covering the op's start, picked deterministically
     // (latest effectiveFrom, then operatorId); the factor lives on the operator. No covering
     // assignment → 1.0 (standard), exactly like a component with no material row = on-hand.
-    const factorByOperator = new Map((await md.listOperators(tenantId)).map((o) => [o.id, o.performanceFactor]))
-    const assignmentsByResource = new Map<string, { operatorId: string; from: number; to: number }[]>()
-    for (const a of await this.repo.listResourceOperatorAssignments(tenantId, plantId)) {
-      const arr = assignmentsByResource.get(a.resourceId) ?? []
-      arr.push({
-        operatorId: a.operatorId,
-        from: a.effectiveFrom?.getTime() ?? Number.NEGATIVE_INFINITY,
-        to: a.effectiveTo?.getTime() ?? Number.POSITIVE_INFINITY,
-      })
-      assignmentsByResource.set(a.resourceId, arr)
-    }
-    const resolveOperatorFactor: ResolveOperatorFactor = (resourceId, atMs) => {
-      const candidates = (assignmentsByResource.get(resourceId) ?? []).filter((a) => atMs >= a.from && atMs < a.to)
-      if (candidates.length === 0) return 1
-      // deterministic pick when windows overlap: latest start, then lowest operatorId
-      candidates.sort((x, y) => y.from - x.from || (x.operatorId < y.operatorId ? -1 : 1))
-      return factorByOperator.get(candidates[0]!.operatorId) ?? 1
-    }
+    const operators = await md.listOperators(tenantId)
+    const operatorAssignments = await this.repo.listResourceOperatorAssignments(tenantId, plantId)
+    const resolveOperator = buildOperatorResolver(operators, operatorAssignments)
+    const resolveOperatorFactor: ResolveOperatorFactor = (resourceId, atMs) => resolveOperator(resourceId, atMs)?.performanceFactor ?? 1
 
     // Minimum batch (C4): each resource's run-quantity floor from its resource-type config
     // (minBatchQty; 0 = no floor). The sequencer floors effRunQty = max(demandQty, minBatch).
@@ -726,8 +762,12 @@ export class SchedulingService {
     // Determinism digest of the persisted base inputs the change-set doesn't carry (see BaseContext).
     // Computed HERE where the raw data lives (operator factors live behind a closure; min-batch / rates /
     // calendar are per-resource). Sorted for stability. Downtime is hashed separately (downtimeDigest).
-    const opDigest = [...assignmentsByResource.entries()]
-      .map(([rid, arr]) => `${rid}=${arr.map((a) => `${a.operatorId}:${a.from}:${a.to}:${factorByOperator.get(a.operatorId) ?? 1}`).sort().join(',')}`)
+    const factorByOperator = new Map(operators.map((o) => [o.id, o.performanceFactor]))
+    const opDigest = operatorAssignments
+      .map(
+        (a) =>
+          `${a.resourceId}=${a.operatorId}:${a.effectiveFrom?.getTime() ?? Number.NEGATIVE_INFINITY}:${a.effectiveTo?.getTime() ?? Number.POSITIVE_INFINITY}:${factorByOperator.get(a.operatorId) ?? 1}`,
+      )
       .sort()
     const minBatchDigest = [...minBatchByResource.entries()].map(([rid, mb]) => `${rid}:${mb}`).sort()
     const rateDigest = resources.map((r) => `${r.id}:${r.runCostPerHour}:${r.setupCost}:${r.overheadPerUnit}`).sort()

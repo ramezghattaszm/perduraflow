@@ -116,6 +116,23 @@ export interface OperationActualDto {
   scrapQty: number
 }
 
+/**
+ * The operator the engine applied to an op — resolved via the SAME resource+time assignment lookup
+ * the sequencer uses (resource_operator_assignment → operator.performanceFactor). So the card shows
+ * the operator the engine actually applied, not a guess. Null when no assignment covers the op's
+ * resource at its start → the op ran at standard (factor 1.0).
+ */
+export interface AssignedOperatorDto {
+  name: string
+  /**
+   * "Percent of standard" as a ratio: 1.0 = standard, >1.0 = faster, <1.0 = slower. The engine divides
+   * RUN time by it (effectiveCycle = cycleTime / performanceFactor) — higher is faster. Do NOT invert.
+   */
+  performanceFactor: number
+  /** The operator's labor rate (per the D57 labor-cost KPI), or null if unset. */
+  laborRate: number | null
+}
+
 export interface ScheduledOperationDto {
   id: string
   scheduleVersionId: string
@@ -147,6 +164,8 @@ export interface ScheduledOperationDto {
   actual?: OperationActualDto | null
   /** The computed causal lateness chain for this op (D-late); populated only for at-risk ops, else null. */
   latenessChain?: LatenessChainDto | null
+  /** The operator the engine applied (resource+time assignment → factor); null = ran at standard. */
+  operator?: AssignedOperatorDto | null
 }
 
 /**

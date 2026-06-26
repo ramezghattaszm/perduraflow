@@ -80,6 +80,14 @@
   "atRisk": "At risk",
   "atRiskWithReason": "At risk: {{reason}}",
   "strandedStatus": "Can't run — line down",
+  "operator": {
+    "label": "Operator",
+    "ofStandard": "{{pct}}% of standard",
+    "effectSlower": "Running at {{pct}}% of standard — ~{{delta}}% slower; this op's cycle reflects it.",
+    "effectFaster": "Running at {{pct}}% of standard — ~{{delta}}% faster; this op's cycle reflects it.",
+    "effectStandard": "Running at standard (100%) — no operator adjustment on this op's cycle.",
+    "rate": "{{rate}}/hr"
+  },
   "riskReason": {
     "material": "material",
     "late": "late vs due",
