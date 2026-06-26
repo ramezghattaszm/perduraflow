@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
@@ -12,7 +12,6 @@ import {
   LatenessChain,
   P,
   PageHeader,
-  Panel,
   SegmentedControl,
   StatusPill,
   type StatusTone,
@@ -24,7 +23,8 @@ import { latenessLines, latenessSummary, remediationPromptKey } from '../../../u
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useWorkList } from '../../../hooks/useScheduling'
-import { useOpenCopilotWith } from '../../../stores/copilot.store'
+import { useEvaluateOptions } from '../../../hooks/useEvaluateOptions'
+import { useActivePopup, usePopup } from '../../../stores/popup.store'
 import { AdminShell } from '../../shell/admin-shell'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -96,7 +96,9 @@ export function WorkListTable({
   versionId,
 }: { plantId: string | undefined; versionId?: string }) {
   const { t } = useTranslation(['workList', 'scheduling'])
-  const openCopilotWith = useOpenCopilotWith()
+  const evaluateOptions = useEvaluateOptions()
+  const { show: showPopup, hide: hidePopup } = usePopup()
+  const activePopup = useActivePopup()
   const { data, isLoading } = useWorkList(plantId, versionId)
   const [filter, setFilter] = useState<FilterValue>('all')
   const [search, setSearch] = useState('')
@@ -140,6 +142,75 @@ export function WorkListTable({
     return rows.filter((r) => (filter === 'all' || r.status === filter) && matches(r))
   }, [rows, filter, search, t])
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
+
+  // The row detail (ops + "why late" chain + the firm-at-risk "Evaluate options" action) opens in the
+  // GLOBAL POPUP (usePopup) when a row is clicked — same as the board op card. Content only; the popup
+  // supplies the frame + title. A snapshot of the selected row.
+  const detailContent = selected ? (
+    <YStack gap="$2">
+      <P size={5} weight="b" caps color="$textTertiary">
+        {t('detail.ops')}
+      </P>
+      {selected.ops.map((o) => (
+        <XStack key={o.opSeq} gap="$3" alignItems="center" flexWrap="wrap">
+          <StatusPill tone={STATUS_TONE[o.status]}>{t(`status.${o.status}`)}</StatusPill>
+          <P size={3} weight="m" color="$textPrimary">
+            {t('detail.op', { opSeq: o.opSeq })} · {o.resourceName}
+          </P>
+          <P size={4} color="$textSecondary">
+            {t('detail.planned', { start: fmtDayTime(o.plannedStart), end: fmtDayTime(o.plannedEnd) })}
+          </P>
+        </XStack>
+      ))}
+      {selected.status === 'at_risk' && selected.chain ? (
+        <LatenessChain
+          title={t('detail.why')}
+          summary={latenessSummary(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
+          lines={latenessLines(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
+          expandLabel={t('scheduling:lateness.expand')}
+          collapseLabel={t('scheduling:lateness.collapse')}
+        />
+      ) : null}
+      {/* Firm at-risk → "Evaluate options" (same root-matched prompt as the board + exception queue).
+          On small screens this dismisses the sheet first (useEvaluateOptions) before the Copilot. */}
+      {selected.status === 'at_risk' && selected.firmness === 'firm' ? (
+        <XStack>
+          <AppButton
+            variant="light"
+            size="$3"
+            onPress={() =>
+              evaluateOptions(
+                t(remediationPromptKey(selected.chain?.root), {
+                  order: selected.releaseReference ?? selected.demandLineId,
+                })
+              )
+            }
+          >
+            {t('exceptions:evaluateOptions')}
+          </AppButton>
+        </XStack>
+      ) : null}
+    </YStack>
+  ) : null
+
+  // Show the detail in the popup on row selection (keyed on the id — content is a per-render snapshot,
+  // so re-keying every render would loop the store). The modal scrim blocks the table while open, so
+  // selection only changes via dismiss → no row→row race.
+  const detailPopupOpenRef = useRef(false)
+  useEffect(() => {
+    if (selected) showPopup({ title: t('detail.title', { label: selected.label }), content: detailContent, size: 'medium' })
+    else if (detailPopupOpenRef.current) hidePopup()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-show only on selection change; content is a snapshot
+  }, [selectedId])
+  // Dismissed (overlay / escape / drag) → clear the row selection so the same row can be reopened.
+  // Fire only on the open→closed transition (a fresh selection's show() hasn't applied yet this render).
+  useEffect(() => {
+    const wasOpen = detailPopupOpenRef.current
+    detailPopupOpenRef.current = Boolean(activePopup)
+    if (wasOpen && !activePopup && selectedId) setSelectedId(null)
+  }, [activePopup, selectedId])
+  // Don't leak the popup onto the next screen if the table unmounts while it's open.
+  useEffect(() => () => { if (detailPopupOpenRef.current) hidePopup() }, [hidePopup])
 
   const filterOptions: { value: FilterValue; label: string }[] = [
     { value: 'all', label: `${t('filter.all')} · ${counts.total}` },
@@ -359,76 +430,6 @@ export function WorkListTable({
         minRowWidth={980}
         rowsMatchHeader
       />
-
-      {selected ? (
-        <Panel title={t('detail.title', { label: selected.label })}>
-          <YStack gap="$2">
-            <P
-              size={5}
-              weight="b"
-              caps
-              color="$textTertiary"
-            >
-              {t('detail.ops')}
-            </P>
-            {selected.ops.map((o) => (
-              <XStack
-                key={o.opSeq}
-                gap="$3"
-                alignItems="center"
-                flexWrap="wrap"
-              >
-                <StatusPill tone={STATUS_TONE[o.status]}>{t(`status.${o.status}`)}</StatusPill>
-                <P
-                  size={3}
-                  weight="m"
-                  color="$textPrimary"
-                >
-                  {t('detail.op', { opSeq: o.opSeq })} · {o.resourceName}
-                </P>
-                <P
-                  size={4}
-                  color="$textSecondary"
-                >
-                  {t('detail.planned', {
-                    start: fmtDayTime(o.plannedStart),
-                    end: fmtDayTime(o.plannedEnd),
-                  })}
-                </P>
-              </XStack>
-            ))}
-            {selected.status === 'at_risk' && selected.chain ? (
-              <LatenessChain
-                title={t('detail.why')}
-                summary={latenessSummary(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
-                lines={latenessLines(selected.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
-                expandLabel={t('scheduling:lateness.expand')}
-                collapseLabel={t('scheduling:lateness.collapse')}
-              />
-            ) : null}
-            {/* Per-order remediation entry point — a firm at-risk order gets "Evaluate options" right
-                from the work-list, opening the Copilot pre-seeded with the root-cause-matched lever
-                (one source: same prompt as the exception queue + board). Firm-only, matching scope. */}
-            {selected.status === 'at_risk' && selected.firmness === 'firm' ? (
-              <XStack>
-                <AppButton
-                  variant="light"
-                  size="$3"
-                  onPress={() =>
-                    openCopilotWith(
-                      t(remediationPromptKey(selected.chain?.root), {
-                        order: selected.releaseReference ?? selected.demandLineId,
-                      })
-                    )
-                  }
-                >
-                  {t('exceptions:evaluateOptions')}
-                </AppButton>
-              </XStack>
-            ) : null}
-          </YStack>
-        </Panel>
-      ) : null}
     </>
   )
 }

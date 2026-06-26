@@ -14,7 +14,6 @@ import type { ChangeSet, WhatIfResultDto } from '@perduraflow/contracts'
 import {
   AppButton,
   AppSelect,
-  BarDetailSheet,
   DateRangeNav,
   H,
   KpiTile,
@@ -53,7 +52,8 @@ import { useWhatIf } from '../../../hooks/useWhatIf'
 import { useToast } from '../../../hooks/useToast'
 import { useSessionState } from '../../../hooks/useSessionState'
 import { useSetScreenContext } from '../../../stores/screenContext.store'
-import { useOpenCopilotWith } from '../../../stores/copilot.store'
+import { useActivePopup, usePopup } from '../../../stores/popup.store'
+import { useEvaluateOptions } from '../../../hooks/useEvaluateOptions'
 import { AdminShell } from '../../shell/admin-shell'
 import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
 import { WorkListTable } from '../work-list/work-list-screen'
@@ -100,7 +100,9 @@ export function BoardContent() {
   const commit = useCommitSchedule()
   const discard = useDiscardDraft()
   const whatIf = useWhatIf()
-  const openCopilotWith = useOpenCopilotWith()
+  const evaluateOptions = useEvaluateOptions()
+  const { show: showPopup, hide: hidePopup } = usePopup()
+  const activePopup = useActivePopup()
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
   const [whatIfError, setWhatIfError] = useState<string | null>(null)
   // Which condition produced the visible option-set — lets that condition's CTA toggle
@@ -818,7 +820,7 @@ export function BoardContent() {
                     variant="light"
                     size="$3"
                     onPress={() =>
-                      openCopilotWith(
+                      evaluateOptions(
                         t(remediationPromptKey(row.chain?.root), {
                           order: row.releaseReference ?? row.demandLineId,
                         })
@@ -1021,7 +1023,40 @@ export function BoardContent() {
       />
     ) : null
 
+  // Every click-detail surface opens in the GLOBAL POPUP (usePopup): the op card (a clicked job/bar),
+  // the line-down panel, and the resource-wear panel (a clicked lane). Content only — each panel
+  // carries its own header + actions; the popup just frames it. The selection key is whichever of the
+  // two selections is active.
   const detailPanel = opPanel ?? downPanel ?? resourcePanel
+  const selectionKey = selectedBarId ?? selectedResourceId
+
+  // Show the active panel, keyed on the selection (the panel node is a per-render snapshot; re-keying
+  // every render would loop the store). The modal scrim blocks the board while open, so the selection
+  // only changes via dismiss (or a lane action's runWhatIf, which clears it) — no select→select race.
+  const detailPopupOpenRef = useRef(false)
+  useEffect(() => {
+    if (detailPanel) showPopup({ content: detailPanel, size: 'medium' })
+    // Selection cleared programmatically (e.g. "See options" runs the what-if and clears it) → close.
+    else if (detailPopupOpenRef.current) hidePopup()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-show only on selection change; the panel is a snapshot
+  }, [selectionKey])
+
+  // When the popup is dismissed (overlay / escape / drag), clear the selection so the same bar/lane
+  // can be reopened and the highlight resets. Fire only on the open→closed transition (a fresh
+  // selection's show() hasn't applied to the store yet on the same render, so guard on the previous).
+  useEffect(() => {
+    const wasOpen = detailPopupOpenRef.current
+    detailPopupOpenRef.current = Boolean(activePopup)
+    if (wasOpen && !activePopup && (selectedBarId || selectedResourceId)) {
+      setSelectedBarId(null)
+      setSelectedResourceId(null)
+    }
+  }, [activePopup, selectedBarId, selectedResourceId])
+
+  // Leaving the board while the popup is open must not leak it onto the next screen (the popup store
+  // is global) — close ours on unmount.
+  useEffect(() => () => { if (detailPopupOpenRef.current) hidePopup() }, [hidePopup])
+
   const conditionCount =
     lineDownConditions.length + demandConditions.length + materialConditions.length
 
@@ -1463,21 +1498,8 @@ export function BoardContent() {
 
       {detail ? <GanttLegend /> : null}
 
-      {/* Click/tap detail — two surfaces (BAR-PANEL-FIX): the operation panel (a bar)
-          or the resource wear surface (a lane). Web: a persistent panel below the
-          board; native: a bottom sheet. Kept directly under the Gantt (above the work
-          list) so a selected bar's panel opens next to what was clicked. */}
-      {detailPanel ? (
-        <BarDetailSheet
-          open
-          onClose={() => {
-            setSelectedBarId(null)
-            setSelectedResourceId(null)
-          }}
-        >
-          {detailPanel}
-        </BarDetailSheet>
-      ) : null}
+      {/* Click/tap detail (op card / line-down / resource-wear) opens in the global popup — see the
+          detailPanel effects above. No inline panel here. */}
 
       {/* Work list (D-worklist) below the Gantt — the all-work table for the selected plan, the same
           single source the standalone Work List screen + the exception queue read. Rendered flat
