@@ -26,6 +26,7 @@ import {
   ResourceWearPanel,
   ScheduleGantt,
   SegmentedControl,
+  useMedia,
   VarianceStrip,
   XStack,
   YStack,
@@ -103,6 +104,7 @@ export function BoardContent() {
   const evaluateOptions = useEvaluateOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
   const activePopup = useActivePopup()
+  const media = useMedia()
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
   const [whatIfError, setWhatIfError] = useState<string | null>(null)
   // Which condition produced the visible option-set — lets that condition's CTA toggle
@@ -1347,7 +1349,11 @@ export function BoardContent() {
           alignItems="center"
           justifyContent="space-between"
           flexWrap="wrap"
-          marginBottom="$-4"
+          // The negative margin tucks the controls up against the Gantt by canceling the shell's
+          // content gap — only do that on wide layouts (the shell's own >md breakpoint) where the
+          // controls sit on a single row. On small layouts they wrap to multiple rows, so keep the
+          // shell gap; canceling it there left the controls cramped against the Gantt (no gap).
+          marginBottom={media['max-md'] ? undefined : '$-4'}
         >
           {/* Version + its run summary (which plan you're viewing) → sits with the Gantt's own controls.
               The dropdown label already carries the status, so no separate status pill/row is needed. */}
@@ -1372,11 +1378,15 @@ export function BoardContent() {
               {detail.operations.length} · {t('board.run.demand')}: {detail.run.inputDemandCount}
             </P>
           </XStack>
-          {/* Horizon toggle + date navigation, grouped together on the right. */}
+          {/* Horizon toggle + date navigation, grouped together on the right. `marginLeft="auto"` keeps
+              the group at the right edge even when it wraps below the version row (where space-between
+              would otherwise drop it to the left); `flex-end` right-aligns the items if they wrap. */}
           <XStack
             gap="$3"
             alignItems="center"
             flexWrap="wrap"
+            marginLeft="auto"
+            justifyContent="flex-end"
           >
             <SegmentedControl<'day' | 'week'>
               options={[
