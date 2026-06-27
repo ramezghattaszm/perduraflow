@@ -51,7 +51,7 @@ export function buildComparison(result: WhatIfResultDto, optionLabel: (o: WhatIf
     metric('otif', 'OTIF', (o) => fmtPct(o.kpis.otif)),
     metric('cost', 'Cost / unit', (o) => fmtMoney(o.kpis.costPerUnit)),
     // Firm-late HOURS first (the scored quantity → matches the recommendation), order count below it.
-    metric('late', 'Firm late', (o) => fmtHours(o.kpis.firmLateHours)),
+    metric('late', 'Committed late', (o) => fmtHours(o.kpis.firmLateHours)),
     metric('lateOrders', 'Late orders', (o) => fmtNum(o.kpis.lateOrders)),
     metric('throughput', 'Throughput', (o) => fmtNum(o.kpis.throughput)),
     metric('changeover', 'Changeovers', (o) => factorValue(o, 'changeover')),

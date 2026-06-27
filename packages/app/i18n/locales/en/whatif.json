@@ -18,12 +18,12 @@
   "narrationSummaryTitle": "Why this is recommended",
   "narrationLoading": "Writing the explanation…",
   "narrationUnavailable": "Explanation unavailable — the options and rationale above are the answer.",
-  "kpi": { "otif": "OTIF", "cost": "Cost/unit", "late": "Firm late", "lateOrders": "{{count}} orders", "throughput": "Throughput", "churn": "Churn", "oee": "OEE" },
+  "kpi": { "otif": "OTIF", "cost": "Cost/unit", "late": "Committed late", "lateOrders": "{{count}} orders", "throughput": "Throughput", "churn": "Churn", "oee": "OEE" },
   "vs": "vs base",
   "verdict": { "preferred": "preferred over", "dominated": "worse than", "tradeoff": "trades off with" },
   "drivenBy": "driven by {{factor}}",
   "factorLabel": {
-    "lateness": "Firm lateness",
+    "lateness": "Committed lateness",
     "changeover": "Changeovers",
     "overtime": "Overtime",
     "inventory": "Early/holding",
@@ -31,7 +31,7 @@
     "cost": "Cost/unit"
   },
   "factor": {
-    "lateness": "{{hours}}h firm-order lateness across {{orders}} order(s)",
+    "lateness": "{{hours}}h committed-order lateness across {{orders}} order(s)",
     "changeover": "{{count}} changeover(s)",
     "overtime": "{{hours}}h overtime added",
     "inventory": "{{hours}}h finished ahead of need",
@@ -56,15 +56,15 @@
   },
   "constraint": {
     "feasibility": "Feasibility",
-    "firmDelivery": "Firm delivery",
+    "firmDelivery": "Committed delivery",
     "changeover": "Changeover grouping",
     "feasibility.ok": "All {{ops}} operations placed",
-    "firmDelivery.late": "Firm delivery breached by {{hours}}h",
-    "firmDelivery.met": "Firm delivery met",
+    "firmDelivery.late": "Committed delivery breached by {{hours}}h",
+    "firmDelivery.met": "Committed delivery met",
     "changeover.count": "{{count}} changeover(s)"
   },
   "infeasible.noResource": "No eligible resource once the line is offline",
-  "infeasible.unrunnableOp": "Leaves a firm op that can't run as scheduled",
+  "infeasible.unrunnableOp": "Leaves a committed op that can't run as scheduled",
   "demoted": "Also evaluated — none produce a runnable plan: {{levers}}",
   "unremediable.atRisk": "No available remediation makes this op runnable as scheduled.",
   "unremediable.atRiskLevers": "Split the op, re-promise the date, or change the requirement.",

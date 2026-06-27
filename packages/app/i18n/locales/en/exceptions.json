@@ -32,7 +32,7 @@
   "legend": {
     "title": "What the tags mean",
     "t1": "A high-confidence prediction the system can auto-apply — shown for your approval (Pre-adjust) or snooze (Dismiss).",
-    "t3": "Always human: a firm at-risk order the system never resolves on its own — review and decide.",
+    "t3": "Always human: a committed at-risk order the system never resolves on its own — review and decide.",
     "approved": "You approved the pre-adjust — the value was adopted because you said so.",
     "auto": "The system adopted it on its own (confidence ≥ the threshold) — shown for transparency, no action needed."
   },

@@ -88,13 +88,13 @@
   },
   "customers": {
     "title": "Customers",
-    "subtitle": "OEM customers and their default firm fence.",
-    "fields": { "name": "Name", "firmFenceDays": "Firm fence (days)", "priority": "Priority" }
+    "subtitle": "OEM customers and their default commit fence.",
+    "fields": { "name": "Name", "firmFenceDays": "Commit fence (days)", "priority": "Priority" }
   },
   "programs": {
     "title": "Programs",
-    "subtitle": "Customer/vehicle programs (firm fence overrides the customer).",
-    "fields": { "name": "Name", "customerId": "Customer", "firmFenceDays": "Firm fence (days)", "priority": "Priority" }
+    "subtitle": "Customer/vehicle programs (commit fence overrides the customer).",
+    "fields": { "name": "Name", "customerId": "Customer", "firmFenceDays": "Commit fence (days)", "priority": "Priority" }
   },
   "calendars": {
     "title": "Calendars",

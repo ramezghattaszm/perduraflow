@@ -15,8 +15,8 @@ const rationale = (
     comparativesTitle="Versus the others"
     factors={[
       {
-        label: 'Firm lateness',
-        detail: '6h firm-order lateness across 2 order(s)',
+        label: 'Committed lateness',
+        detail: '6h committed-order lateness across 2 order(s)',
         contribution: 60,
         direction: 'worsens',
       },

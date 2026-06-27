@@ -14,7 +14,7 @@
   },
   "notLive": {
     "badge": "Coming in a later stage",
-    "objective": "The Objective Policy weights (+ the firm-lateness-dominance guard) come through the framework next.",
+    "objective": "The Objective Policy weights (+ the committed-lateness-dominance guard) come through the framework next.",
     "autonomy": "Autonomy config stays on its own screen for now (tenant-level); it migrates into the framework opportunistically. Edit it under Objective policy."
   },
   "cascade": {
@@ -33,7 +33,7 @@
   },
   "field": {
     "reportingWindowDays": "Reporting window (days)",
-    "lateness": "Firm lateness",
+    "lateness": "Committed lateness",
     "changeover": "Changeover",
     "overtime": "Overtime",
     "inventory": "Inventory / holding",
@@ -51,11 +51,11 @@
   },
   "objective": {
     "dominant": "Dominant",
-    "guardOk": "Firm delivery protected",
+    "guardOk": "Committed delivery protected",
     "guardBroken": "Dominance broken",
-    "invariant": "Firm lateness must stay ≥ {{ratio}}× every other weight (ceiling {{ceiling}}) — so firm delivery can't be weighted away.",
-    "guardHint": "These exceed the ceiling: {{fields}}. Lower them, or raise Firm lateness.",
-    "ceilingHint": "≤ {{ceiling}} to keep firm-lateness dominant",
+    "invariant": "Committed lateness must stay ≥ {{ratio}}× every other weight (ceiling {{ceiling}}) — so committed delivery can't be weighted away.",
+    "guardHint": "These exceed the ceiling: {{fields}}. Lower them, or raise Committed lateness.",
+    "ceilingHint": "≤ {{ceiling}} to keep committed-lateness dominant",
     "saveBlocked": "Resolve the dominance warning to save."
   },
   "provenance": {

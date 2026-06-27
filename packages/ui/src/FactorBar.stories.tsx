@@ -10,7 +10,7 @@ type Story = StoryObj<typeof FactorBar>
 export const Default: Story = {
   render: () => (
     <YStack maxWidth={380} padding="$3" gap="$3">
-      <FactorBar label="Firm lateness" detail="6h firm-order lateness across 2 order(s)" contribution={60} direction="worsens" max={60} />
+      <FactorBar label="Committed lateness" detail="6h committed-order lateness across 2 order(s)" contribution={60} direction="worsens" max={60} />
       <FactorBar label="Changeovers" detail="3 changeover(s)" contribution={3} direction="worsens" max={60} />
       <FactorBar label="Displacement" detail="No operations moved" contribution={0} direction="neutral" max={60} />
     </YStack>
