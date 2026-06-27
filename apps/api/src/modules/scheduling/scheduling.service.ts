@@ -1406,7 +1406,12 @@ export class SchedulingService {
    * version (else its newest).
    * @throws AppException SCHEDULE_VERSION_NOT_FOUND - an explicit `versionId` that doesn't exist
    */
-  async workList(tenantId: string, plantId: string, versionId?: string): Promise<WorkListResponseDto> {
+  async workList(
+    tenantId: string,
+    plantId: string,
+    versionId?: string,
+    weekAnchorMs?: number
+  ): Promise<WorkListResponseDto> {
     const version = versionId
       ? await this.repo.findVersion(tenantId, versionId)
       : ((await this.repo.findCommittedVersion(tenantId, plantId)) ?? (await this.repo.listVersions(tenantId, plantId))[0])
@@ -1477,7 +1482,22 @@ export class SchedulingService {
       chain: chains.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
     }))
 
-    const { rows, counts } = buildWorkList(opInputs, orders, Date.now())
+    // Forward-bound the displayed rows to the VIEWED working week (Mon–Sun containing the anchor;
+    // default = the week containing today). Open-work + overdue retention happen inside buildWorkList;
+    // `committedAtRisk` stays canonical (week-agnostic), so the cockpit at-risk KPI is unchanged.
+    const MS_PER_DAY = 86_400_000
+    const nowMs = Date.now()
+    // Default anchor rolls a weekend forward to the upcoming working week (Sat→+2d, Sun→+1d) so a
+    // rehearsal reset on Sat/Sun lands on the same near-term week the planner acts on — not the spent
+    // week. An explicit `week` (the board's viewed week) is honoured as-is.
+    const rollWeekend = (ms: number): number => {
+      const dow = new Date(ms).getUTCDay()
+      return ms + (dow === 6 ? 2 : dow === 0 ? 1 : 0) * MS_PER_DAY
+    }
+    const anchorMs = weekAnchorMs ?? rollWeekend(nowMs)
+    const weekStartMs = startOfDayUtc(anchorMs) - (((new Date(anchorMs).getUTCDay() + 6) % 7) * MS_PER_DAY)
+    const weekEndMs = weekStartMs + 7 * MS_PER_DAY
+    const { rows, counts } = buildWorkList(opInputs, orders, nowMs, { weekStartMs, weekEndMs })
     return { plantId: resolvedPlant, scheduleVersionId: version.id, counts, rows }
   }
 

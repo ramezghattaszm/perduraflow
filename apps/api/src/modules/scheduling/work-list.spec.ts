@@ -96,7 +96,7 @@ describe('rollupStatus — order precedence', () => {
 })
 
 describe('buildWorkList', () => {
-  it('rolls ops up per order and tallies the status counts', () => {
+  it('shows open work only (drops executed/completed) and tallies the status counts', () => {
     const ops: WorkListOpInput[] = [
       // DL-DONE: both ops executed → completed
       op({ demandLineId: 'DL-DONE', opSeq: 10, hasActual: true, plannedStartMs: NOW - 5 * HOUR }),
@@ -129,12 +129,12 @@ describe('buildWorkList', () => {
       ),
       NOW
     )
-    // committedAtRisk = the firm subset of at-risk orders (the canonical KPI count); the lone
-    // at-risk order here is firm → 1.
-    expect(counts).toEqual({ total: 5, completed: 1, atRisk: 1, committedAtRisk: 1, stranded: 1, inProgress: 1, scheduled: 1 })
+    // Open-work surface: DL-DONE (both ops executed → completed) is EXCLUDED. counts.completed is
+    // always 0 here; committedAtRisk = the firm subset of at-risk orders (the canonical KPI count).
+    expect(counts).toEqual({ total: 4, completed: 0, atRisk: 1, committedAtRisk: 1, stranded: 1, inProgress: 1, scheduled: 1 })
 
     const byId = new Map(rows.map((r) => [r.demandLineId, r]))
-    expect(byId.get('DL-DONE')!.status).toBe('completed')
+    expect(byId.has('DL-DONE')).toBe(false) // executed → not on the action surface
     expect(byId.get('DL-RUN')!.status).toBe('in_progress')
     expect(byId.get('DL-FUT')!.status).toBe('scheduled')
     expect(byId.get('DL-STRAND')!.status).toBe('stranded')
@@ -146,7 +146,7 @@ describe('buildWorkList', () => {
     expect(risk.label).toBe('P-DL-RISK · REF-DL-RISK')
   })
 
-  it('orders rows most-actionable first (at_risk → in_progress → scheduled → completed)', () => {
+  it('orders open rows most-actionable first (at_risk → in_progress → scheduled); completed dropped', () => {
     const ops: WorkListOpInput[] = [
       op({ demandLineId: 'A-DONE', opSeq: 10, hasActual: true, plannedStartMs: NOW - HOUR }),
       op({ demandLineId: 'B-RISK', opSeq: 10, atRisk: true, atRiskReason: 'late' }),
@@ -161,7 +161,47 @@ describe('buildWorkList', () => {
       ),
       NOW
     )
-    expect(rows.map((r) => r.status)).toEqual(['at_risk', 'scheduled', 'completed'])
+    expect(rows.map((r) => r.status)).toEqual(['at_risk', 'scheduled'])
+  })
+
+  it('bounds rows to the viewed week (span-intersection) but carries overdue and keeps committedAtRisk canonical', () => {
+    const WEEK = 7 * 24 * HOUR
+    const weekStartMs = NOW // the viewed week = [NOW, NOW + 1 week)
+    const weekEndMs = NOW + WEEK
+    const ops: WorkListOpInput[] = [
+      // in the viewed week → shown
+      op({ demandLineId: 'IN-WEEK', opSeq: 10, plannedStartMs: NOW + 2 * HOUR, plannedEndMs: NOW + 3 * HOUR }),
+      // started BEFORE the week but running into it (span intersects) → shown
+      op({ demandLineId: 'SPANS-IN', opSeq: 10, plannedStartMs: NOW - 2 * HOUR, plannedEndMs: NOW + HOUR }),
+      // open but past its due, planned in a PRIOR week (no intersection) → overdue, pinned regardless
+      op({ demandLineId: 'OVERDUE', opSeq: 10, atRisk: true, atRiskReason: 'late', plannedStartMs: NOW - 5 * WEEK, plannedEndMs: NOW - 5 * WEEK + HOUR }),
+      // open, firm at-risk, but a LATER week (no intersection, not overdue) → off the list, still counted
+      op({ demandLineId: 'FUTURE-RISK', opSeq: 10, atRisk: true, atRiskReason: 'late', plannedStartMs: NOW + 3 * WEEK, plannedEndMs: NOW + 3 * WEEK + HOUR }),
+      // executed → never shown
+      op({ demandLineId: 'DONE', opSeq: 10, hasActual: true, plannedStartMs: NOW - 2 * HOUR }),
+    ]
+    const { rows, counts } = buildWorkList(
+      ops,
+      orders(
+        meta({ demandLineId: 'IN-WEEK' }),
+        meta({ demandLineId: 'SPANS-IN' }),
+        meta({ demandLineId: 'OVERDUE', requiredDateIso: new Date(NOW - WEEK).toISOString() }),
+        meta({ demandLineId: 'FUTURE-RISK', requiredDateIso: new Date(NOW + 3 * WEEK).toISOString() }),
+        meta({ demandLineId: 'DONE' })
+      ),
+      NOW,
+      { weekStartMs, weekEndMs }
+    )
+    const ids = rows.map((r) => r.demandLineId)
+    expect(ids).toContain('IN-WEEK')
+    expect(ids).toContain('SPANS-IN') // runs into the week → shown
+    expect(ids).toContain('OVERDUE') // overdue-but-open pinned regardless of the week
+    expect(ids).not.toContain('FUTURE-RISK') // a later week, not overdue → off the list
+    expect(ids).not.toContain('DONE') // executed → excluded
+    // committedAtRisk counts BOTH at-risk firm orders (OVERDUE + FUTURE-RISK), week-agnostic — so the
+    // cockpit KPI is unchanged by the display scope, even though FUTURE-RISK isn't a visible row.
+    expect(counts.committedAtRisk).toBe(2)
+    expect(counts.atRisk).toBe(1) // the week-scoped browse count (only OVERDUE is visible & at-risk)
   })
 
   it('non-at-risk rows carry no reason/chain; resourceNames are distinct in op order', () => {

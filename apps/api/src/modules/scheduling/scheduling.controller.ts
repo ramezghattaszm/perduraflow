@@ -99,16 +99,26 @@ export class SchedulingController {
   }
 
   /**
-   * `GET /scheduling/work-list?plantId=&versionId=` — the all-work table: every order with a
-   * computed status + status rollup counts. `versionId` optional → defaults to latest committed.
+   * `GET /scheduling/work-list?plantId=&versionId=&week=` — the open-work table: every NON-executed
+   * order with a computed status + status rollup counts. `versionId` optional → latest committed.
+   * `week` (ISO date) optional → the viewed working week the rows are forward-bounded to (overdue
+   * carried regardless); defaults to the week containing today. Completed orders are excluded (they
+   * live on the cockpit/scorecard), and `committedAtRisk` stays canonical so the at-risk KPI reconciles.
    */
   @Get('work-list')
   workList(
     @CurrentUser() user: JwtPayload,
     @Query('plantId') plantId: string,
     @Query('versionId') versionId?: string,
+    @Query('week') week?: string,
   ) {
-    return this.scheduling.workList(user.tenantId, plantId, versionId)
+    const weekAnchorMs = week ? Date.parse(week) : undefined
+    return this.scheduling.workList(
+      user.tenantId,
+      plantId,
+      versionId,
+      Number.isFinite(weekAnchorMs) ? weekAnchorMs : undefined,
+    )
   }
 
   // --- phase 5: what-if + baseline + narration -------------------------------

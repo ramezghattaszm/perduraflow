@@ -94,11 +94,25 @@ const STATUS_RANK: Record<WorkListStatus, number> = {
  * Assemble the work list: group ops by order, compute each op's status, roll up to an order status,
  * and tally the status counts. The at-risk binding op (lowest opSeq that's at-risk) supplies the
  * row's reason + causal chain — the same data the exception queue renders.
+ *
+ * **Scope (WORKLIST-SCOPE).** The work-list is an *action* surface, so it shows **open work only** —
+ * executed/closed orders (`completed`) are dropped (they live on the cockpit/scorecard KPI surfaces).
+ * When `opts.weekEndMs` is given, the displayed rows are **forward-bounded to that viewed week**, but
+ * **overdue-but-open orders are carried unconditionally** (an open order past its due is the floor's
+ * top priority — it shows regardless of the week bound). The week bound is a *display* scope: the
+ * canonical `committedAtRisk` count is computed over the **whole open-work set** (week-agnostic), so
+ * the cockpit/scorecard at-risk KPIs that reconcile to it are unchanged by the scoping.
+ *
+ * @param opts.weekStartMs Inclusive lower / @param opts.weekEndMs exclusive upper bound (ms) of the
+ *   viewed working week. A row shows when its [plannedStart, plannedEnd] span intersects that week
+ *   (so an order running INTO the week still shows) — OR it is overdue-but-open (carried regardless).
+ *   Omit both for no bound (all open work).
  */
 export function buildWorkList(
   ops: WorkListOpInput[],
   orders: Map<string, WorkListOrderMeta>,
-  nowMs: number
+  nowMs: number,
+  opts: { weekStartMs?: number; weekEndMs?: number } = {}
 ): { rows: WorkListRowDto[]; counts: WorkListCountsDto } {
   const byOrder = new Map<string, WorkListOpInput[]>()
   for (const op of ops) {
@@ -154,7 +168,34 @@ export function buildWorkList(
     })
   }
 
-  rows.sort(
+  // Open work only — drop executed/closed orders (the action surface never shows history; it lives
+  // on the cockpit/scorecard). This is what removes the past-window rows after a warm-start seed.
+  const openRows = rows.filter((r) => r.status !== 'completed')
+
+  // The CANONICAL at-risk-committed-orders count — firm orders currently at-risk — computed over the
+  // WHOLE open set (week-agnostic). The single source the cockpit/scorecard at-risk KPIs and the
+  // baseline "late orders" live column all read, so the surfaces reconcile. Computing it before the
+  // week bound keeps it unchanged by the display scoping (at-risk orders are open, so excluding
+  // completed never drops one). The week-scoped `atRisk` below is the all-firmness browse count.
+  const committedAtRisk = openRows.filter((r) => r.status === 'at_risk' && r.firmness === 'firm').length
+
+  // Bound the DISPLAY rows to the viewed week (span-intersection, so an order running INTO the week
+  // still shows); carry overdue-but-open unconditionally (an open order past its due is the floor's
+  // top item — never hide it behind a week/day bound). With no week bound, show all open work.
+  const { weekStartMs, weekEndMs } = opts
+  const display =
+    weekStartMs == null && weekEndMs == null
+      ? openRows
+      : openRows.filter((r) => {
+          const startMs = r.plannedStart ? Date.parse(r.plannedStart) : Number.NEGATIVE_INFINITY
+          const endMs = r.plannedEnd ? Date.parse(r.plannedEnd) : Number.POSITIVE_INFINITY
+          const intersectsWeek =
+            (weekStartMs == null || endMs > weekStartMs) && (weekEndMs == null || startMs < weekEndMs)
+          const overdue = Date.parse(r.requiredDate) < nowMs
+          return intersectsWeek || overdue
+        })
+
+  display.sort(
     (a, b) =>
       STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
       a.requiredDate.localeCompare(b.requiredDate) ||
@@ -162,17 +203,13 @@ export function buildWorkList(
   )
 
   const counts: WorkListCountsDto = {
-    total: rows.length,
-    completed: rows.filter((r) => r.status === 'completed').length,
-    atRisk: rows.filter((r) => r.status === 'at_risk').length,
-    // The CANONICAL at-risk-committed-orders count — firm orders currently at-risk (status `at_risk`,
-    // i.e. a not-yet-run at-risk op). The single source the cockpit/scorecard at-risk KPIs and the
-    // baseline "late orders" live column all read, so the surfaces reconcile. `atRisk` above is the
-    // all-firmness browse-filter count (firm + forecast advisories); this is the firm subset.
-    committedAtRisk: rows.filter((r) => r.status === 'at_risk' && r.firmness === 'firm').length,
-    stranded: rows.filter((r) => r.status === 'stranded').length,
-    inProgress: rows.filter((r) => r.status === 'in_progress').length,
-    scheduled: rows.filter((r) => r.status === 'scheduled').length,
+    total: display.length,
+    completed: 0, // open-work surface — executed orders are excluded by design
+    atRisk: display.filter((r) => r.status === 'at_risk').length,
+    committedAtRisk,
+    stranded: display.filter((r) => r.status === 'stranded').length,
+    inProgress: display.filter((r) => r.status === 'in_progress').length,
+    scheduled: display.filter((r) => r.status === 'scheduled').length,
   }
-  return { rows, counts }
+  return { rows: display, counts }
 }
