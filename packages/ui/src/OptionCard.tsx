@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { ViewStyle } from 'react-native'
 import { Check } from '@tamagui/lucide-icons'
 import { XStack, YStack } from 'tamagui'
 import { AppButton } from './AppButton'
@@ -40,6 +41,13 @@ export interface OptionCardProps {
   applied?: boolean
   /** Hide the Apply control (preview mode — the caller applies separately). */
   hideApply?: boolean
+  /** Fixed card width — set when laid out in a horizontal scroller (cards don't shrink). */
+  width?: number
+  /** Cap the card width (a lone option may fill up to this). */
+  maxWidth?: number
+  /** Extra root style (e.g. web scroll-snap). The card keeps its CONTENT height; a stretched row makes
+   *  every card match the tallest — do NOT pass `flex:1` here (it would zero the height in a scroller). */
+  style?: ViewStyle
 }
 
 const toneColor = (tone?: OptionKpiCell['tone']) =>
@@ -72,6 +80,9 @@ export function OptionCard({
   applying,
   applied,
   hideApply,
+  width,
+  maxWidth,
+  style,
 }: OptionCardProps) {
   return (
     <YStack
@@ -81,6 +92,10 @@ export function OptionCard({
       borderRadius="$5"
       overflow="hidden"
       opacity={feasible ? 1 : 0.7}
+      width={width}
+      maxWidth={maxWidth}
+      flexShrink={width != null ? 0 : undefined}
+      style={style}
     >
       <XStack
         padding="$3.5"
@@ -184,6 +199,7 @@ export function OptionCard({
 
       {expanded && feasible ? (
         <YStack
+          flexGrow={1}
           gap="$3.5"
           padding="$3.5"
           borderTopWidth={1}
@@ -191,8 +207,10 @@ export function OptionCard({
         >
           {rationale}
           {narration}
+          {/* Apply pins to the BOTTOM (marginTop:auto) so it aligns across equal-height cards. */}
           {hideApply ? null : applied ? (
             <XStack
+              marginTop="auto"
               gap="$2"
               alignItems="center"
             >
@@ -210,6 +228,7 @@ export function OptionCard({
             </XStack>
           ) : (
             <AppButton
+              marginTop="auto"
               variant="primary"
               size="$3"
               loading={applying}

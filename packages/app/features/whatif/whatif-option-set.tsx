@@ -222,14 +222,11 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
         return next
       })
     return (
-      <YStack
-        key={o.id}
-        width={cardWidth}
-        maxWidth={OPTION_MAX_WIDTH}
-        flexShrink={0}
-        style={itemWebStyle}
-      >
         <OptionCard
+          key={o.id}
+          width={cardWidth}
+          maxWidth={OPTION_MAX_WIDTH}
+          style={itemWebStyle}
           rank={t('whatif:rank', { n: idx + 1 })}
           label={optionLabel(o)}
           recommended={isRec}
@@ -264,7 +261,6 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
             })
           }}
         />
-      </YStack>
     )
   })
 
@@ -320,7 +316,7 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
         snapToInterval={small ? step : undefined}
         snapToAlignment="start"
         decelerationRate={small ? 'fast' : 'normal'}
-        contentContainerStyle={{ gap: OPTION_GAP, alignItems: 'flex-start', paddingBottom: 4 }}
+        contentContainerStyle={{ gap: OPTION_GAP, alignItems: 'stretch', paddingBottom: 4 }}
         style={containerWebStyle}
       >
         {cards}
