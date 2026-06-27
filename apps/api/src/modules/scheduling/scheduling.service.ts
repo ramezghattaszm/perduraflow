@@ -1352,13 +1352,18 @@ export class SchedulingService {
     }
     const resolvedPlant = version?.plantId ?? plantId
     if (!version) {
-      return { plantId: resolvedPlant, scheduleVersionId: null, resourceId: resourceId ?? null, previous: null, otif: 1, costPerUnit: null, oee: null, scheduleAdherence: null, throughputAttainment: null, atRisk: [] }
+      return { plantId: resolvedPlant, scheduleVersionId: null, resourceId: resourceId ?? null, previous: null, otif: 1, costPerUnit: null, oee: null, scheduleAdherence: null, throughputAttainment: null, atRisk: [], committedAtRisk: 0 }
     }
     const md = await this.resolveMasterData(tenantId)
     const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
 
     const cur = await this.versionMetrics(tenantId, version.id, resourceId, resourceById, partNoById, version.plantId, true)
+    // Canonical at-risk-committed-orders count — firm orders currently at-risk, from the work-list
+    // status engine (plant-level, run-aware). The ONE source the at-risk tile, the cockpit tile and
+    // the baseline "late orders" live column share, so the surfaces reconcile. Plant-level even when
+    // drilled to a line (committed-delivery risk is a plant signal, like the cockpit's tile).
+    const committedAtRisk = (await this.workList(tenantId, version.plantId, version.id)).counts.committedAtRisk
     // Previous = the prior committed version this one supersedes (committed-to-committed).
     const prevVersion = version.supersedesVersionId
       ? await this.repo.findVersion(tenantId, version.supersedesVersionId)
@@ -1384,6 +1389,7 @@ export class SchedulingService {
       scheduleAdherence: cur.scheduleAdherence,
       throughputAttainment: cur.throughputAttainment,
       atRisk: cur.atRisk,
+      committedAtRisk,
     }
   }
 
@@ -1404,7 +1410,7 @@ export class SchedulingService {
       throw new AppException(HttpStatus.NOT_FOUND, 'Schedule version not found', ERROR_CODES.SCHEDULE_VERSION_NOT_FOUND)
     }
     const resolvedPlant = version?.plantId ?? plantId
-    const empty = { total: 0, completed: 0, atRisk: 0, stranded: 0, inProgress: 0, scheduled: 0 }
+    const empty = { total: 0, completed: 0, atRisk: 0, committedAtRisk: 0, stranded: 0, inProgress: 0, scheduled: 0 }
     if (!version) return { plantId: resolvedPlant, scheduleVersionId: null, counts: empty, rows: [] }
 
     const md = await this.resolveMasterData(tenantId)

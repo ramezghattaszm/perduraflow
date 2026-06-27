@@ -374,6 +374,12 @@ export interface ScorecardDto {
   /** Throughput attainment; **null when no actuals yet**. */
   throughputAttainment: number | null
   atRisk: AtRiskOrderDto[]
+  /**
+   * Canonical at-risk-committed-orders count (firm orders currently at-risk) — from the work-list
+   * status engine (plant-level), so the scorecard tile, the cockpit tile and the baseline "late
+   * orders" live column all show the same number. Distinct from `atRisk` (the per-op causal-chain list).
+   */
+  committedAtRisk: number
 }
 
 // --- work list (all-work table; generalizes the exception queue) --------------
@@ -442,7 +448,14 @@ export interface WorkListRowDto {
 export interface WorkListCountsDto {
   total: number
   completed: number
+  /** Distinct orders currently at-risk (status `at_risk`), ALL firmness — the browse-filter count. */
   atRisk: number
+  /**
+   * The CANONICAL at-risk-committed-orders count: FIRM orders currently at-risk (the firm subset of
+   * {@link atRisk}). The single source the cockpit + scorecard at-risk KPIs and the baseline "late
+   * orders" live column read, so every surface reconciles. (`atRisk` stays all-firmness for the filter.)
+   */
+  committedAtRisk: number
   /** Orders with a committed op inside an active line-down window (can't run as planned). */
   stranded: number
   inProgress: number

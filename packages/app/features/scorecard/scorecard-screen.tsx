@@ -277,10 +277,10 @@ export function ScorecardContent() {
                 detail (which orders, why) lives in the work list / exception queue; tapping drills to
                 the work list filtered to at-risk, so the detail is one tap away, not on the scorecard. */}
             <KpiTile
-              value={String(sc.atRisk.length)}
+              value={String(sc.committedAtRisk)}
               label={t('atRisk.count')}
               caption={t('atRisk.countCaption')}
-              valueTone={sc.atRisk.length > 0 ? 'bad' : 'ok'}
+              valueTone={sc.committedAtRisk > 0 ? 'bad' : 'ok'}
               onPress={() => router.push('/scheduling/work-list?status=at_risk')}
             />
           </XStack>

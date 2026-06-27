@@ -27,8 +27,8 @@
   },
   "atRisk": {
     "title": "At-risk orders — service exposure",
-    "count": "Committed orders",
-    "countCaption": "at-risk · tap to view",
+    "count": "At-risk",
+    "countCaption": "committed order · tap to view",
     "orderCol": "Order",
     "reasonCol": "Reason",
     "empty": "No at-risk orders."

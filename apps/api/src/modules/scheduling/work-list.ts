@@ -165,6 +165,11 @@ export function buildWorkList(
     total: rows.length,
     completed: rows.filter((r) => r.status === 'completed').length,
     atRisk: rows.filter((r) => r.status === 'at_risk').length,
+    // The CANONICAL at-risk-committed-orders count — firm orders currently at-risk (status `at_risk`,
+    // i.e. a not-yet-run at-risk op). The single source the cockpit/scorecard at-risk KPIs and the
+    // baseline "late orders" live column all read, so the surfaces reconcile. `atRisk` above is the
+    // all-firmness browse-filter count (firm + forecast advisories); this is the firm subset.
+    committedAtRisk: rows.filter((r) => r.status === 'at_risk' && r.firmness === 'firm').length,
     stranded: rows.filter((r) => r.status === 'stranded').length,
     inProgress: rows.filter((r) => r.status === 'in_progress').length,
     scheduled: rows.filter((r) => r.status === 'scheduled').length,

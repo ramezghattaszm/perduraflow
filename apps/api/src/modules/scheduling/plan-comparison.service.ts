@@ -70,7 +70,9 @@ export class PlanComparisonService {
       otif: sc.otif,
       costPerUnit: sc.costPerUnit,
       oee: sc.oee,
-      lateOrders: sc.atRisk.length,
+      // Canonical at-risk-committed-orders (work-list status engine) — the SAME number the scorecard
+      // and cockpit at-risk tiles show, so the baseline "late orders" live column reconciles with them.
+      lateOrders: sc.committedAtRisk,
       firmLateHours: null, // execution baseline — per-op due breaches aren't tracked here
       infeasibleFirmOps: null, // execution baseline — not a plan-feasibility measure
       throughput: sc.throughputAttainment,

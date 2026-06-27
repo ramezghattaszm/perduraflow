@@ -134,7 +134,7 @@ export function WorkListTable({
   )
   const partNoById = useMemo(() => new Map(partsList.map((p) => [p.id, p.partNo])), [partsList])
 
-  const counts = data?.counts ?? { total: 0, completed: 0, atRisk: 0, stranded: 0, inProgress: 0, scheduled: 0 }
+  const counts = data?.counts ?? { total: 0, completed: 0, atRisk: 0, committedAtRisk: 0, stranded: 0, inProgress: 0, scheduled: 0 }
   const rows = data?.rows ?? []
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

@@ -316,10 +316,6 @@ export function BoardContent() {
   const kpiOps = detail?.operations ?? []
   const onTimePct =
     kpiOps.length > 0 ? 1 - kpiOps.filter((o) => o.atRisk).length / kpiOps.length : 1
-  const firmLineIds = useMemo(
-    () => new Set(demand.filter((d) => d.firmness === 'firm').map((d) => d.demandLineId)),
-    [demand]
-  )
   // Firm at-risk orders, keyed by demand line, from the WORK-LIST (the order-grain single source the
   // exception queue uses) — NOT the demand endpoint, which omits warm-start/synthetic lines and so
   // can't see every at-risk order. This drives the per-order "Evaluate options" action: it carries the
@@ -333,9 +329,11 @@ export function BoardContent() {
       ),
     [workList]
   )
-  const atRiskFirmCount = new Set(
-    kpiOps.filter((o) => o.atRisk && firmLineIds.has(o.demandLineId)).map((o) => o.demandLineId)
-  ).size
+  // Canonical at-risk-committed-orders — firm orders currently at-risk from the WORK-LIST status engine
+  // (run-aware: a completed order is no longer at-risk). The same count the scorecard tile + baseline
+  // "late orders" show. The earlier op-flag count (op.atRisk regardless of run) over-counted completed
+  // orders, so it disagreed with the work-list (e.g. 6 here vs work-list 0 once everything had run).
+  const atRiskFirmCount = workList?.counts.committedAtRisk ?? 0
   // Stranded orders (committed op inside an active down-window) — a FACT, distinct from at-risk.
   // Counts to MATCH the work-list 'stranded' rollup (counts.stranded) so the two surfaces reconcile:
   // distinct ORDERS with a not-yet-run stranded op, EXCLUDING orders that are at-risk (at_risk outranks

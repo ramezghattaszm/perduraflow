@@ -129,7 +129,9 @@ describe('buildWorkList', () => {
       ),
       NOW
     )
-    expect(counts).toEqual({ total: 5, completed: 1, atRisk: 1, stranded: 1, inProgress: 1, scheduled: 1 })
+    // committedAtRisk = the firm subset of at-risk orders (the canonical KPI count); the lone
+    // at-risk order here is firm → 1.
+    expect(counts).toEqual({ total: 5, completed: 1, atRisk: 1, committedAtRisk: 1, stranded: 1, inProgress: 1, scheduled: 1 })
 
     const byId = new Map(rows.map((r) => [r.demandLineId, r]))
     expect(byId.get('DL-DONE')!.status).toBe('completed')
