@@ -6,7 +6,30 @@
 RG builds PerduraFlow (client-agnostic manufacturing scheduling; demo client Magna Mexico — Saltillo Stamping = Press A + Press B; Ramos Welding = Weld Cell 1/2 + Leak-Test). Stack: Tamagui+Expo+Next+Solito+Zustand+TanStack; NestJS+Drizzle+Postgres; bun/Turborepo. **Propose-then-confirm gate** (Claude Code proposes/builds; RG reviews). Deterministic engine is authoritative; ML predicts/proposes within bounds; LLM explains, never fabricates; human confirms consequential changes; everything auditable (IATF).
 
 ## STATUS ANCHOR
-Engine ~`wi-12`, weights default `aps-w2` (now `OBJECTIVE_DEFAULTS` in contracts), migrations through **0018** (Part A: `scheduled_operation.binding_operator_id` — operator as a lateness root). `wi-12` = operator LABOR folded into the cost factor (`laborRate · working-hours`), so the faster-operator / OT / reroute remediation levers rank on real $ (the cost-honesty fix). Part B (faster-operator remediation lever) reuses `resource_operator_assignment` + `at_risk_remediation` (no new schema). Branch in flight: `exception-queue-messaging`. **Confirm before continuing: commit + push everything; `git status` clean; `bun run check` green.**
+Engine ~`wi-12`, weights default `aps-w2` (`OBJECTIVE_DEFAULTS` in contracts), migrations through **0018**. Branch in flight: `exception-queue-messaging` — **fully pushed and fast-forwarded into `main` (`origin/main` @ `cd48d85`).** Working tree clean except `.claude/settings.json` (intentionally never committed — "not ours"). The five-condition walk + two-door at-risk remediation are DONE (history below). This session was **Copilot bug-fix + a read-only constraint audit** (no engine/schema changes). **Servers:** API :3010 / web :3011 usually already running (OK to restart).
+
+---
+
+## ▶ LATEST SESSION (most recent — start here, then the history below for depth)
+
+Three workstreams, all committed + pushed to `main`:
+
+### 1. Copilot "Evaluate options" infinite-spinner — FIXED (`b4e64cb`)
+The "Evaluate options" door spun on "Thinking" forever (turn completed server-side; reopening showed the answer, but the first panel never cleared). **Root cause (proven with `[CP-DIAG]` console logs): React StrictMode (dev) does mount→unmount→remount, and React Query DROPS the per-call `onSuccess`/`onSettled` when the mutation observer is torn down between `mutate()` and the response** — so `setConversation` (→ conversationId stayed null, no turn rendered) and the `sending`-clear (→ spinner stuck) never ran. Typed follow-ups worked because they fire on a settled mount. Three layered fixes in [copilot-panel.tsx](packages/app/features/conversation/copilot-panel.tsx) + [copilot.store.ts](packages/app/stores/copilot.store.ts) + [exceptions.json](packages/app/i18n/locales/en/exceptions.json): (a) simplified the seeded `discussPrompt` so it reads the anchored result instead of re-looping `evaluate_what_if`; (b) a monotonic `draftNonce` one-shot guard (auto-run fires exactly once per open); (c) **the real fix — `sendMessage` uses `mutateAsync` + `await` with a `mountedRef` guard** (the promise survives the StrictMode teardown; per-call callbacks don't). User-verified working. **Memory written: `copilot-autorun-strictmode.md` — any mount-time mutation must use mutateAsync, never per-call callbacks.**
+
+### 2. Constraint audit — VERIFIED `CONSTRAINT-INVENTORY.md` against the code (`eea85dd`, `cd48d85`)
+Read-only audit (4 parallel Explore agents over the sequencer/scorer/policy/config). Flipped every ⚠️ to ✅/❌ with inline `file:line` evidence; replaced configurability estimates with verified levels. **Key findings (the headline gaps):**
+- **D28 sequencing/campaign rules — NOT built** (the #1 hard-constraint gap; a *correctness* gap — wrong transition = scrap in automotive). None of the 4 legality types exist; attributes are "modeled, not sequenced" (SKIP-48); only a soft, firm-excluded forecast changeover-grouping bonus. **Demo-honesty: say "reduces changeovers" (flat count ✅), never "enforces sequencing rules."**
+- **D8 per-pair changeover cost matrix — NOT built** (changeover is in the objective only as a flat switch-count, weight 1).
+- **Tool-life cap (D9) & single-location tool — NOT built** (the sequencer has no tool entity at all; wear is predicted, never capped).
+- **Approval autonomy — LIVE for learning predictions** (`gateDisposition`, tier × computed confidence) but the **schedule-commit gate is NOT built (SKIP-46)**. Talk-track: lean on the prediction path.
+- **Configurability:** only objective-weights + reporting-window are full-L3 (cascade+audit); autonomy is L3 tenant-only (its `boundedAuto` is the lone real on/off toggle in the whole system); calendar + per-resource-OT are admin-editable but flat; **min-batch is L2 seed-only — the clearest section-G gap / control-panel blocker.** No hard-constraint parameter is an L1 literal.
+- ~10 hard gates ARE enforced (delivery, material, calendar/working-window, downtime, min-batch, eligibility, routing precedence, no-eligible-reject, operator double-book, inspection-as-resource).
+
+### 3. Logged the gaps to `REMAINING-ITEMS.md` Future phases (`cd48d85`)
+New "Scheduler hard-constraint gaps (AUDITED)" subsection (D28, D8 matrix, schedule-commit gate) next to the Yield/Quality module; flagged min-batch CRUD as the section-G blocker on the constraints-control-panel item. Each cites `CONSTRAINT-INVENTORY.md` for evidence.
+
+**No open thread from this session** — all three are complete, committed, pushed, verified. A fresh session can pick the next thing from OPEN THREADS / REMAINING-ITEMS below.
 
 ---
 
@@ -138,8 +161,9 @@ All five conditions walked + verified: material, goal-seek, tool-wear, line-down
 - `PREDICTIVE-SCHEDULING-EMPHASIS.md` — the predictive talk-track (built beats vs vision; honesty caveat).
 - `PRE-SEED-SANITY-CHECK.md` — the re-runnable walk checklist.
 
-## Before switching — checklist
-1. Commit Stage 2 + any uncommitted (design docs: decide repo vs outputs).
-2. **Push everything** (several commits accumulated unpushed across the session).
-3. `git status` clean; `bun run check` green.
-4. New Claude Code session: brief it from THIS note + `CLAUDE.md` + the docs above. **Line-down is DONE** — start the **operator-performance** condition (the last; walk + verify, mechanism already wired).
+## Before switching — checklist (state as of this session's end)
+1. ✅ Everything from this session is committed + pushed; `main` fast-forwarded (`origin/main` @ `cd48d85`).
+2. ✅ `git status` clean except `.claude/settings.json` (intentionally uncommitted — leave it).
+3. New Claude Code session: brief it from the **▶ LATEST SESSION** block above + `CLAUDE.md` + the single-sources-of-truth docs. The five-condition walk, two-door at-risk remediation, the Copilot spinner fix, and the constraint audit are all DONE.
+4. **No forced next step** — pick from OPEN THREADS / `REMAINING-ITEMS.md`. The audit surfaced the likely top post-demo priorities: the **Yield/Quality module** and the **D28 sequencing/campaign rules** (both correctness gaps); nearer-term, the **min-batch CRUD** section-G write-path and staging (F) work.
+5. Standing conventions to carry forward: commit/push only when RG asks; split commits by concern; keep `.claude/settings.json` out of commits; `Co-Authored-By: Claude Opus 4.8`. Dev: API :3010 / web :3011; `demo:reset` needs the API up and is run after seed edits.
