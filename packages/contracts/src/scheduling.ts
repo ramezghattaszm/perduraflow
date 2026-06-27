@@ -331,6 +331,8 @@ export interface ScorecardPreviousDto {
   otif: number
   costPerUnit: number | null
   oee: OeeDto | null
+  /** Execution discipline: executed ops started within tolerance of planned start / executed ops. */
+  scheduleAdherence: number | null
   throughputAttainment: number | null
 }
 
@@ -348,6 +350,11 @@ export interface ScorecardDto {
   costPerUnit: number | null
   /** OEE A·P·Q; **null when the version has no actuals yet** (no data ≠ 0%). */
   oee: OeeDto | null
+  /**
+   * Schedule Adherence — executed ops started within tolerance of planned start / executed ops
+   * (execution discipline). A distinct axis from {@link otif} (delivery outcome). Null without actuals.
+   */
+  scheduleAdherence: number | null
   /** Throughput attainment; **null when no actuals yet**. */
   throughputAttainment: number | null
   atRisk: AtRiskOrderDto[]

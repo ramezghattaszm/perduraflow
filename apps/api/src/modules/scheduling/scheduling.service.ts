@@ -1190,11 +1190,11 @@ export class SchedulingService {
     partNoById: Map<string, string>,
     plantId: string,
     withChains: boolean,
-  ): Promise<{ otif: number; costPerUnit: number | null; oee: OeeDto | null; throughputAttainment: number | null; atRisk: AtRiskOrderDto[] }> {
+  ): Promise<{ otif: number; costPerUnit: number | null; oee: OeeDto | null; scheduleAdherence: number | null; throughputAttainment: number | null; atRisk: AtRiskOrderDto[] }> {
     // Chains follow blockers across resources → built from the UNFILTERED ops even when drilled to one line.
     const allOps = await this.repo.operationsForVersion(versionId)
     const ops = resourceId ? allOps.filter((o) => o.resourceId === resourceId) : allOps
-    if (ops.length === 0) return { otif: 1, costPerUnit: null, oee: null, throughputAttainment: null, atRisk: [] }
+    if (ops.length === 0) return { otif: 1, costPerUnit: null, oee: null, scheduleAdherence: null, throughputAttainment: null, atRisk: [] }
     let actuals = await this.learning.listActualsForVersion(tenantId, versionId)
     if (resourceId) actuals = actuals.filter((a) => a.resourceId === resourceId)
     const hasActuals = actuals.length > 0
@@ -1203,37 +1203,50 @@ export class SchedulingService {
     // OTIF is plan-based (the schedule's on-time fraction) — valid without actuals.
     const otif = ops.filter((o) => !o.atRisk).length / ops.length
 
-    let runtime = 0
-    let downtime = 0
-    let idealRun = 0
+    // OEE / throughput / adherence are EXECUTION metrics → accumulate over EXECUTED ops only (those
+    // with an actual). Including the rolling window's unexecuted future ops would inflate the runtime
+    // denominator with planned-duration that never produced → it diluted Performance to ~34%.
+    let operating = 0 // machine-occupied minutes of executed ops (actual setup + run)
+    let setupSum = 0 // actual setup (changeover) minutes — a textbook AVAILABILITY loss
+    let downtime = 0 // recorded stop minutes — also an availability loss
+    let idealRun = 0 // Σ std-cycle × good — the value-adding ideal (Performance numerator)
     let good = 0
     let scrap = 0
-    let planned = 0
+    let execPlanned = 0 // planned qty of EXECUTED ops (throughput denominator, not the unrun future)
+    let execCount = 0
+    let onTime = 0 // executed ops started within tolerance of planned start (Schedule Adherence)
     let cost = 0
     let costedGood = 0
     for (const o of ops) {
-      planned += o.plannedQty
       const a = actualByOp.get(o.id)
-      const g = a?.goodQty ?? 0
+      if (!a) continue
+      const g = a.goodQty
       good += g
-      scrap += a?.scrapQty ?? 0
-      const runMin = a ? (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000 : o.setupTime + o.cycleTime * o.plannedQty
-      runtime += runMin
-      downtime += a?.downtimeMinutes ?? 0
+      scrap += a.scrapQty
+      execPlanned += o.plannedQty
+      execCount += 1
+      const opMin = (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000
+      operating += opMin
+      setupSum += a.actualSetupTime ?? 0
+      downtime += a.downtimeMinutes
       idealRun += o.cycleTime * g
+      if (Math.abs(new Date(a.actualStart).getTime() - o.plannedStart.getTime()) <= ADHERENCE_TOLERANCE_MIN * 60_000) onTime += 1
       const res = resourceById.get(o.resourceId)
       if (res && (res.runCostPerHour != null || res.setupCost != null || res.overheadPerUnit != null) && g > 0) {
-        // Tier-B op cost = changeover economics (setupCost) + machine time (runMin, incl.
+        // Tier-B op cost = changeover economics (setupCost) + machine time (opMin, incl.
         // setup; actual when known → drift raises cost) + overhead. cost/unit = Σcost / Σgood.
-        cost += (res.setupCost ?? 0) + (res.runCostPerHour ?? 0) * (runMin / 60) + (res.overheadPerUnit ?? 0) * g
+        cost += (res.setupCost ?? 0) + (res.runCostPerHour ?? 0) * (opMin / 60) + (res.overheadPerUnit ?? 0) * g
         costedGood += g
       }
     }
-    // OEE/throughput/cost need actuals — null (not 0%/100%) when none (no data ≠ value).
+    // OEE needs actuals — null (not 0%/100%) when none (no data ≠ value). Setup (changeover) + recorded
+    // stops are AVAILABILITY losses (textbook OEE); Performance then measures pure rate (std cycle vs net
+    // run time), so a clean line reads ~99% — not ~80% understated by setup sitting in the denominator.
     let oee: OeeDto | null = null
     if (hasActuals) {
-      const availability = runtime + downtime > 0 ? runtime / (runtime + downtime) : 0
-      const performance = runtime > 0 ? Math.min(1, idealRun / runtime) : 0
+      const netRun = Math.max(0, operating - setupSum)
+      const availability = operating + downtime > 0 ? netRun / (operating + downtime) : 0
+      const performance = netRun > 0 ? Math.min(1, idealRun / netRun) : 0
       const quality = good + scrap > 0 ? good / (good + scrap) : 0
       oee = { availability, performance, quality, oee: availability * performance * quality }
     }
@@ -1252,7 +1265,10 @@ export class SchedulingService {
       otif,
       costPerUnit: costedGood > 0 ? cost / costedGood : null,
       oee,
-      throughputAttainment: hasActuals && planned > 0 ? good / planned : null,
+      // Schedule Adherence = executed ops started within tolerance of planned start / executed ops
+      // (execution discipline — a distinct axis from OTIF's delivery outcome). Null without actuals.
+      scheduleAdherence: hasActuals ? (execCount > 0 ? onTime / execCount : 1) : null,
+      throughputAttainment: hasActuals && execPlanned > 0 ? good / execPlanned : null,
       atRisk,
     }
   }
@@ -1275,7 +1291,7 @@ export class SchedulingService {
     }
     const resolvedPlant = version?.plantId ?? plantId
     if (!version) {
-      return { plantId: resolvedPlant, scheduleVersionId: null, resourceId: resourceId ?? null, previous: null, otif: 1, costPerUnit: null, oee: null, throughputAttainment: null, atRisk: [] }
+      return { plantId: resolvedPlant, scheduleVersionId: null, resourceId: resourceId ?? null, previous: null, otif: 1, costPerUnit: null, oee: null, scheduleAdherence: null, throughputAttainment: null, atRisk: [] }
     }
     const md = await this.resolveMasterData(tenantId)
     const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
@@ -1291,6 +1307,7 @@ export class SchedulingService {
           otif: m.otif,
           costPerUnit: m.costPerUnit,
           oee: m.oee,
+          scheduleAdherence: m.scheduleAdherence,
           throughputAttainment: m.throughputAttainment,
         }))
       : null
@@ -1303,6 +1320,7 @@ export class SchedulingService {
       otif: cur.otif,
       costPerUnit: cur.costPerUnit,
       oee: cur.oee,
+      scheduleAdherence: cur.scheduleAdherence,
       throughputAttainment: cur.throughputAttainment,
       atRisk: cur.atRisk,
     }
