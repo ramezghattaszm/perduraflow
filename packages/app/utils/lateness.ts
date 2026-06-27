@@ -1,4 +1,4 @@
-import type { LatenessChainDto, LatenessRoot } from '@perduraflow/contracts'
+import type { LatenessChainDto } from '@perduraflow/contracts'
 
 /**
  * Render the computed causal lateness chain (D-late) into planner-readable copy — shared by the board
@@ -100,19 +100,3 @@ export function latenessLines(chain: LatenessChainDto, t: TFn): string[] {
   return lines
 }
 
-/** Chain roots that map to a tailored remediation prompt; any other root falls to `default`. */
-const TAILORED_REMEDIATION_ROOTS: readonly LatenessRoot[] = ['material', 'due_before_start', 'working_window', 'capacity', 'operator']
-
-/**
- * The i18n key (in the `exceptions` namespace) for the Copilot remediation prompt that matches an
- * at-risk order's causal-chain ROOT — so "Evaluate options" opens the Copilot pre-seeded with the
- * lever that actually addresses the cause (expedite for material, overtime for capacity/window,
- * renegotiate for due-before-start, a FASTER OPERATOR / OT / reroute for an operator-rooted slow run).
- * Shared by every at-risk surface (exception queue, board bar
- * panel, work-list) so the prompt stays one source. Returns a namespaced key — call with any `t`.
- */
-export function remediationPromptKey(root: LatenessRoot | null | undefined): string {
-  return root && TAILORED_REMEDIATION_ROOTS.includes(root)
-    ? `exceptions:resolvePrompt.${root}`
-    : 'exceptions:resolvePrompt.default'
-}
