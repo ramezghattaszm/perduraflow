@@ -75,10 +75,13 @@ export function useScheduleDemand(plantId: string | undefined) {
  * at-risk count reconciles. `versionId` optional → the API defaults to the plant's committed version.
  * `refetchOnMount: 'always'` so it reflects a re-solve / new actuals on entry.
  */
-export function useWorkList(plantId: string | undefined, versionId?: string) {
+export function useWorkList(plantId: string | undefined, versionId?: string, week?: string) {
   return useQuery({
-    queryKey: QUERY_KEYS.scheduling.workList(plantId ?? '', versionId ?? ''),
-    queryFn: () => get<WorkListResponseDto>(`/scheduling/work-list?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}`),
+    queryKey: QUERY_KEYS.scheduling.workList(plantId ?? '', versionId ?? '', week ?? ''),
+    queryFn: () =>
+      get<WorkListResponseDto>(
+        `/scheduling/work-list?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}${week ? `&week=${week}` : ''}`,
+      ),
     enabled: Boolean(plantId),
     refetchOnMount: 'always',
   })

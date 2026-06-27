@@ -100,17 +100,31 @@ const FILTER_VALUES: FilterValue[] = ['all', 'at_risk', 'stranded', 'in_progress
  * always reading the same single source. The at-risk chip count equals the exception queue by
  * construction.
  */
+const MS_PER_DAY = 86_400_000
+
 export function WorkListTable({
   plantId,
   versionId,
   initialFilter,
-}: { plantId: string | undefined; versionId?: string; initialFilter?: FilterValue }) {
+  weekAnchor,
+  selectedDayMs,
+}: {
+  plantId: string | undefined
+  versionId?: string
+  initialFilter?: FilterValue
+  /** ISO date of the viewed working week (the board's week) — scopes the list forward to that week.
+   *  Omit (standalone screen) → the API defaults to the week containing today. */
+  weekAnchor?: string
+  /** When the board is zoomed to one day, that day (UTC ms) — its rows are emphasized as a LENS
+   *  (never a filter); null/omitted = whole-week view, no emphasis. */
+  selectedDayMs?: number | null
+}) {
   const { t } = useTranslation(['workList', 'scheduling'])
   const runSeeOptions = useSeeOptions()
   const runDiscussOptions = useDiscussOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
   const activePopup = useActivePopup()
-  const { data, isLoading } = useWorkList(plantId, versionId)
+  const { data, isLoading } = useWorkList(plantId, versionId, weekAnchor)
   const [filter, setFilter] = useState<FilterValue>(initialFilter ?? 'all')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -288,14 +302,22 @@ export function WorkListTable({
   // Don't leak the popup onto the next screen if the table unmounts while it's open.
   useEffect(() => () => { if (detailPopupOpenRef.current) hidePopup() }, [hidePopup])
 
+  // Open-work surface — no `completed` chip (executed orders live on the cockpit/scorecard, not here).
   const filterOptions: { value: FilterValue; label: string }[] = [
     { value: 'all', label: `${t('filter.all')} · ${counts.total}` },
     { value: 'at_risk', label: `${t('filter.at_risk')} · ${counts.atRisk}` },
     { value: 'stranded', label: `${t('filter.stranded')} · ${counts.stranded}` },
     { value: 'in_progress', label: `${t('filter.in_progress')} · ${counts.inProgress}` },
     { value: 'scheduled', label: `${t('filter.scheduled')} · ${counts.scheduled}` },
-    { value: 'completed', label: `${t('filter.completed')} · ${counts.completed}` },
   ]
+
+  // Day-as-lens: a row is emphasized when the board is zoomed to a day and any of the order's ops run
+  // on that day. This HIGHLIGHTS — it never hides the rest of the week's open work (handoff §3).
+  const rowOnSelectedDay = (r: WorkListRowDto): boolean => {
+    if (selectedDayMs == null || !r.plannedStart || !r.plannedEnd) return false
+    const dayStart = Math.floor(selectedDayMs / MS_PER_DAY) * MS_PER_DAY
+    return Date.parse(r.plannedStart) < dayStart + MS_PER_DAY && Date.parse(r.plannedEnd) > dayStart
+  }
 
   const columns: Column<WorkListRowDto>[] = [
     {
@@ -508,6 +530,7 @@ export function WorkListTable({
         emptyTitle={rows.length === 0 ? t('empty') : t('emptyFiltered')}
         minRowWidth={980}
         rowsMatchHeader
+        rowEmphasis={rowOnSelectedDay}
       />
     </>
   )

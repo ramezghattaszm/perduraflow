@@ -61,6 +61,14 @@ const utcDay = (ms: number): number => Math.floor(ms / MS_PER_DAY) * MS_PER_DAY
 const weekStartMon = (ms: number): number =>
   utcDay(ms) - ((new Date(ms).getUTCDay() + 6) % 7) * MS_PER_DAY
 
+/** Roll a weekend day forward to the next working day (Sat→Mon, Sun→Mon); weekdays unchanged. So the
+ *  board's default view opens on the upcoming working week, not the spent/weekend one. */
+const nextWorkingDay = (ms: number): number => {
+  const day = utcDay(ms)
+  const dow = new Date(day).getUTCDay()
+  return day + (dow === 6 ? 2 : dow === 0 ? 1 : 0) * MS_PER_DAY
+}
+
 /**
  * Board body (shell-agnostic) — selectors, run strip, Gantt. Rendered inside the
  * web `AdminShell` by {@link BoardScreen} and directly inside the Expo native
@@ -84,9 +92,20 @@ export function BoardContent() {
   )
   const { data: detail } = useScheduleVersion(versionId ?? undefined)
   const { data: variance } = useVariance(versionId ?? undefined)
+  // Shift-model work-area (C1): Day|Week horizon + the navigated date (UTC-midnight ms). Both default
+  // to today's view but are **session-tracked** (web: sessionStorage, so a refresh returns to the last
+  // day/horizon; native: in-memory). The default rolls a weekend forward to the next working day so a
+  // Sat/Sun rehearsal opens on the upcoming working week (where the open work is), keeping the Gantt
+  // and the work-list on the SAME week.
+  const [horizonMode, setHorizonMode] = useSessionState<'day' | 'week'>('board.horizonMode', 'day')
+  const [viewDate, setViewDate] = useSessionState<number>('board.viewDate', nextWorkingDay(Date.now()))
+  // The viewed working week (ISO date) drives the work-list's forward bound — the work-list and the
+  // Gantt show the same week. The day/week toggle is Gantt ZOOM only: the work-list's unit is always
+  // the week, and a day selection (day mode) is a LENS (emphasis), never a rescope.
+  const weekAnchorIso = new Date(weekStartMon(viewDate)).toISOString().slice(0, 10)
   // Same query key as the embedded WorkListTable → React Query dedupes (no extra request). Used for
   // the per-order firm at-risk "Evaluate options" affordance on the op panel.
-  const { data: workList } = useWorkList(plantId ?? undefined, versionId ?? undefined)
+  const { data: workList } = useWorkList(plantId ?? undefined, versionId ?? undefined, weekAnchorIso)
   const { data: learned = [] } = useLearnedParameters()
   const { data: predictions = [] } = usePredictions(plantId ?? undefined)
   const solve = useSolveSchedule()
@@ -105,11 +124,6 @@ export function BoardContent() {
   const [whatIfTrigger, setWhatIfTrigger] = useState<string | null>(null)
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
-  // Shift-model work-area (C1): Day|Week horizon + the navigated date (UTC-midnight ms).
-  // Both default to today's view but are **session-tracked** (web: sessionStorage, so a
-  // refresh returns to the last day/horizon you were on; native: in-memory only — no refresh).
-  const [horizonMode, setHorizonMode] = useSessionState<'day' | 'week'>('board.horizonMode', 'day')
-  const [viewDate, setViewDate] = useSessionState<number>('board.viewDate', utcDay(Date.now()))
   const { showToast } = useToast()
   const wearShown = useRef<Set<string>>(new Set())
 
@@ -1338,6 +1352,8 @@ export function BoardContent() {
           <WorkListTable
             plantId={plantId ?? undefined}
             versionId={versionId ?? undefined}
+            weekAnchor={weekAnchorIso}
+            selectedDayMs={horizonMode === 'day' ? viewDate : null}
           />
         </YStack>
       ) : null}
