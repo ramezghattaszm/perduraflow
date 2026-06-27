@@ -972,10 +972,12 @@ export async function seed(): Promise<void> {
     // → the honest "no historical baseline yet" empty state is still testable.
     const [rwS, rwE] = [at(-14), at(0)]
     await db.insert(historicalOutcome).values([
-      ho(saltillo!.id, null, rwS, rwE, 0.86, 8.8, 0.85, 0.95, 0.98, 2, 23000),
-      ho(saltillo!.id, pressA!.id, rwS, rwE, 0.8, 9.3, 0.82, 0.94, 0.985, 2, 11500),
-      ho(saltillo!.id, pressB!.id, rwS, rwE, 0.88, 8.6, 0.9, 0.95, 0.985, 1, 12000),
-      ho(ramos!.id, null, rwS, rwE, 0.89, 6.3, 0.9, 0.83, 0.976, 1, 5150),
+      // cost/unit is a believable pre-platform premium (~12%) over the live Tier-B figure (~$1.8–1.9),
+      // so the lift reads realistic (e.g. live $1.82 vs base $2.05), not the old 3–5× (live $1.9 vs $6.30).
+      ho(saltillo!.id, null, rwS, rwE, 0.86, 2.05, 0.85, 0.95, 0.98, 2, 23000),
+      ho(saltillo!.id, pressA!.id, rwS, rwE, 0.8, 2.15, 0.82, 0.94, 0.985, 2, 11500),
+      ho(saltillo!.id, pressB!.id, rwS, rwE, 0.88, 2.0, 0.9, 0.95, 0.985, 1, 12000),
+      ho(ramos!.id, null, rwS, rwE, 0.89, 2.15, 0.9, 0.83, 0.976, 1, 5150),
     ])
 
     // Autonomy config (Config framework, Stage 3 — the `autonomy` group): ADVISORY-FIRST for the
