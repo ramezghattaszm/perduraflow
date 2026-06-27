@@ -963,28 +963,19 @@ export async function seed(): Promise<void> {
       label: 'representative seed',
       source: 'seed',
     })
-    // Throughput is weekly units (≈ daily plan output × 5 working days) — scaled to the
-    // realistically-full demand above so the measured_historical baseline stays coherent
-    // (live ~thousands/week vs history ~thousands/week, not thousands-vs-hundreds). OTIF /
-    // cost-per-unit / OEE are ratios → unchanged by load.
-    // Three prior weeks (most recent ~last week), anchored relative to today.
-    const wk = (n: number): [Date, Date] => [at(-7 * n - 4), at(-7 * n)] // [Mon-ish, Fri-ish] of n weeks ago
-    const [w3s, w3e] = wk(4)
-    const [w2s, w2e] = wk(3)
-    const [w1s, w1e] = wk(2)
+    // Measured-historical outcomes — ONE row per scope spanning the trailing Reporting-Policy window.
+    // BOTH the cockpit OEE (window-aggregated) and the scorecard's "Historical" VS-BASELINE arm
+    // (all-rows-aggregated) read THIS same set, so the historical number is identical on both surfaces
+    // (no divergence — #6). Option A "availability-led" story: Press A weak (more changeover/downtime),
+    // Press B strong; Saltillo plant blend ~79%. Throughput is weekly units (scaled to the realistically-
+    // full demand so live ~thousands/week vs history ~thousands/week). Monterrey & its lines stay absent
+    // → the honest "no historical baseline yet" empty state is still testable.
+    const [rwS, rwE] = [at(-14), at(0)]
     await db.insert(historicalOutcome).values([
-      // Saltillo plant-level — three prior weeks (pre-platform performance).
-      ho(saltillo!.id, null, w3s, w3e, 0.84, 8.9, 0.88, 0.79, 0.965, 3, 22600),
-      ho(saltillo!.id, null, w2s, w2e, 0.86, 8.7, 0.89, 0.8, 0.97, 2, 23400),
-      ho(saltillo!.id, null, w1s, w1e, 0.85, 8.8, 0.88, 0.81, 0.968, 3, 23000),
-      // Press Line A line-level — the wear story's line, slightly worse historically.
-      ho(saltillo!.id, pressA!.id, w3s, w3e, 0.8, 9.4, 0.85, 0.77, 0.96, 2, 11300),
-      ho(saltillo!.id, pressA!.id, w2s, w2e, 0.82, 9.2, 0.86, 0.78, 0.962, 1, 11800),
-      ho(saltillo!.id, pressA!.id, w1s, w1e, 0.81, 9.3, 0.85, 0.78, 0.96, 2, 11500),
-      // Ramos Arizpe plant-level.
-      ho(ramos!.id, null, w3s, w3e, 0.88, 6.4, 0.9, 0.82, 0.975, 1, 5000),
-      ho(ramos!.id, null, w2s, w2e, 0.9, 6.2, 0.91, 0.83, 0.978, 1, 5300),
-      ho(ramos!.id, null, w1s, w1e, 0.89, 6.3, 0.9, 0.83, 0.976, 1, 5150),
+      ho(saltillo!.id, null, rwS, rwE, 0.86, 8.8, 0.85, 0.95, 0.98, 2, 23000),
+      ho(saltillo!.id, pressA!.id, rwS, rwE, 0.8, 9.3, 0.82, 0.94, 0.985, 2, 11500),
+      ho(saltillo!.id, pressB!.id, rwS, rwE, 0.88, 8.6, 0.9, 0.95, 0.985, 1, 12000),
+      ho(ramos!.id, null, rwS, rwE, 0.89, 6.3, 0.9, 0.83, 0.976, 1, 5150),
     ])
 
     // Autonomy config (Config framework, Stage 3 — the `autonomy` group): ADVISORY-FIRST for the

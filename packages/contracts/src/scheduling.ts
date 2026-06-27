@@ -213,6 +213,13 @@ export interface ResourceVarianceDto {
    * from {@link throughputAttainment} (this version's ops only — the plan-quality retrospective).
    */
   continuousAttainment: number | null
+  /**
+   * CONTINUOUS historical OEE for this resource (A·P·Q) over the Reporting-Policy window, read from
+   * the measured_historical (`historical_outcome`) rows — the SAME source as the scorecard's
+   * "Historical" baseline arm (no divergence). `null` when no in-window rows exist for the resource.
+   * Distinct from the per-version scorecard OEE.
+   */
+  continuousOee: OeeDto | null
   /** Ops started within tolerance of planned_start / executed ops. */
   scheduleAdherence: number
   /**
@@ -238,6 +245,15 @@ export interface PerformanceVarianceDto {
    * NOT reset on a re-solve. `null` when nothing executed in the window. The KPI strip reads THIS.
    */
   plantThroughputAttainment: number | null
+  /**
+   * CONTINUOUS historical OEE (A·P·Q) over the Reporting-Policy window — aggregated from the
+   * measured_historical (`historical_outcome`) rows, the SAME scope the scorecard's "Historical"
+   * baseline arm uses, so the historical number is identical on both surfaces (no divergence).
+   * Plan-independent and present from `demo:reset`; does NOT reset on a re-solve. `null` when no
+   * in-window rows exist. The cockpit OEE headline reads THIS; the scorecard keeps the per-version
+   * OEE (the plan-quality retrospective) — the same two-home split as throughput.
+   */
+  plantOee: OeeDto | null
   /** The continuous reporting window (ISO) — `today − reportingWindowDays` → start-of-today. */
   reportingWindowStart: string
   reportingWindowEnd: string

@@ -8,6 +8,7 @@ import {
   type ConfigReadContract,
   type ObjectiveWeights,
   type CoverageProposalDto,
+  type ExecutionActualDto,
   type LatenessChainDto,
   type LearnedParameterDto,
   type LearningReadContract,
@@ -1016,6 +1017,10 @@ export class SchedulingService {
     // the executed past, stable across re-solve. Feeds the KPI strip headline + the lane "behind plan"
     // chip (per-resource continuous attainment). Distinct from the per-version attainment below.
     const cont = await this.computePlantThroughput(tenantId, version.plantId)
+    // CONTINUOUS historical OEE (A·P·Q) — the cockpit headline. Read from the seeded measured_historical
+    // rows over the Reporting-Policy window (same source as the scorecard's Historical baseline arm), so
+    // it's plan-independent, present from demo:reset, and never waits for a re-solve.
+    const histOee = await this.computeHistoricalOee(tenantId, version.plantId)
 
     const byResource = new Map<string, typeof ops>()
     for (const op of ops) {
@@ -1055,6 +1060,7 @@ export class SchedulingService {
           resourceName: nameById.get(resourceId) ?? resourceId,
           throughputAttainment: attainment,
           continuousAttainment,
+          continuousOee: histOee.byResource.get(resourceId) ?? null,
           behindPlanPct: continuousAttainment != null ? Math.max(0, 1 - continuousAttainment) : 0,
           scheduleAdherence: withActual.length > 0 ? onTime / withActual.length : 1,
           utilizationPct,
@@ -1097,8 +1103,10 @@ export class SchedulingService {
       resources,
       // PER-VERSION attainment (this committed plan) — null when no actuals yet (no data ≠ 100%).
       throughputAttainment: hasActuals && totalPlanned > 0 ? totalGood / totalPlanned : null,
-      // CONTINUOUS plant throughput (cross-version, Reporting-Policy window) — the KPI-strip headline.
+      // CONTINUOUS plant throughput (cross-version, Reporting-Policy window) — the scorecard retrospective.
       plantThroughputAttainment: cont.plant,
+      // CONTINUOUS historical OEE (A·P·Q) from measured_historical rows — the cockpit headline.
+      plantOee: histOee.plant,
       reportingWindowStart: new Date(cont.windowStartMs).toISOString(),
       reportingWindowEnd: new Date(cont.windowEndMs).toISOString(),
       utilizationPct: plantAvail > 0 ? plantBusy / plantAvail : null,
@@ -1111,23 +1119,20 @@ export class SchedulingService {
   }
 
   /**
-   * Continuous plant-performance throughput over the **Reporting-Policy** window (CONFIG-driven,
-   * not hardcoded). Aggregates real execution actuals across the executed-past window, each measured
-   * against the plan that was live when it ran (planned-at-execution) — a fact about the plant's
-   * past that is **stable across re-solve** (a re-solve adds a planning version but no past actuals,
-   * and the window/authority are version-independent).
+   * Resolve the **authoritative** executed-past actuals for the plant over the **Reporting-Policy**
+   * window (CONFIG-driven). The shared substrate for every continuous (cross-version, re-solve-stable)
+   * plant metric — throughput AND OEE read this so they agree on which actuals count.
    *
    * - **Window:** `[startOfToday − reportingWindowDays, startOfToday)` from the resolved reporting policy.
    * - **Authority:** per `(resource, routingOp, day)` keep the **latest-committed** executing version
-   *   present (double-count-proof if a day was ever re-executed under a newer version).
-   * - **Baseline:** planned = Σ `plannedQty` of each authoritative actual's executing op (exact-id join).
-   * - **Honesty:** a day that didn't execute contributes nothing; an empty window → `null` (dash).
-   * @returns plant attainment + per-resource attainment + the resolved window bounds.
+   *   present (double-count-proof if a day was ever re-executed under a newer version), then dedupe to
+   *   ONE representative per executing op (actuals are seq-ordered → the last cycle wins).
+   * - **Honesty:** a day that didn't execute contributes nothing; an empty window → `[]` (→ `null` KPI).
    */
-  private async computePlantThroughput(
+  private async resolveContinuousActuals(
     tenantId: string,
     plantId: string,
-  ): Promise<{ plant: number | null; byResource: Map<string, number | null>; windowStartMs: number; windowEndMs: number }> {
+  ): Promise<{ authoritative: ExecutionActualDto[]; resourceIds: string[]; windowStartMs: number; windowEndMs: number }> {
     const MS_PER_DAY = 86_400_000
     const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
     const windowEndMs = startOfDayUtc(Date.now())
@@ -1136,7 +1141,7 @@ export class SchedulingService {
     const md = await this.resolveMasterData(tenantId)
     const resourceIds = (await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id)
     const actuals = await this.learning.listActualsForResourcesInWindow(tenantId, resourceIds, windowStartMs, windowEndMs)
-    if (actuals.length === 0) return { plant: null, byResource: new Map(), windowStartMs, windowEndMs }
+    if (actuals.length === 0) return { authoritative: [], resourceIds, windowStartMs, windowEndMs }
 
     // Authority: latest-committed executing version per (resource, routingOp, day).
     const versions = await this.repo.findVersionsByIds(tenantId, [...new Set(actuals.map((a) => a.scheduleVersionId))])
@@ -1151,22 +1156,36 @@ export class SchedulingService {
         bestVersionByGroup.set(k, a.scheduleVersionId)
       }
     }
-
-    // Keep only authoritative actuals; dedupe to ONE representative per executing op (actuals are
-    // seq-ordered, so the last cycle wins — mirrors the per-version metric's one-actual-per-op model).
-    const repByOp = new Map<string, (typeof actuals)[number]>()
+    // Dedupe to ONE representative per executing op (seq-ordered → last cycle wins).
+    const repByOp = new Map<string, ExecutionActualDto>()
     for (const a of actuals) {
       if (bestVersionByGroup.get(groupKey(a)) === a.scheduleVersionId) repByOp.set(a.scheduledOperationId, a)
     }
+    return { authoritative: [...repByOp.values()], resourceIds, windowStartMs, windowEndMs }
+  }
+
+  /**
+   * Continuous plant-performance throughput over the Reporting-Policy window — Σ good ÷ Σ
+   * planned-at-execution across the authoritative executed-past actuals, each measured against the
+   * plan that was live when it ran. A fact about the past → **stable across re-solve**. Per-resource
+   * + plant; `null` on an empty window (dash, not 0%).
+   * @returns plant attainment + per-resource attainment + the resolved window bounds.
+   */
+  private async computePlantThroughput(
+    tenantId: string,
+    plantId: string,
+  ): Promise<{ plant: number | null; byResource: Map<string, number | null>; windowStartMs: number; windowEndMs: number }> {
+    const { authoritative, resourceIds, windowStartMs, windowEndMs } = await this.resolveContinuousActuals(tenantId, plantId)
+    if (authoritative.length === 0) return { plant: null, byResource: new Map(), windowStartMs, windowEndMs }
 
     // Planned-at-execution: the executing op's plannedQty (across versions, by exact id).
-    const plannedByOp = new Map((await this.repo.findOpsByIds([...repByOp.keys()])).map((o) => [o.id, o.plannedQty]))
+    const plannedByOp = new Map((await this.repo.findOpsByIds(authoritative.map((a) => a.scheduledOperationId))).map((o) => [o.id, o.plannedQty]))
 
     let plantGood = 0
     let plantPlanned = 0
     const goodByRes = new Map<string, number>()
     const plannedByRes = new Map<string, number>()
-    for (const a of repByOp.values()) {
+    for (const a of authoritative) {
       const p = plannedByOp.get(a.scheduledOperationId) ?? 0
       plantGood += a.goodQty
       plantPlanned += p
@@ -1179,6 +1198,48 @@ export class SchedulingService {
       byResource.set(rid, pl > 0 ? (goodByRes.get(rid) ?? 0) / pl : null)
     }
     return { plant: plantPlanned > 0 ? plantGood / plantPlanned : null, byResource, windowStartMs, windowEndMs }
+  }
+
+  /**
+   * Continuous **historical OEE** (A·P·Q) for the cockpit — aggregated from the seeded
+   * `historical_outcome` (measured_historical) rows whose period overlaps the Reporting-Policy window.
+   * The **same source** the scorecard's "Historical" baseline arm reads (no divergence), plan-independent
+   * and present from `demo:reset` (the plant has a history) — so the cockpit OEE shows immediately and
+   * never waits for a re-solve. `null` per scope when no in-window rows exist (the honest empty state).
+   * @returns plant OEE + per-resource OEE (both `null` when the window has no rows for that scope).
+   */
+  private async computeHistoricalOee(
+    tenantId: string,
+    plantId: string,
+  ): Promise<{ plant: OeeDto | null; byResource: Map<string, OeeDto | null> }> {
+    const MS_PER_DAY = 86_400_000
+    const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
+    const windowEndMs = startOfDayUtc(Date.now())
+    const windowStartMs = windowEndMs - reportingWindowDays * MS_PER_DAY
+    const rows = (await this.repo.listHistoricalOutcomes(tenantId, plantId)).filter(
+      (r) => r.periodEnd.getTime() > windowStartMs && r.periodStart.getTime() < windowEndMs && r.oee != null,
+    )
+    type Row = (typeof rows)[number]
+    const agg = (subset: Row[]): OeeDto | null => {
+      if (subset.length === 0) return null
+      const mean = (sel: (r: Row) => number | null): number => {
+        const vals = subset.map(sel).filter((v): v is number => v != null)
+        return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
+      }
+      const availability = mean((r) => r.oeeAvailability)
+      const performance = mean((r) => r.oeePerformance)
+      const quality = mean((r) => r.oeeQuality)
+      return { availability, performance, quality, oee: availability * performance * quality }
+    }
+    // Plant = aggregate ALL in-window rows (blend + per-line), the SAME scope the scorecard's
+    // measured_historical baseline arm uses (`listHistoricalOutcomes(plantId)` with no resourceId) —
+    // so the cockpit headline and the Historical baseline show the identical number (no divergence, #6).
+    const plant = agg(rows)
+    const byResource = new Map<string, OeeDto | null>()
+    for (const rid of new Set(rows.filter((r) => r.resourceId != null).map((r) => r.resourceId as string))) {
+      byResource.set(rid, agg(rows.filter((r) => r.resourceId === rid)))
+    }
+    return { plant, byResource }
   }
 
   /** Compute one version's metrics, optionally scoped to a single resource/line. */

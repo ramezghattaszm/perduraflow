@@ -348,9 +348,10 @@ export function BoardContent() {
       .map((o) => o.demandLineId)
   ).size
   const plantUtil = variance?.utilizationPct ?? null
-  // The KPI strip is a plant-state surface → CONTINUOUS throughput (executed-past, Reporting-Policy
-  // window), which holds across a re-solve. The per-version attainment is the scorecard's retrospective.
-  const tputPct = variance?.plantThroughputAttainment ?? null
+  // The KPI strip is a plant-state surface → CONTINUOUS historical OEE (A·P·Q over the executed-past
+  // Reporting-Policy window, cross-version), which shows immediately from actuals and holds across a
+  // re-solve. The per-version OEE/throughput are the scorecard's retrospectives (same two-home split).
+  const oeePct = variance?.plantOee?.oee ?? null
 
   // Detected conditions (selected plant vs its committed plan) → reviewable cards.
   const plannedQtyByLine = useMemo(
@@ -1017,10 +1018,10 @@ export function BoardContent() {
             />
           ) : null}
           <KpiTile
-            label={t('kpi.throughput')}
-            value={tputPct == null ? '—' : `${Math.round(tputPct * 100)}%`}
-            caption={t('kpi.throughputCaption')}
-            valueTone={tputPct == null ? 'neutral' : tputPct >= 0.95 ? 'ok' : 'warn'}
+            label={t('kpi.oee')}
+            value={oeePct == null ? '—' : `${Math.round(oeePct * 100)}%`}
+            caption={t('kpi.oeeCaption')}
+            valueTone={oeePct == null ? 'neutral' : oeePct >= 0.85 ? 'ok' : oeePct >= 0.6 ? 'warn' : 'bad'}
           />
         </KpiTileRow>
       ) : null}
