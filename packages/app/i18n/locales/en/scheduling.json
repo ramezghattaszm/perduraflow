@@ -149,7 +149,7 @@
   },
   "kpi": {
     "onTime": "On-time",
-    "onTimeCaption": "Schedule Adherence",
+    "onTimeCaption": "on-time vs due",
     "utilization": "Line utilization",
     "utilizationCaption": "The utilization of the lines",
     "atRisk": "At-risk",

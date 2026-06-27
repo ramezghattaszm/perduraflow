@@ -11,5 +11,5 @@
   "baseline": "Baseline",
   "delta": "Δ",
   "noLift": "No lift yet — learning hasn't accrued for this plan.",
-  "kpi": { "otif": "OTIF", "cost": "Cost/unit", "oee": "OEE", "late": "Late orders", "throughput": "Throughput" }
+  "kpi": { "otif": "On-time", "cost": "Cost/unit", "oee": "OEE", "late": "Late orders", "throughput": "Throughput" }
 }

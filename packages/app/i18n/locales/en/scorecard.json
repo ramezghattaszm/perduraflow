@@ -4,8 +4,8 @@
   "plant": "Plant",
   "version": "Version",
   "kpi": {
-    "otif": "On-time-in-full",
-    "otifCaption": "service level",
+    "otif": "On-time",
+    "otifCaption": "on-time vs due",
     "costPerUnit": "Cost / unit",
     "costCaption": "Tier-B, from seeded rates",
     "oee": "OEE",
