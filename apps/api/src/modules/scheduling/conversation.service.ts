@@ -758,14 +758,14 @@ const CONSTRAINT_LABEL: Record<string, string> = {
  */
 // English for the model (the API has no i18next; mirrors the FE `whatif.json` `unremediable.*` keys).
 function unremediableReasonEn(key: string): string {
-  return key === 'whatif.unremediable.atRisk'
-    ? 'No available remediation makes this op runnable as scheduled.'
-    : 'No feasible plan for this change.'
+  if (key === 'whatif.unremediable.atRisk') return 'No available remediation makes this op runnable as scheduled.'
+  if (key === 'whatif.unremediable.cantBeOnTime') return 'No scheduling change can bring this order in on time.'
+  return 'No feasible plan for this change.'
 }
 function unremediableLeversEn(key: string): string {
-  return key === 'whatif.unremediable.atRiskLevers'
-    ? 'split the op, re-promise the date, or change the requirement'
-    : ''
+  if (key === 'whatif.unremediable.atRiskLevers') return 'split the op, re-promise the date, or change the requirement'
+  if (key === 'whatif.unremediable.cantBeOnTimeLevers') return 'renegotiate the date, or expedite the gating input'
+  return ''
 }
 
 function compactArtifact(

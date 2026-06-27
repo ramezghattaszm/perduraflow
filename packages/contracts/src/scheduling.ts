@@ -761,6 +761,13 @@ export interface WhatIfOption {
   kpis: CostedKpis
   score: number
   rationale: StructuredRationale
+  /**
+   * For an `at_risk_remediation` what-if: how the TARGET order fares in THIS option's plan — `feasible`
+   * (all its ops placeable) and `firmLate` (any firm op breaches due). Drives the PER-ORDER verdict
+   * (has-options / can't-run / can't-be-on-time) so the honest-unachievable message is the target's own,
+   * not a plant-wide infeasibility leak from unrelated orders. Null for non-remediation what-ifs (and
+   * old cached results → the verdict falls back to the plant-wide rule). Plant-wide SCORING is unchanged. */
+  targetOutcome?: { feasible: boolean; firmLate: boolean } | null
 }
 
 /**

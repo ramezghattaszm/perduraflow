@@ -14,8 +14,12 @@ const kpis = (over: Partial<CostedKpis>): CostedKpis => ({
   ...over,
 })
 
-/** A scored option fixture. `infeasible`/`starved` produce the two kinds of non-option. */
-const option = (id: string, opts: { infeasible?: number; starved?: boolean; score?: number } = {}): WhatIfOption => ({
+/** A scored option fixture. `infeasible`/`starved` produce the two kinds of non-option; `target` sets
+ *  the per-order outcome (undefined → the plant-wide fallback path). */
+const option = (
+  id: string,
+  opts: { infeasible?: number; starved?: boolean; score?: number; target?: { feasible: boolean; firmLate: boolean } } = {},
+): WhatIfOption => ({
   id,
   rank: 1,
   labelKey: `whatif.option.${id}`,
@@ -24,6 +28,7 @@ const option = (id: string, opts: { infeasible?: number; starved?: boolean; scor
   kpis: kpis({ infeasibleFirmOps: opts.infeasible ?? 0 }),
   score: opts.score ?? 100,
   rationale: { schemaVersion: '1.0', weightSetVersion: 'aps-w2', optionId: id, score: opts.score ?? 100, headlineKey: '', headlineParams: {}, factors: [], constraints: [], comparatives: [] },
+  ...(opts.target ? { targetOutcome: opts.target } : {}),
 })
 
 const remediation: ChangeSet = { origin: { type: 'manual' }, changes: [{ kind: 'at_risk_remediation', demandLineId: 'MF-102' }] }
@@ -81,5 +86,57 @@ describe('applySelectability — infeasible-plan options are non-options', () =>
     expect(r.unremediable).toBeNull()
     expect(r.options).toEqual(opts) // byte-identical — the safety check
     expect(r.recommendedOptionId).toBe('balanced')
+  })
+})
+
+describe('applySelectability — PER-ORDER verdict (target outcome, not plant-wide leak)', () => {
+  const onTime = { feasible: true, firmLate: false }
+  const late = { feasible: true, firmLate: true }
+  const cantRun = { feasible: false, firmLate: false }
+
+  it('has-options → recommends the SELECTABLE option that fixes the TARGET (on-time)', () => {
+    const opts = [
+      option('balanced', { target: late }), // selectable but leaves the target late
+      option('faster_operator', { score: 339, target: onTime }), // fixes the target
+    ]
+    const r = applySelectability(opts, remediation)
+    expect(r.unremediable).toBeNull()
+    expect(r.recommendedOptionId).toBe('faster_operator')
+  })
+
+  it("can't-be-on-time → target runs in every option but no selectable option clears its lateness", () => {
+    // due_before_start shape: feasible everywhere, late everywhere.
+    const opts = [option('balanced', { target: late }), option('protect_delivery', { target: late })]
+    const r = applySelectability(opts, remediation)
+    expect(r.recommendedOptionId).toBeNull()
+    expect(r.unremediable).toEqual({ reasonKey: 'whatif.unremediable.cantBeOnTime', leversKey: 'whatif.unremediable.cantBeOnTimeLevers' })
+  })
+
+  it("can't-run → the target can't be placed in ANY option", () => {
+    const opts = [option('balanced', { infeasible: 1, target: cantRun }), option('overtime', { infeasible: 1, target: cantRun })]
+    const r = applySelectability(opts, remediation)
+    expect(r.recommendedOptionId).toBeNull()
+    expect(r.unremediable).toEqual({ reasonKey: 'whatif.unremediable.atRisk', leversKey: 'whatif.unremediable.atRiskLevers' })
+  })
+
+  it('NO plant-wide leak: the target is fixable even though ANOTHER order leaves the option infeasible — verdict is the TARGET’s', () => {
+    // faster_operator fixes the target AND is plant-wide runnable (selectable) → has-options. The other
+    // option is infeasible (an unrelated order overflows) but that must NOT make the TARGET unremediable.
+    const opts = [
+      option('faster_operator', { score: 339, target: onTime }),
+      option('balanced', { infeasible: 2, target: late }), // unrelated infeasibility
+    ]
+    const r = applySelectability(opts, remediation)
+    expect(r.unremediable).toBeNull()
+    expect(r.recommendedOptionId).toBe('faster_operator')
+  })
+
+  it('a fixer must be SELECTABLE: an option that fixes the target but is plant-wide infeasible does NOT count', () => {
+    // The only target-on-time option leaves another order un-runnable (infeasible) → not applicable →
+    // no selectable fix → can’t-be-on-time (the target itself runs elsewhere).
+    const opts = [option('reroute', { infeasible: 1, target: onTime }), option('balanced', { target: late })]
+    const r = applySelectability(opts, remediation)
+    expect(r.recommendedOptionId).toBeNull()
+    expect(r.unremediable?.reasonKey).toBe('whatif.unremediable.cantBeOnTime')
   })
 })

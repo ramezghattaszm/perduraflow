@@ -160,7 +160,8 @@ export class WhatIfService {
     })
 
     const baseKpis = scorePlan(basePlacements, { rateByResource, basePlacements, overtimeHours: 0, weights: ctx.weights }).kpis
-    const options = this.buildOptions(ranked, ctx.weightSetVersion)
+    const targetDemandLineId = changeSet.changes.find((c) => c.kind === 'at_risk_remediation')?.demandLineId ?? null
+    const options = this.buildOptions(ranked, ctx.weightSetVersion, targetDemandLineId)
     const recommendedOptionId = options.find((o) => o.feasible)?.id ?? null
     const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay, ctx.weightSetVersion, ctx.downtime, ctx.baseInputsDigest)
 
@@ -774,10 +775,13 @@ export class WhatIfService {
   private buildOptions(
     ranked: ReturnType<WhatIfService['runOption']>[],
     weightSetVersion: string,
+    /** The `at_risk_remediation` target order, or null — drives each option's per-order `targetOutcome`. */
+    targetDemandLineId: string | null,
   ): WhatIfOption[] {
     const feasible = ranked.filter((r) => r.feasible && r.scored)
     return ranked.map((r, idx) => {
       const rank = idx + 1
+      const targetOutcome = targetOutcomeOf(r.placements, targetDemandLineId)
       if (!r.feasible || !r.scored) {
         return {
           id: r.spec.id,
@@ -788,6 +792,7 @@ export class WhatIfService {
           kpis: { otif: 0, costPerUnit: null, oee: null, lateOrders: 0, firmLateHours: null, infeasibleFirmOps: null, throughput: null, churn: null },
           score: Number.POSITIVE_INFINITY,
           rationale: emptyRationale(r.spec.id),
+          targetOutcome,
         }
       }
       const comparatives = this.comparatives(r, feasible)
@@ -815,6 +820,7 @@ export class WhatIfService {
         kpis: r.scored.kpis,
         score: r.scored.score,
         rationale,
+        targetOutcome,
       }
     })
   }
@@ -934,6 +940,26 @@ function shortDate(iso: string): string {
 const isSelectable = (o: WhatIfOption): boolean => o.feasible && (o.kpis.infeasibleFirmOps ?? 0) === 0
 
 /**
+ * How the TARGET order fares in a plan: `feasible` (all its ops placeable) + `firmLate` (any firm op
+ * past due). Null when there's no target or it isn't in this plan. The per-order verdict input.
+ */
+function targetOutcomeOf(
+  placements: Placement[],
+  targetDemandLineId: string | null,
+): { feasible: boolean; firmLate: boolean } | null {
+  if (!targetDemandLineId) return null
+  const ops = placements.filter((p) => p.demandLineId === targetDemandLineId)
+  if (ops.length === 0) return null
+  return {
+    feasible: ops.every((p) => p.placedFeasible),
+    firmLate: ops.some((p) => p.firmness === 'firm' && p.plannedEndMs > p.requiredDateMs),
+  }
+}
+
+/** Does a SELECTABLE option leave the target order feasible AND on-time? (the per-order "fix") */
+const fixesTarget = (o: WhatIfOption): boolean => isSelectable(o) && o.targetOutcome?.feasible === true && o.targetOutcome?.firmLate === false
+
+/**
  * Turn the raw scored option set into the SELECTABLE set + verdict (Decision 1–3). Pure; applied in
  * `toDto` so cached and fresh results transform identically (no engine bump):
  * - ≥1 selectable → offer only selectable; the rest are re-labeled `feasible:false` (window-overflow
@@ -957,8 +983,30 @@ export function applySelectability(
       : { ...o, feasible: false, infeasibleReasonKey: o.feasible ? 'whatif.infeasible.unrunnableOp' : o.infeasibleReasonKey },
   )
   const selectable = relabeled.filter(isSelectable)
+  const isRemediation = changeSet.changes.some((c) => c.kind === 'at_risk_remediation')
+
+  // PER-ORDER verdict (at_risk_remediation, when targetOutcome was computed — i.e. not an old cached
+  // result). The verdict is the TARGET order's own, never a plant-wide infeasibility leak from unrelated
+  // orders. Three states, each with its own honest message:
+  //  - has-options    → a SELECTABLE option leaves the target feasible AND on-time → recommend it.
+  //  - can't-be-on-time → target runs in some option but no selectable option clears its lateness
+  //                       (structurally late, e.g. due-before-start / a material gate) → renegotiate/expedite.
+  //  - can't-run      → the target can't be placed in ANY option → no runnable plan → split/re-promise.
+  if (isRemediation && relabeled.some((o) => o.targetOutcome != null)) {
+    const fixer = relabeled.find(fixesTarget)
+    if (fixer) return { options: relabeled, recommendedOptionId: fixer.id, unremediable: null }
+    const targetEverFeasible = relabeled.some((o) => o.targetOutcome?.feasible === true)
+    return {
+      options: relabeled,
+      recommendedOptionId: null,
+      unremediable: targetEverFeasible
+        ? { reasonKey: 'whatif.unremediable.cantBeOnTime', leversKey: 'whatif.unremediable.cantBeOnTimeLevers' }
+        : { reasonKey: 'whatif.unremediable.atRisk', leversKey: 'whatif.unremediable.atRiskLevers' },
+    }
+  }
+
+  // Plant-wide fallback — non-remediation change-sets, and old cached results without targetOutcome.
   if (selectable.length === 0) {
-    const isRemediation = changeSet.changes.some((c) => c.kind === 'at_risk_remediation')
     return {
       options: relabeled,
       recommendedOptionId: null,
