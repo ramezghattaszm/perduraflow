@@ -35,7 +35,11 @@ export interface OpDetailCardProps {
   strandedWindowLabel?: string | null
   /** Pointer to the resource's wear surface — board-only (the work-list has no lanes); omit to hide. */
   wearPointer?: { label: string; onPress: () => void }
-  /** When the order is firm at-risk, the "Evaluate options" action (label + press); omit to hide. */
+  /** When the order is firm at-risk, the PRIMARY "See options" action — the bounded costed option-set
+   *  card (label + press); omit to hide. */
+  seeOptions?: { label: string; onPress: () => void }
+  /** When the order is firm at-risk, the SECONDARY "Evaluate options" action — open the Copilot for
+   *  exploration beyond the bounded set (label + press); omit to hide. */
   evaluateOptions?: { label: string; onPress: () => void }
   /** A "back" affordance shown above the card (e.g. return to the work-list order rollup); omit to hide. */
   onBack?: { label: string; onPress: () => void }
@@ -50,7 +54,7 @@ export interface OpDetailCardProps {
  * and supplies the two context-specific actions; the card owns all the derivation + styling so the two
  * surfaces can never drift apart.
  */
-export function OpDetailCard({ op, learned, resourceName, partNo, strandedWindowLabel, wearPointer, evaluateOptions, onBack }: OpDetailCardProps) {
+export function OpDetailCard({ op, learned, resourceName, partNo, strandedWindowLabel, wearPointer, seeOptions, evaluateOptions, onBack }: OpDetailCardProps) {
   const { t } = useTranslation('scheduling')
   const tl = (k: string, o?: Record<string, unknown>): string => t(k, o ?? {})
 
@@ -205,7 +209,7 @@ export function OpDetailCard({ op, learned, resourceName, partNo, strandedWindow
       wearPointer={wearPointer}
       // The "why late" chain + the firm-at-risk "Evaluate options" action live INSIDE the card.
       footer={(() => {
-        if (!op.latenessChain && !evaluateOptions) return undefined
+        if (!op.latenessChain && !seeOptions && !evaluateOptions) return undefined
         return (
           <>
             {op.latenessChain ? (
@@ -217,11 +221,18 @@ export function OpDetailCard({ op, learned, resourceName, partNo, strandedWindow
                 collapseLabel={t('lateness.collapse')}
               />
             ) : null}
-            {evaluateOptions ? (
-              <XStack justifyContent="flex-end">
-                <AppButton variant="light" size="$3" onPress={evaluateOptions.onPress}>
-                  {evaluateOptions.label}
-                </AppButton>
+            {seeOptions || evaluateOptions ? (
+              <XStack justifyContent="flex-end" gap="$2">
+                {evaluateOptions ? (
+                  <AppButton variant="light" size="$3" onPress={evaluateOptions.onPress}>
+                    {evaluateOptions.label}
+                  </AppButton>
+                ) : null}
+                {seeOptions ? (
+                  <AppButton variant="primary" size="$3" onPress={seeOptions.onPress}>
+                    {seeOptions.label}
+                  </AppButton>
+                ) : null}
               </XStack>
             ) : null}
           </>

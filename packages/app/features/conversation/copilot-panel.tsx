@@ -28,6 +28,7 @@ import {
 import { useWhatIfResult } from '../../hooks/useWhatIf'
 import {
   useConsumeCopilotDraft,
+  useConsumeSeededResultId,
   useCopilotConversationId,
   useCopilotDraft,
   useSetCopilotConversation,
@@ -52,6 +53,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   const setConversation = useSetCopilotConversation()
   const draft = useCopilotDraft()
   const consumeDraft = useConsumeCopilotDraft()
+  const consumeSeededResultId = useConsumeSeededResultId()
   const [input, setInput] = useState('')
 
   // A screen opened the Copilot with a pre-seeded question (e.g. "Evaluate options" on an at-risk
@@ -99,7 +101,11 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
     setInput('')
     // Read the screen context imperatively HERE (send time) so the turn carries the current
     // selection — not a value closed over at render (no stale-selection race).
-    const screenContext = getScreenContext() ?? undefined
+    // Anchor the first turn to a pre-computed what-if result if the "Evaluate options" door seeded one,
+    // so the conversation starts from the SAME deterministic root-matched set (no root re-derivation).
+    const seeded = consumeSeededResultId()
+    const base = getScreenContext()
+    const screenContext = seeded ? { ...(base ?? { screen: 'copilot' }), activeResultId: seeded } : (base ?? undefined)
     if (conversationId) addTurn.mutate({ message, screenContext })
     else
       create.mutate(

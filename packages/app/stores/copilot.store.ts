@@ -14,22 +14,36 @@ interface CopilotState {
   /** A pre-seeded composer message (set when a screen opens the Copilot to ask a specific question,
    *  e.g. "Evaluate options" on an at-risk row). The panel reads it once into the input, then clears. */
   draft: string | null
+  /** A pre-computed what-if result the conversation should START from — the "Evaluate options" door
+   *  pre-runs the deterministic at_risk_remediation so the Copilot narrates the SAME root-matched set
+   *  (never re-deriving the root, which caused the wear-misroute). Merged into the first turn's screen
+   *  context as `activeResultId`, then cleared. */
+  seededResultId: string | null
   openCopilot: () => void
-  /** Open the panel with the composer pre-filled (the planner reviews, then sends). */
-  openCopilotWith: (prompt: string) => void
+  /** Open the panel with the composer pre-filled (the planner reviews, then sends), optionally anchored
+   *  to a pre-computed what-if result the conversation should start from. */
+  openCopilotWith: (prompt: string, seededResultId?: string | null) => void
   consumeDraft: () => void
+  /** Read + clear the seeded result id (called once at the first send). */
+  consumeSeededResultId: () => string | null
   closeCopilot: () => void
   toggleCopilot: () => void
   setConversation: (id: string | null) => void
 }
 
-const useCopilotStore = create<CopilotState>((set) => ({
+const useCopilotStore = create<CopilotState>((set, get) => ({
   open: false,
   conversationId: null,
   draft: null,
+  seededResultId: null,
   openCopilot: () => set({ open: true }),
-  openCopilotWith: (draft) => set({ open: true, draft }),
+  openCopilotWith: (draft, seededResultId = null) => set({ open: true, draft, seededResultId }),
   consumeDraft: () => set({ draft: null }),
+  consumeSeededResultId: () => {
+    const id = get().seededResultId
+    if (id) set({ seededResultId: null })
+    return id
+  },
   closeCopilot: () => set({ open: false }),
   toggleCopilot: () => set((s) => ({ open: !s.open })),
   setConversation: (conversationId) => set({ conversationId }),
@@ -51,6 +65,8 @@ export const useOpenCopilotWith = () => useCopilotStore((s) => s.openCopilotWith
 export const useCopilotDraft = () => useCopilotStore((s) => s.draft)
 /** Clear the pending draft (call after reading it into the composer). */
 export const useConsumeCopilotDraft = () => useCopilotStore((s) => s.consumeDraft)
+/** Read + clear the seeded what-if result id (call once at the first send to anchor the conversation). */
+export const useConsumeSeededResultId = () => useCopilotStore((s) => s.consumeSeededResultId)
 /** Close the panel. */
 export const useCloseCopilot = () => useCopilotStore((s) => s.closeCopilot)
 /** Set the active conversation id. */

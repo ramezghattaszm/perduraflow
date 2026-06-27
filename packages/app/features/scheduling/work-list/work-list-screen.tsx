@@ -19,13 +19,13 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../../i18n'
-import { latenessLines, latenessSummary, remediationPromptKey } from '../../../utils/lateness'
+import { latenessLines, latenessSummary } from '../../../utils/lateness'
 import { usePlants } from '../../../hooks/useOrg'
 import { usePlantSelection } from '../../../hooks/usePlantSelection'
 import { useScheduleVersion, useWorkList } from '../../../hooks/useScheduling'
 import { useLearnedParameters } from '../../../hooks/useLearning'
 import { useParts } from '../../../hooks/useMasterData'
-import { useEvaluateOptions } from '../../../hooks/useEvaluateOptions'
+import { useDiscussOptions, useSeeOptions, type AtRiskOrderRef } from '../../../hooks/useAtRiskRemediation'
 import { useActivePopup, usePopup } from '../../../stores/popup.store'
 import { OpDetailCard } from '../op-detail-card'
 import { AdminShell } from '../../shell/admin-shell'
@@ -66,6 +66,9 @@ const PRIORITY_RANK = { critical: 0, high: 1, standard: 2 } as const
  * Priority as a symbol, not a word — only the exceptions are flagged: a red alert for `critical`,
  * an amber up-arrow for `high`, nothing for the (common) `standard`.
  */
+/** Build the at-risk order ref the two doors act on (label = release reference, falls back to the id). */
+const orderRef = (r: WorkListRowDto): AtRiskOrderRef => ({ demandLineId: r.demandLineId, label: r.releaseReference ?? r.demandLineId })
+
 function PriorityMark({ priority }: { priority: WorkListRowDto['priority'] }) {
   if (priority === 'critical')
     return (
@@ -99,7 +102,8 @@ export function WorkListTable({
   versionId,
 }: { plantId: string | undefined; versionId?: string }) {
   const { t } = useTranslation(['workList', 'scheduling'])
-  const evaluateOptions = useEvaluateOptions()
+  const runSeeOptions = useSeeOptions()
+  const runDiscussOptions = useDiscussOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
   const activePopup = useActivePopup()
   const { data, isLoading } = useWorkList(plantId, versionId)
@@ -179,13 +183,14 @@ export function WorkListTable({
         resourceName={drilledOp.resourceName}
         partNo={partNoById.get(drilledFullOp.partId) ?? drilledFullOp.partId}
         onBack={{ label: t('detail.back'), onPress: () => setDrilledOpSeq(null) }}
+        seeOptions={
+          selected.status === 'at_risk' && selected.firmness === 'firm'
+            ? { label: t('exceptions:seeOptions'), onPress: () => runSeeOptions(orderRef(selected)) }
+            : undefined
+        }
         evaluateOptions={
           selected.status === 'at_risk' && selected.firmness === 'firm'
-            ? {
-                label: t('exceptions:evaluateOptions'),
-                onPress: () =>
-                  evaluateOptions(t(remediationPromptKey(selected.chain?.root), { order: selected.releaseReference ?? selected.demandLineId })),
-              }
+            ? { label: t('exceptions:evaluateOptions'), onPress: () => runDiscussOptions(orderRef(selected)) }
             : undefined
         }
       />
@@ -237,22 +242,15 @@ export function WorkListTable({
           />
         </YStack>
       ) : null}
-      {/* Firm at-risk → "Evaluate options" (same root-matched prompt as the board + exception queue).
-          On small screens this dismisses the sheet first (useEvaluateOptions) before the Copilot. */}
+      {/* Firm at-risk → the two doors: "See options" (PRIMARY, the bounded costed card) + "Evaluate
+          options" (SECONDARY, Copilot exploration anchored to the same result). Same on board + queue. */}
       {selected.status === 'at_risk' && selected.firmness === 'firm' ? (
-        <XStack>
-          <AppButton
-            variant="light"
-            size="$3"
-            onPress={() =>
-              evaluateOptions(
-                t(remediationPromptKey(selected.chain?.root), {
-                  order: selected.releaseReference ?? selected.demandLineId,
-                })
-              )
-            }
-          >
+        <XStack gap="$2">
+          <AppButton variant="light" size="$3" onPress={() => runDiscussOptions(orderRef(selected))}>
             {t('exceptions:evaluateOptions')}
+          </AppButton>
+          <AppButton variant="primary" size="$3" onPress={() => runSeeOptions(orderRef(selected))}>
+            {t('exceptions:seeOptions')}
           </AppButton>
         </XStack>
       ) : null}

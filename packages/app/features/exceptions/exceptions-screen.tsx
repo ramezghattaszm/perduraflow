@@ -16,13 +16,13 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { useTranslation } from '../../i18n'
-import { latenessSummary, remediationPromptKey } from '../../utils/lateness'
+import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources, useWorkList } from '../../hooks/useScheduling'
 import { useApprovePrediction, useDismissPrediction, usePredictions } from '../../hooks/useLearning'
 import { useCanConfigure } from '../../stores/auth.store'
-import { useOpenCopilotWith } from '../../stores/copilot.store'
+import { useDiscussOptions, useSeeOptions } from '../../hooks/useAtRiskRemediation'
 import { useSetScreenContext } from '../../stores/screenContext.store'
 import { AdminShell } from '../shell/admin-shell'
 
@@ -125,9 +125,9 @@ export function ExceptionsContent() {
   // "Evaluate options" → opens the Copilot pre-seeded with the lever that matches the root cause, so
   // the planner gets the right what-if (expedite/move-date for material & due_before_start; overtime
   // for capacity/window) in one click instead of selecting the row and knowing what to ask.
-  const openCopilotWith = useOpenCopilotWith()
-  const resolvePrompt = (a: WorkListRowDto): string =>
-    t(remediationPromptKey(a.chain?.root), { order: a.releaseReference ?? a.demandLineId })
+  const runSeeOptions = useSeeOptions()
+  const runDiscussOptions = useDiscussOptions()
+  const orderRef = (a: WorkListRowDto) => ({ demandLineId: a.demandLineId, label: a.releaseReference ?? a.demandLineId })
 
   return (
     <>
@@ -221,13 +221,14 @@ export function ExceptionsContent() {
                   setSelectedOrderId((cur) => (cur === a.demandLineId ? null : a.demandLineId))
                 }
                 actions={
-                  <AppButton
-                    variant="light"
-                    size="$3"
-                    onPress={() => openCopilotWith(resolvePrompt(a))}
-                  >
-                    {t('evaluateOptions')}
-                  </AppButton>
+                  <XStack gap="$2">
+                    <AppButton variant="light" size="$3" onPress={() => runDiscussOptions(orderRef(a))}>
+                      {t('evaluateOptions')}
+                    </AppButton>
+                    <AppButton variant="primary" size="$3" onPress={() => runSeeOptions(orderRef(a))}>
+                      {t('seeOptions')}
+                    </AppButton>
+                  </XStack>
                 }
               />
             ))}

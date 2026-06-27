@@ -24,7 +24,6 @@ import {
 } from '@perduraflow/ui'
 import { translateError, useTranslation } from '../../../i18n'
 import { getApiErrorCode } from '../../../utils/error'
-import { remediationPromptKey } from '../../../utils/lateness'
 import { OpDetailCard } from '../op-detail-card'
 import { OperatorAssignControl } from '../operator-assign-control'
 import { usePlants } from '../../../hooks/useOrg'
@@ -47,7 +46,7 @@ import { useToast } from '../../../hooks/useToast'
 import { useSessionState } from '../../../hooks/useSessionState'
 import { useSetScreenContext } from '../../../stores/screenContext.store'
 import { useActivePopup, usePopup } from '../../../stores/popup.store'
-import { useEvaluateOptions } from '../../../hooks/useEvaluateOptions'
+import { useDiscussOptions, useSeeOptions } from '../../../hooks/useAtRiskRemediation'
 import { AdminShell } from '../../shell/admin-shell'
 import { WhatIfOptionSet } from '../../whatif/whatif-option-set'
 import { WorkListTable } from '../work-list/work-list-screen'
@@ -94,7 +93,8 @@ export function BoardContent() {
   const commit = useCommitSchedule()
   const discard = useDiscardDraft()
   const whatIf = useWhatIf()
-  const evaluateOptions = useEvaluateOptions()
+  const runSeeOptions = useSeeOptions()
+  const runDiscussOptions = useDiscussOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
   const activePopup = useActivePopup()
   const media = useMedia()
@@ -638,15 +638,17 @@ export function BoardContent() {
             }
           : undefined
       }
+      seeOptions={(() => {
+        const row = !readOnly ? firmAtRiskByLine.get(selectedOp.demandLineId) : undefined
+        if (!row) return undefined
+        const order = { demandLineId: row.demandLineId, label: row.releaseReference ?? row.demandLineId }
+        return { label: t('exceptions:seeOptions'), onPress: () => runSeeOptions(order, setVersionId) }
+      })()}
       evaluateOptions={(() => {
         const row = !readOnly ? firmAtRiskByLine.get(selectedOp.demandLineId) : undefined
-        return row
-          ? {
-              label: t('exceptions:evaluateOptions'),
-              onPress: () =>
-                evaluateOptions(t(remediationPromptKey(row.chain?.root), { order: row.releaseReference ?? row.demandLineId })),
-            }
-          : undefined
+        if (!row) return undefined
+        const order = { demandLineId: row.demandLineId, label: row.releaseReference ?? row.demandLineId }
+        return { label: t('exceptions:evaluateOptions'), onPress: () => runDiscussOptions(order) }
       })()}
     />
   ) : null

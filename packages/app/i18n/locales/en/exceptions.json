@@ -14,7 +14,9 @@
   "needYouEmpty": "Nothing needs you right now.",
   "preAdjust": "Pre-adjust",
   "dismiss": "Dismiss",
+  "seeOptions": "See options",
   "evaluateOptions": "Evaluate options",
+  "discussPrompt": "What are my options for order {{order}}? Show the recommended fixes, then let's explore alternatives — combine levers, try a different operator, move the date, or do nothing.",
   "resolvePrompt": {
     "material": "How can I resolve order {{order}}? It's at-risk waiting on material — evaluate expediting the material or moving the due date.",
     "due_before_start": "How can I resolve order {{order}}? It's due before the line can start it — evaluate moving the due date or expediting; re-sequencing can't fix it.",

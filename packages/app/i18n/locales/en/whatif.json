@@ -1,6 +1,9 @@
 {
   "title": "Options",
   "subtitle": "Costed alternatives — pick one to apply",
+  "optionsFor": "Options — {{order}}",
+  "evaluating": "Evaluating options…",
+  "evaluateError": "Couldn't evaluate options — try again.",
   "recommended": "Recommended",
   "rank": "#{{n}}",
   "score": "Score",
