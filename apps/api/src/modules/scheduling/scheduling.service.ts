@@ -316,12 +316,16 @@ export class SchedulingService {
   }
 
   /**
-   * The causal lateness chains for one order on the plant's committed plan (D-late) — one per at-risk
-   * op of that order. Empty when the order isn't at-risk. Used by the Copilot's explain_lateness tool;
-   * the chain is computed (grounded), so the Copilot narrates it and never infers a blocker.
+   * The causal lateness chains for one order on the plan the planner is VIEWING (D-late) — one per
+   * at-risk op of that order. `versionId` honours the on-screen version (often a re-solved DRAFT) so
+   * the Copilot reasons about what's on the board, not always the committed plan — closing the
+   * "Copilot says on track while the draft shows at-risk" contradiction. An absent, unknown, or
+   * other-plant `versionId` falls back to the committed plan (never errors). Empty when not at-risk.
+   * The chain is computed (grounded), so the Copilot narrates it and never infers a blocker.
    */
-  async latenessForOrder(tenantId: string, plantId: string, demandLineId: string): Promise<LatenessChainDto[]> {
-    const version = await this.repo.findCommittedVersion(tenantId, plantId)
+  async latenessForOrder(tenantId: string, plantId: string, demandLineId: string, versionId?: string): Promise<LatenessChainDto[]> {
+    const viewed = versionId ? await this.repo.findVersion(tenantId, versionId) : null
+    const version = viewed && viewed.plantId === plantId ? viewed : await this.repo.findCommittedVersion(tenantId, plantId)
     if (!version) return []
     const ops = await this.repo.operationsForVersion(version.id)
     const chains = await this.latenessChainsFor(tenantId, version.plantId, ops)

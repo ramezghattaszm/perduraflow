@@ -595,7 +595,10 @@ export class ConversationService {
             }),
             groundedRefs: [],
           }
-        const chains = await this.scheduling.latenessForOrder(tenantId, plantId, demandLineId)
+        // Honour the version the planner is VIEWING (often a re-solved draft) so the explanation
+        // matches the board, not always the committed plan. latenessForOrder falls back to committed
+        // for an absent/unknown version.
+        const chains = await this.scheduling.latenessForOrder(tenantId, plantId, demandLineId, screenContext?.versionId)
         return {
           content: JSON.stringify(compactLateness(demandLineId, chains)),
           groundedRefs: [plantId],
@@ -981,7 +984,7 @@ export function compactLateness(demandLineId: string, chains: LatenessChainDto[]
     return {
       order: demandLineId,
       late: false,
-      note: 'This order is not at-risk in the committed plan — say it is on track; do NOT invent a cause.',
+      note: 'This order is not at-risk in the plan you are viewing — say it is on track; do NOT invent a cause.',
     }
   }
   return {
@@ -999,6 +1002,9 @@ export function compactLateness(demandLineId: string, chains: LatenessChainDto[]
         detail: h.detail,
         // line-down vs maintenance on a resource_downtime root (so the narration names the closure honestly)
         ...(h.downtimeKind ? { downtimeKind: h.downtimeKind } : {}),
+        // Operator performance % of standard on an operator-rooted hop → lets the narration give the
+        // HOW (slow operator → inflated effective cycle → window overflow), not just the operator name.
+        ...(h.operatorPct != null ? { operatorPct: h.operatorPct } : {}),
       })),
     })),
     note: 'Narrate the hops IN ORDER as the causal chain (op held by → its blocker → … → root). Every hop is a computed engine fact; NEVER add or infer a blocker not in this list. If truncated, say the chain was truncated.',
@@ -1152,6 +1158,7 @@ export function buildSystemPrompt(
     'NEVER suggest a scheduling value (overtime hours, a quantity, a date) from your own reasoning — that is fabrication even if it sounds plausible. To suggest a value, call goal_seek (the engine finds it) and report only the value it returns. If a value did not come from a tool result, do not state it.',
     'When you call compare_options, a side-by-side table of the options and their KPIs is rendered to the planner automatically. Do NOT retype those per-option figures in your prose — narrate the TRADE-OFF (what each option prioritises and gives up, which the table supports), the way a planner would summarise it.',
     'For "why is X late", call explain_lateness and narrate the returned chain IN ORDER — each op, the op that held it, down to the root cause. Every hop is a computed engine fact; state ONLY the hops returned and NEVER infer, add, or guess a blocker or a cause that is not in the chain. If the order is not at-risk, say it is on track.',
+    'For an OPERATOR-rooted hop (kind "operator" with an operatorPct), narrate the MECHANISM, not just the name: the assigned operator is running at operatorPct% of standard, which inflates the op\'s effective cycle time, so it overruns the open shift window and finishes late. Name the operator and the % from the hop.',
     'Language: write natural prose. Refer to options, factors, and constraints by their human labels exactly as given in the tool result (e.g. "Protect delivery", "displacement", "firm delivery") — NEVER print a raw identifier, snake_case key, or code token, and never add a "(see …)" reference.',
   ].join('\n')
 }
