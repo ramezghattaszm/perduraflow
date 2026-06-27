@@ -1,16 +1,27 @@
-import { useState } from 'react'
+import { useRef, useState, type ComponentRef } from 'react'
+import { Platform, type ViewStyle } from 'react-native'
 import type { CostedKpis, WhatIfOption, WhatIfResultDto } from '@perduraflow/contracts'
 import {
   NarrationBlock,
   OptionCard,
   P,
   RationaleView,
+  ScrollView,
   XStack,
   YStack,
+  useMedia,
   type NarrationState,
 } from '@perduraflow/ui'
 import { resolveKey, useTranslation } from '../../i18n'
 import { useApplyOption, useNarration } from '../../hooks/useWhatIf'
+
+// Option tiles never wrap. On a wide popup they sit SIDE BY SIDE at OPTION_MIN_WIDTH (≥2 visible) and
+// scroll for the rest; a lone option fills up to OPTION_MAX_WIDTH; on small it's a one-per-page swiper.
+const OPTION_MAX_WIDTH = 756
+const OPTION_MIN_WIDTH = 360
+const OPTION_GAP = 12
+// On the small swiper, leave a sliver of the next card visible (the "there's more" cue; bar is hidden).
+const OPTION_PEEK = 40
 
 /** Format a KPI value for display (percent, currency, count). */
 function fmtPct(n: number | null): string {
@@ -144,6 +155,33 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
   const demoted = result.options.filter((o) => !o.feasible)
   const feasibleCount = selectable.length
 
+  // Layout — cards never wrap. WIDE (popup): side by side at OPTION_MIN_WIDTH so ≥2 show, scroll (hidden
+  // bar) for the rest; a lone option fills up to OPTION_MAX_WIDTH. SMALL: a one-per-page swiper (full-
+  // width card with a peek of the next + snap). The dots below give the count + a tap-to-flip control.
+  const media = useMedia()
+  const small = Boolean(media['max-md'])
+  const [scrollerW, setScrollerW] = useState(0)
+  const cardWidth = small
+    ? scrollerW > 0
+      ? Math.max(scrollerW - OPTION_PEEK, OPTION_MIN_WIDTH)
+      : OPTION_MIN_WIDTH
+    : feasibleCount <= 1
+      ? Math.min(scrollerW || OPTION_MAX_WIDTH, OPTION_MAX_WIDTH)
+      : OPTION_MIN_WIDTH
+  const step = cardWidth + OPTION_GAP
+  const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const scrollToIndex = (i: number) => {
+    const idx = Math.max(0, Math.min(selectable.length - 1, i))
+    scrollRef.current?.scrollTo({ x: idx * step, animated: true })
+    setActiveIndex(idx)
+  }
+  // Web styles: always hide the scrollbar; scroll-snap ONLY on the small swiper. Cast through unknown —
+  // these are valid web CSS keys that RN's ViewStyle type doesn't model.
+  const containerWebStyle =
+    Platform.OS === 'web' ? (({ scrollbarWidth: 'none', ...(small ? { scrollSnapType: 'x mandatory' } : {}) }) as unknown as ViewStyle) : undefined
+  const itemWebStyle = Platform.OS === 'web' && small ? (({ scrollSnapAlign: 'start' }) as unknown as ViewStyle) : undefined
+
   const cards = selectable.map((o, idx) => {
     const isRec = o.id === result.recommendedOptionId
     const rationale = o.feasible ? (
@@ -186,10 +224,10 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
     return (
       <YStack
         key={o.id}
-        flexGrow={1}
-        flexBasis={300}
-        minWidth={280}
-        maxWidth="100%"
+        width={cardWidth}
+        maxWidth={OPTION_MAX_WIDTH}
+        flexShrink={0}
+        style={itemWebStyle}
       >
         <OptionCard
           rank={t('whatif:rank', { n: idx + 1 })}
@@ -270,15 +308,39 @@ export function WhatIfOptionSet({ result, onApplied, previewOnly }: WhatIfOption
           title={t('whatif:narrationSummaryTitle')}
         />
       ) : null}
-      {/* Options side by side — each card flexes to share the row, wrapping to a new line on
-          narrow widths; an expanded card just grows its own column (cards stay top-aligned). */}
-      <XStack
-        flexWrap="wrap"
-        gap="$3"
-        alignItems="flex-start"
+      {/* Options in a horizontal snap-scroller — NEVER wrap. On a wide popup you scroll (hidden bar on
+          web); on small it pages card-by-card like a swiper. Each card caps at OPTION_MAX_WIDTH. */}
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        onLayout={(e) => setScrollerW(e.nativeEvent.layout.width)}
+        onScroll={(e) => setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / step))}
+        scrollEventThrottle={16}
+        snapToInterval={small ? step : undefined}
+        snapToAlignment="start"
+        decelerationRate={small ? 'fast' : 'normal'}
+        contentContainerStyle={{ gap: OPTION_GAP, alignItems: 'flex-start', paddingBottom: 4 }}
+        style={containerWebStyle}
       >
         {cards}
-      </XStack>
+      </ScrollView>
+      {/* Swiper control — pagination dots (tap to flip). Makes it obvious there's more than one option
+          and gives the left/right control on small screens. Only when there are multiple to compare. */}
+      {selectable.length > 1 ? (
+        <XStack justifyContent="center" alignItems="center" gap="$1.5" paddingTop="$1">
+          {selectable.map((o, i) => (
+            <YStack key={o.id} onPress={() => scrollToIndex(i)} cursor="pointer" padding="$1.5">
+              <YStack
+                width={8}
+                height={8}
+                borderRadius={999}
+                backgroundColor={i === activeIndex ? '$primary' : '$borderColor'}
+              />
+            </YStack>
+          ))}
+        </XStack>
+      ) : null}
       {/* Non-options demoted to ONE stat-less line — lever names + the disqualifying fact. A
           non-running plan gets a sentence, not a stat block (it's not a comparable alternative). */}
       {demoted.length > 0 ? (

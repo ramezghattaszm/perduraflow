@@ -847,19 +847,49 @@ export function BoardContent() {
       </YStack>
     ) : null
 
+  // The what-if option-set opens in the SAME global popup as the detail cards (consistent with the
+  // at-risk "See options" path) — not inline. It's just another detail-panel source, so it rides the
+  // existing show/dismiss machinery below.
+  const whatIfPanel = whatIfResult
+    ? (() => {
+        const committedLate = new Set((detail?.operations ?? []).filter((o) => o.atRisk).map((o) => o.demandLineId)).size
+        const absorbed =
+          whatIfResult.changeSet.changes.some((c) => c.kind === 'line_down') && whatIfResult.baseKpis.lateOrders <= committedLate
+        return (
+          <YStack gap="$3">
+            {absorbed ? (
+              <XStack gap="$2" alignItems="center" backgroundColor="$successSoft" borderRadius="$4" paddingHorizontal="$3" paddingVertical="$2.5">
+                <CircleCheck size={15} color="$success" />
+                <P size={4} color="$success">
+                  {t('whatif:condition.lineDownAbsorbed')}
+                </P>
+              </XStack>
+            ) : null}
+            <WhatIfOptionSet
+              result={whatIfResult}
+              previewOnly={readOnly}
+              onApplied={(v) => {
+                setVersionId(v)
+                setWhatIfResult(null) // clears whatIfPanel → the effect closes the popup
+              }}
+            />
+          </YStack>
+        )
+      })()
+    : null
+
   // Every click-detail surface opens in the GLOBAL POPUP (usePopup): the op card (a clicked job/bar),
-  // the line-down panel, and the resource-wear panel (a clicked lane). Content only — each panel
-  // carries its own header + actions; the popup just frames it. The selection key is whichever of the
-  // two selections is active.
-  const detailPanel = opPanel ?? downPanel ?? resourcePanel
-  const selectionKey = selectedBarId ?? selectedResourceId
+  // the line-down panel, the resource-wear panel (a clicked lane), and the what-if option-set. Content
+  // only — each panel carries its own header + actions; the popup just frames it.
+  const detailPanel = opPanel ?? whatIfPanel ?? downPanel ?? resourcePanel
+  const selectionKey = selectedBarId ?? selectedResourceId ?? whatIfResult?.id ?? null
 
   // Show the active panel, keyed on the selection (the panel node is a per-render snapshot; re-keying
   // every render would loop the store). The modal scrim blocks the board while open, so the selection
   // only changes via dismiss (or a lane action's runWhatIf, which clears it) — no select→select race.
   const detailPopupOpenRef = useRef(false)
   useEffect(() => {
-    if (detailPanel) showPopup({ content: detailPanel, size: 'medium' })
+    if (detailPanel) showPopup({ content: detailPanel, size: whatIfResult ? 'xlarge' : 'medium' })
     // Selection cleared programmatically (e.g. "See options" runs the what-if and clears it) → close.
     else if (detailPopupOpenRef.current) hidePopup()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-show only on selection change; the panel is a snapshot
@@ -871,11 +901,12 @@ export function BoardContent() {
   useEffect(() => {
     const wasOpen = detailPopupOpenRef.current
     detailPopupOpenRef.current = Boolean(activePopup)
-    if (wasOpen && !activePopup && (selectedBarId || selectedResourceId)) {
+    if (wasOpen && !activePopup && (selectedBarId || selectedResourceId || whatIfResult)) {
       setSelectedBarId(null)
       setSelectedResourceId(null)
+      setWhatIfResult(null) // dismissing the popup also resets the condition-card "See/Close options" toggle
     }
-  }, [activePopup, selectedBarId, selectedResourceId])
+  }, [activePopup, selectedBarId, selectedResourceId, whatIfResult])
 
   // Leaving the board while the popup is open must not leak it onto the next screen (the popup store
   // is global) — close ours on unmount.
@@ -884,22 +915,8 @@ export function BoardContent() {
   const conditionCount =
     lineDownConditions.length + demandConditions.length + materialConditions.length
 
-  // The line-down VERDICT (three reference points, after the determinism-cache fix that makes the
-  // what-if base reflect the outage):
-  //   R1 pre-outage  = the committed plan's at-risk orders (before the window).
-  //   R2 with-outage = the what-if BASE (default re-route, no remediation) — now reflects the window.
-  //   R3 remediation = the options (reroute = R2, overtime, …).
-  // ABSORBED ⟺ the outage added no new lateness: R2.lateOrders ≤ R1. Otherwise AT-RISK — the option
-  // set (reroute vs OT + cost) stands as decide-support. NOT R2-vs-options (R2 IS the outage, so
-  // comparing remediations to it always reads "absorbed" — the b42d591 bug this replaces).
-  const committedLateOrders = new Set(
-    (detail?.operations ?? []).filter((o) => o.atRisk).map((o) => o.demandLineId)
-  ).size
-  const lineDownAbsorbed = Boolean(
-    whatIfResult &&
-      whatIfResult.changeSet.changes.some((c) => c.kind === 'line_down') &&
-      whatIfResult.baseKpis.lateOrders <= committedLateOrders
-  )
+  // The line-down "absorbed" verdict (R2 with-outage ≤ R1 pre-outage → the outage added no new lateness)
+  // is computed in `whatIfPanel` above, where the option-set renders (in the popup).
 
   return (
     <>
@@ -1043,7 +1060,7 @@ export function BoardContent() {
 
       {/* Cockpit · conditions (D55) — detected disruptions in the data → review costed
           options → apply (draft → commit, the human guardrail). */}
-      {detail && (conditionCount > 0 || whatIfResult || whatIfError) ? (
+      {detail && (conditionCount > 0 || whatIfError) ? (
         <Panel title={t('whatif:trigger.title')}>
           {conditionCount === 0 ? (
             <P
@@ -1130,35 +1147,7 @@ export function BoardContent() {
               </P>
             </XStack>
           ) : null}
-          {whatIfResult ? (
-            <YStack marginTop="$3" gap="$3">
-              {lineDownAbsorbed ? (
-                <XStack
-                  gap="$2"
-                  alignItems="center"
-                  backgroundColor="$successSoft"
-                  borderRadius="$4"
-                  paddingHorizontal="$3"
-                  paddingVertical="$2.5"
-                >
-                  <CircleCheck size={15} color="$success" />
-                  <P size={4} color="$success">
-                    {t('whatif:condition.lineDownAbsorbed')}
-                  </P>
-                </XStack>
-              ) : null}
-              <WhatIfOptionSet
-                result={whatIfResult}
-                previewOnly={readOnly}
-                onApplied={(v) => {
-                  // Select the new draft (now in the refreshed version list) and clear the
-                  // option-set so it can't be re-applied.
-                  setVersionId(v)
-                  closeWhatIf()
-                }}
-              />
-            </YStack>
-          ) : null}
+          {/* The option-set itself renders in the global popup (whatIfPanel), not inline. */}
         </Panel>
       ) : null}
 

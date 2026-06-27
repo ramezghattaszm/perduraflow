@@ -24,7 +24,7 @@ export function useSeeOptions(): (order: AtRiskOrderRef, onApplied?: (versionId:
     if (!plantId) return
     show({
       title: t('whatif:optionsFor', { order: order.label }),
-      size: 'large',
+      size: 'xlarge',
       content: (
         <AtRiskOptionsCard
           plantId={plantId}

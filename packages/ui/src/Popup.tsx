@@ -42,9 +42,10 @@ function useKeyboardHeight(): number {
  *   <P size={3}>Body content.</P>
  * </Popup>
  */
-export type PopupSize = 'small' | 'medium' | 'large'
+export type PopupSize = 'small' | 'medium' | 'large' | 'xlarge'
 
-const MAX_WIDTH: Record<PopupSize, number> = { small: 420, medium: 600, large: 820 }
+// `xlarge` is for side-by-side content like the costed option-set (rich cards, ≥2 across); forms use `large`.
+const MAX_WIDTH: Record<PopupSize, number> = { small: 420, medium: 600, large: 820, xlarge: 1170 }
 const Z = 200000
 
 export interface PopupProps {
@@ -163,7 +164,9 @@ export function Popup({
           // the OS resizes the window for the keyboard, so only the inset is needed.
           style={{
             paddingBottom:
-              insets.bottom + 16 + (Platform.OS === 'ios' && keyboardMotion === 'pad' ? keyboardHeight : 0),
+              insets.bottom +
+              16 +
+              (Platform.OS === 'ios' && keyboardMotion === 'pad' ? keyboardHeight : 0),
             transform:
               Platform.OS === 'ios' && keyboardMotion === 'move'
                 ? [{ translateY: -keyboardHeight * 0.6 }]

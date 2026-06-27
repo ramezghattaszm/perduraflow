@@ -23,7 +23,7 @@ export interface PopupOptions {
   /** Arbitrary body content (forms, custom layouts). */
   content?: ReactNode
   buttons?: PopupButton[]
-  size?: 'small' | 'medium' | 'large'
+  size?: 'small' | 'medium' | 'large' | 'xlarge'
   /** Allow overlay-press / drag / escape to dismiss. Default true. */
   dismissable?: boolean
 }
