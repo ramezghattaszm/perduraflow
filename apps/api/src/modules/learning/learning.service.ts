@@ -194,7 +194,7 @@ export class LearningService implements OnModuleInit {
     const wearBand = cfg.wearBand
     const threshold = std * (1 + wearBand)
     const cadence = this.cadenceMinutes(actuals, std)
-    const result = series.length >= PREDICT.MIN_SAMPLES ? predict(series, threshold, cadence) : null
+    const result = series.length >= PREDICT.MIN_SAMPLES ? predict(series, std, threshold, cadence) : null
 
     // No honest FORWARD forecast now (already crossed, or trend reversed). `materialized` = the
     // observed window reached the threshold (it came true); `corrected` = it flattened before crossing.
