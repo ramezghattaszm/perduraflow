@@ -21,6 +21,8 @@ export interface KpiTileProps {
   upIsGood?: boolean
   /** Colour the value by state (e.g. utilization > 100% = bad). Default neutral ($textPrimary). */
   valueTone?: KpiTone
+  /** When set, the tile is pressable (cursor + hover) — e.g. an at-risk count that drills to the work list. */
+  onPress?: () => void
 }
 
 /**
@@ -31,7 +33,7 @@ export interface KpiTileProps {
  * @example
  * <KpiTile value="96.2%" label="On-time-in-full" caption="service level" trend="up" />
  */
-export function KpiTile({ value, label, caption, trend, upIsGood = true, valueTone = 'neutral' }: KpiTileProps) {
+export function KpiTile({ value, label, caption, trend, upIsGood = true, valueTone = 'neutral', onPress }: KpiTileProps) {
   const good = trend === 'up' ? upIsGood : !upIsGood
   return (
     <YStack
@@ -45,6 +47,9 @@ export function KpiTile({ value, label, caption, trend, upIsGood = true, valueTo
       borderRadius="$5"
       padding="$4"
       gap="$1"
+      {...(onPress
+        ? { onPress, cursor: 'pointer', hoverStyle: { borderColor: '$primary' }, pressStyle: { opacity: 0.9 } }
+        : {})}
     >
       <XStack alignItems="baseline" gap="$1">
         <H level={2} color={TONE_COLOR[valueTone]}>

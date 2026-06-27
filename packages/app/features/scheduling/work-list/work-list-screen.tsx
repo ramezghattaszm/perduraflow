@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createParam } from 'solito'
 import { ArrowUp, ChevronRight, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
@@ -88,6 +89,10 @@ function PriorityMark({ priority }: { priority: WorkListRowDto['priority'] }) {
 }
 
 type FilterValue = 'all' | WorkListStatus
+/** Valid filter values — also the allow-list for the `?status=` deep-link (e.g. from the scorecard). */
+const FILTER_VALUES: FilterValue[] = ['all', 'at_risk', 'stranded', 'in_progress', 'scheduled', 'completed']
+/** Cross-platform query-param reader (web + native) — the work-list deep-link filter. */
+const { useParam: useStatusParam } = createParam<{ status?: string }>()
 
 /**
  * Work List table (D-worklist) — the all-work table: every order with a computed lifecycle status,
@@ -100,14 +105,15 @@ type FilterValue = 'all' | WorkListStatus
 export function WorkListTable({
   plantId,
   versionId,
-}: { plantId: string | undefined; versionId?: string }) {
+  initialFilter,
+}: { plantId: string | undefined; versionId?: string; initialFilter?: FilterValue }) {
   const { t } = useTranslation(['workList', 'scheduling'])
   const runSeeOptions = useSeeOptions()
   const runDiscussOptions = useDiscussOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
   const activePopup = useActivePopup()
   const { data, isLoading } = useWorkList(plantId, versionId)
-  const [filter, setFilter] = useState<FilterValue>('all')
+  const [filter, setFilter] = useState<FilterValue>(initialFilter ?? 'all')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // The op the user drilled into from the order rollup (null = showing the rollup). Drives whether the
@@ -518,6 +524,9 @@ export function WorkListContent() {
   const { data: plants = [] } = usePlants()
   const { plantId, setPlant } = usePlantSelection(plants)
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
+  // Deep-link filter (e.g. the scorecard's at-risk count → "?status=at_risk"); ignored if not a valid value.
+  const [statusParam] = useStatusParam('status')
+  const initialFilter = FILTER_VALUES.includes(statusParam as FilterValue) ? (statusParam as FilterValue) : undefined
   return (
     <>
       <PageHeader
@@ -534,7 +543,7 @@ export function WorkListContent() {
           </YStack>
         }
       />
-      <WorkListTable plantId={plantId ?? undefined} />
+      <WorkListTable plantId={plantId ?? undefined} initialFilter={initialFilter} />
     </>
   )
 }

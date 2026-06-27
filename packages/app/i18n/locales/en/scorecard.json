@@ -10,8 +10,8 @@
     "costCaption": "Tier-B, from seeded rates",
     "oee": "OEE",
     "oeeCaption": "availability · performance · quality",
-    "throughput": "Throughput",
-    "throughputCaption": "this plan: good vs planned"
+    "adherence": "Schedule adherence",
+    "adherenceCaption": "started on plan"
   },
   "oee": {
     "title": "OEE breakdown — where the loss is",
@@ -27,6 +27,8 @@
   },
   "atRisk": {
     "title": "At-risk orders — service exposure",
+    "count": "Committed orders",
+    "countCaption": "at-risk · tap to view",
     "orderCol": "Order",
     "reasonCol": "Reason",
     "empty": "No at-risk orders."
@@ -34,6 +36,7 @@
   "empty": "No committed schedule yet — commit a version to see its scorecard.",
   "costNa": "n/a",
   "vsPrev": "vs prev",
+  "vsBaseline": "vs baseline",
   "scope": {
     "label": "Scope",
     "plant": "Plant"

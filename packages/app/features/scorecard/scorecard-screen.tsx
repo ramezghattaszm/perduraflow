@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'solito/navigation'
 import type { BaselineSource, CostedKpis } from '@perduraflow/contracts'
 import {
   AppSelect,
@@ -16,7 +17,6 @@ import {
   YStack,
 } from '@perduraflow/ui'
 import { resolveKey, useTranslation } from '../../i18n'
-import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useScheduleResources, useScheduleVersions } from '../../hooks/useScheduling'
@@ -80,6 +80,13 @@ export function ScorecardContent() {
     versionId ?? undefined,
     resourceId ?? undefined
   )
+  const router = useRouter()
+  // Baseline comparison lifted here too (same query key as the panel below → deduped) so the cost
+  // tile can show the delta vs baseline — a context-free $/unit is weak; "▲$0.03 vs baseline" is not.
+  const { data: comparison } = useBaseline(plantId ?? undefined, source, resourceId ?? undefined)
+  const baseCost =
+    comparison && !comparison.emptyState ? (comparison.baseline?.costPerUnit ?? null) : null
+  const liveCost = comparison && !comparison.emptyState ? (comparison.live?.costPerUnit ?? null) : null
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
   const versionOptions = versions.map((v) => ({
     value: v.id,
@@ -104,6 +111,16 @@ export function ScorecardContent() {
       : cur == null || p == null
         ? '—'
         : `${cur - p >= 0 ? '+' : ''}$${(cur - p).toFixed(2)} ${t('vsPrev')}`
+  // Cost tile caption: prefer the delta vs the selected baseline arm (meaningful context); fall back
+  // to the version-over-version delta (or the no-actuals note) when no baseline is available.
+  const costCaption =
+    baseCost != null && liveCost != null
+      ? `${liveCost - baseCost >= 0 ? '▲' : '▼'}$${Math.abs(liveCost - baseCost).toFixed(2)} ${t('vsBaseline')}`
+      : moneyCaption(
+          sc?.costPerUnit,
+          prev?.costPerUnit,
+          sc?.costPerUnit != null ? t('kpi.costCaption') : t('noActuals')
+        )
 
   return (
     <>
@@ -183,15 +200,13 @@ export function ScorecardContent() {
             <KpiTile
               value={sc.costPerUnit != null ? `$${sc.costPerUnit.toFixed(2)}` : '—'}
               label={t('kpi.costPerUnit')}
-              caption={moneyCaption(
-                sc.costPerUnit,
-                prev?.costPerUnit,
-                sc.costPerUnit != null ? t('kpi.costCaption') : t('noActuals')
-              )}
+              caption={costCaption}
               trend={
-                prev && sc.costPerUnit != null && prev.costPerUnit != null
-                  ? trendOf(sc.costPerUnit, prev.costPerUnit)
-                  : undefined
+                baseCost != null && liveCost != null
+                  ? trendOf(liveCost, baseCost)
+                  : prev && sc.costPerUnit != null && prev.costPerUnit != null
+                    ? trendOf(sc.costPerUnit, prev.costPerUnit)
+                    : undefined
               }
               upIsGood={false}
             />
@@ -209,20 +224,21 @@ export function ScorecardContent() {
                   : undefined
               }
             />
-            {/* PER-VERSION throughput — the plan-quality retrospective ("this committed plan executed
-                at X%"). The continuous, plant-state number lives on the board KPI strip; this is the
-                per-plan breakdown that rolls up into it. */}
+            {/* Schedule Adherence — execution discipline (ops started within tolerance of planned start).
+                A distinct axis from OTIF (delivery outcome): a plan can be followed yet still miss due
+                dates, or be reshuffled yet deliver. Throughput-attainment dropped from the scorecard tiles
+                (redundant with OTIF/OEE); the continuous throughput number stays on the cockpit KPI strip. */}
             <KpiTile
-              value={sc.throughputAttainment != null ? pct(sc.throughputAttainment) : '—'}
-              label={t('kpi.throughput')}
+              value={sc.scheduleAdherence != null ? pct(sc.scheduleAdherence) : '—'}
+              label={t('kpi.adherence')}
               caption={ppCaption(
-                sc.throughputAttainment,
-                prev?.throughputAttainment,
-                sc.throughputAttainment != null ? t('kpi.throughputCaption') : t('noActuals')
+                sc.scheduleAdherence,
+                prev?.scheduleAdherence,
+                sc.scheduleAdherence != null ? t('kpi.adherenceCaption') : t('noActuals')
               )}
               trend={
-                prev && sc.throughputAttainment != null && prev.throughputAttainment != null
-                  ? trendOf(sc.throughputAttainment, prev.throughputAttainment)
+                prev && sc.scheduleAdherence != null && prev.scheduleAdherence != null
+                  ? trendOf(sc.scheduleAdherence, prev.scheduleAdherence)
                   : undefined
               }
             />
@@ -257,84 +273,16 @@ export function ScorecardContent() {
               )}
             </Panel>
 
-            {/* At-risk orders panel — order + computed detail + reason badge (4d).
-                Full-bleed divided list (no column header, a divider between orders,
-                no hover); each row drills to its line on press (Item 4). */}
-            <Panel
-              title={t('atRisk.title')}
-              flexGrow={1}
-              flexBasis={360}
-              minWidth={300}
-              contentPadding="$0"
-              contentGap="$0"
-            >
-              {sc.atRisk.length === 0 ? (
-                <YStack padding="$4">
-                  <P
-                    size={3}
-                    color="$textSecondary"
-                  >
-                    {t('atRisk.empty')}
-                  </P>
-                </YStack>
-              ) : (
-                sc.atRisk.map((a, i) => (
-                  // A demand line can carry more than one at-risk op (e.g. ST-8830's weld +
-                  // leak-test) — key by line + resource + detail, not demandLineId alone.
-                  <XStack
-                    key={`${a.demandLineId}:${a.resourceId}:${a.detail}`}
-                    gap="$3"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    paddingVertical="$3"
-                    paddingHorizontal="$4"
-                    borderTopWidth={i === 0 ? 0 : 1}
-                    borderTopColor="$borderColor"
-                    cursor="pointer"
-                    onPress={() => setResourceId(a.resourceId)}
-                  >
-                    <YStack flex={1}>
-                      <P
-                        size={3}
-                        weight="m"
-                        color="$textPrimary"
-                      >
-                        {a.label}
-                      </P>
-                      <P
-                        size={4}
-                        color="$textSecondary"
-                      >
-                        {a.detail}
-                      </P>
-                      {a.chain ? (
-                        <P
-                          size={3}
-                          color="$textSecondary"
-                        >
-                          {latenessSummary(a.chain, (k, o) => t(`scheduling:${k}`, o ?? {}))}
-                        </P>
-                      ) : null}
-                    </YStack>
-                    <XStack
-                      alignSelf="flex-start"
-                      backgroundColor="$dangerSoft"
-                      borderRadius="$2"
-                      paddingHorizontal="$2"
-                      paddingVertical="$0.5"
-                    >
-                      <P
-                        size={5}
-                        weight="b"
-                        color="$danger"
-                      >
-                        {t(`scheduling:riskReason.${a.reason}`, { defaultValue: a.reason })}
-                      </P>
-                    </XStack>
-                  </XStack>
-                ))
-              )}
-            </Panel>
+            {/* Service exposure — a glanceable COUNT, consistent with the KPI tiles. The per-order
+                detail (which orders, why) lives in the work list / exception queue; tapping drills to
+                the work list filtered to at-risk, so the detail is one tap away, not on the scorecard. */}
+            <KpiTile
+              value={String(sc.atRisk.length)}
+              label={t('atRisk.count')}
+              caption={t('atRisk.countCaption')}
+              valueTone={sc.atRisk.length > 0 ? 'bad' : 'ok'}
+              onPress={() => router.push('/scheduling/work-list?status=at_risk')}
+            />
           </XStack>
 
           {/* Plan-comparison / baseline (D57) — both arms, honest empty-state. */}
