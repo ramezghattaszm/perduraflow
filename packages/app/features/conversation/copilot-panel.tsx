@@ -56,15 +56,6 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   const consumeSeededResultId = useConsumeSeededResultId()
   const [input, setInput] = useState('')
 
-  // A screen opened the Copilot with a pre-seeded question (e.g. "Evaluate options" on an at-risk
-  // row) — load it into the composer once so the planner can review and send (we never auto-send).
-  useEffect(() => {
-    if (draft) {
-      setInput(draft)
-      consumeDraft()
-    }
-  }, [draft, consumeDraft])
-
   const { data: conversations = [] } = useConversations()
   const { data: detail } = useConversation(conversationId ?? undefined)
   const create = useCreateConversation()
@@ -95,14 +86,12 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
 
   const turns = detail?.turns ?? []
 
-  const send = () => {
-    const message = input.trim()
+  // Core send — used by the composer AND by the auto-run of a seeded "Evaluate options" prompt.
+  // Reads screen context imperatively at send time (no stale-selection race) and anchors the first turn
+  // to a pre-computed what-if result when one was seeded (the deterministic root-matched set).
+  const sendMessage = (raw: string) => {
+    const message = raw.trim()
     if (!message || !plantId || pending) return
-    setInput('')
-    // Read the screen context imperatively HERE (send time) so the turn carries the current
-    // selection — not a value closed over at render (no stale-selection race).
-    // Anchor the first turn to a pre-computed what-if result if the "Evaluate options" door seeded one,
-    // so the conversation starts from the SAME deterministic root-matched set (no root re-derivation).
     const seeded = consumeSeededResultId()
     const base = getScreenContext()
     const screenContext = seeded ? { ...(base ?? { screen: 'copilot' }), activeResultId: seeded } : (base ?? undefined)
@@ -113,6 +102,33 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
         { onSuccess: (d) => setConversation(d.conversation.id) }
       )
   }
+
+  const send = () => {
+    if (!input.trim() || !plantId || pending) return
+    const message = input
+    setInput('') // clear the composer immediately on a typed send
+    sendMessage(message)
+  }
+
+  // A screen opened the Copilot with a pre-seeded remediation question ("Evaluate options") — RUN it
+  // immediately rather than parking it in the composer, so the answer streams in and the field stays
+  // clear. Waits for plantId; sets didInit so the seeded turn isn't lost to recent-thread auto-load.
+  // `lastSentDraft` guards against a double-send (strict-mode effect re-invoke with the same draft).
+  const lastSentDraft = useRef<string | null>(null)
+  useEffect(() => {
+    if (!draft) {
+      lastSentDraft.current = null
+      return
+    }
+    if (plantId && !pending && draft !== lastSentDraft.current) {
+      lastSentDraft.current = draft
+      consumeDraft()
+      didInit.current = true
+      sendMessage(draft)
+    }
+    // sendMessage uses the current render's closure; deps cover the values it reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, plantId, pending, conversationId, consumeDraft])
 
   return (
     <YStack

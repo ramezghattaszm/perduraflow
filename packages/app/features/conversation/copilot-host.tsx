@@ -39,7 +39,7 @@ export function CopilotHost() {
             top={0}
             right={0}
             bottom={0}
-            width={media['max-md'] ? '100%' : '40%'}
+            width={media['max-md'] ? '100%' : '60%'}
             minWidth={media['max-md'] ? undefined : 460}
             zIndex={200001}
             pointerEvents="auto"
