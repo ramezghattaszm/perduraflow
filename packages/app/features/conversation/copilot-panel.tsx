@@ -31,6 +31,7 @@ import {
   useConsumeSeededResultId,
   useCopilotConversationId,
   useCopilotDraft,
+  useCopilotDraftNonce,
   useSetCopilotConversation,
 } from '../../stores/copilot.store'
 import { getScreenContext } from '../../stores/screenContext.store'
@@ -52,6 +53,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   const conversationId = useCopilotConversationId()
   const setConversation = useSetCopilotConversation()
   const draft = useCopilotDraft()
+  const draftNonce = useCopilotDraftNonce()
   const consumeDraft = useConsumeCopilotDraft()
   const consumeSeededResultId = useConsumeSeededResultId()
   const [input, setInput] = useState('')
@@ -60,7 +62,20 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   const { data: detail } = useConversation(conversationId ?? undefined)
   const create = useCreateConversation()
   const addTurn = useAddTurn(conversationId ?? undefined)
-  const pending = create.isPending || addTurn.isPending
+  // Local in-flight flag for the ONE active turn — set on send, cleared in onSettled (success OR error).
+  // Deriving "Thinking" from the raw mutation `isPending` was fragile: `addTurn` is RE-BOUND whenever the
+  // active conversationId changes (create → setConversation), so a settled/orphaned observer could leave
+  // `isPending` wedged true and the spinner stuck FOREVER — even though the request returned 201 and no
+  // request is pending (the exact reported bug). A single local flag always reflects reality.
+  const [sending, setSending] = useState(false)
+  // Survives the StrictMode (dev) mount→unmount→mount: state updates only on the live instance.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // Load the most recent thread once per open (persistence is built — don't start
   // fresh). The guard makes it fire only on open, so "New conversation" (which clears
@@ -89,22 +104,35 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   // Core send — used by the composer AND by the auto-run of a seeded "Evaluate options" prompt.
   // Reads screen context imperatively at send time (no stale-selection race) and anchors the first turn
   // to a pre-computed what-if result when one was seeded (the deterministic root-matched set).
-  const sendMessage = (raw: string) => {
+  //
+  // Uses `mutateAsync` (not `mutate` + per-call callbacks) ON PURPOSE: the auto-run fires during the
+  // panel's initial mount, exactly when React StrictMode (dev) does its mount→unmount→remount. React
+  // Query DROPS the per-call onSuccess/onSettled when the observer is torn down between mutate() and the
+  // response — which orphaned setConversation + the spinner-clear and wedged "Thinking" forever. The
+  // awaited promise survives the teardown; a mounted-ref keeps the state writes on the live instance.
+  const sendMessage = async (raw: string) => {
     const message = raw.trim()
-    if (!message || !plantId || pending) return
+    if (!message || !plantId || sending) return
     const seeded = consumeSeededResultId()
     const base = getScreenContext()
     const screenContext = seeded ? { ...(base ?? { screen: 'copilot' }), activeResultId: seeded } : (base ?? undefined)
-    if (conversationId) addTurn.mutate({ message, screenContext })
-    else
-      create.mutate(
-        { plantId, message, screenContext },
-        { onSuccess: (d) => setConversation(d.conversation.id) }
-      )
+    setSending(true)
+    try {
+      if (conversationId) {
+        await addTurn.mutateAsync({ message, screenContext })
+      } else {
+        const d = await create.mutateAsync({ plantId, message, screenContext })
+        if (mountedRef.current) setConversation(d.conversation.id)
+      }
+    } catch {
+      // Error state is surfaced via the mutation/query layer; nothing to recover here.
+    } finally {
+      if (mountedRef.current) setSending(false)
+    }
   }
 
   const send = () => {
-    if (!input.trim() || !plantId || pending) return
+    if (!input.trim() || !plantId || sending) return
     const message = input
     setInput('') // clear the composer immediately on a typed send
     sendMessage(message)
@@ -113,22 +141,21 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   // A screen opened the Copilot with a pre-seeded remediation question ("Evaluate options") — RUN it
   // immediately rather than parking it in the composer, so the answer streams in and the field stays
   // clear. Waits for plantId; sets didInit so the seeded turn isn't lost to recent-thread auto-load.
-  // `lastSentDraft` guards against a double-send (strict-mode effect re-invoke with the same draft).
-  const lastSentDraft = useRef<string | null>(null)
+  // Keyed on `draftNonce` (bumped once per openCopilotWith) so each open sends EXACTLY ONCE — the old
+  // draft-STRING guard double-fired (the same order's prompt is identical, and clearing the draft reset
+  // the guard, so the seeded turn re-sent as a second turn → the "Thinking that never settles" bug).
+  // If a turn is in flight (`sending`), we wait and send once it clears — never two turns for one open.
+  const sentNonce = useRef(0)
   useEffect(() => {
-    if (!draft) {
-      lastSentDraft.current = null
-      return
-    }
-    if (plantId && !pending && draft !== lastSentDraft.current) {
-      lastSentDraft.current = draft
-      consumeDraft()
-      didInit.current = true
-      sendMessage(draft)
-    }
+    if (!draft || !plantId || sending) return
+    if (sentNonce.current === draftNonce) return
+    sentNonce.current = draftNonce
+    consumeDraft()
+    didInit.current = true
+    sendMessage(draft)
     // sendMessage uses the current render's closure; deps cover the values it reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, plantId, pending, conversationId, consumeDraft])
+  }, [draft, draftNonce, plantId, sending, conversationId, consumeDraft])
 
   return (
     <YStack
@@ -184,7 +211,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
         flex={1}
         contentContainerStyle={{ padding: 12, gap: 12 }}
       >
-        {turns.length === 0 && !pending ? (
+        {turns.length === 0 && !sending ? (
           <P
             size={4}
             color="$textTertiary"
@@ -201,7 +228,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
             degradedLabel={t('degraded')}
           />
         ))}
-        {pending ? (
+        {sending ? (
           <XStack
             gap="$2"
             alignItems="center"
@@ -246,7 +273,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
           <AppButton
             variant="primary"
             size="$3"
-            loading={pending}
+            loading={sending}
             onPress={send}
           >
             {t('send')}

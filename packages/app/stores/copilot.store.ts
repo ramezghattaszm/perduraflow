@@ -19,6 +19,10 @@ interface CopilotState {
    *  (never re-deriving the root, which caused the wear-misroute). Merged into the first turn's screen
    *  context as `activeResultId`, then cleared. */
   seededResultId: string | null
+  /** Monotonic token bumped on every {@link openCopilotWith}. The panel's auto-run sends EXACTLY ONCE
+   *  per nonce — a robust guard the draft STRING can't provide (the same order's prompt is identical,
+   *  so a string guard let the same seeded prompt re-send and double-fire the turn → stuck "Thinking"). */
+  draftNonce: number
   openCopilot: () => void
   /** Open the panel with the composer pre-filled (the planner reviews, then sends), optionally anchored
    *  to a pre-computed what-if result the conversation should start from. */
@@ -36,8 +40,10 @@ const useCopilotStore = create<CopilotState>((set, get) => ({
   conversationId: null,
   draft: null,
   seededResultId: null,
+  draftNonce: 0,
   openCopilot: () => set({ open: true }),
-  openCopilotWith: (draft, seededResultId = null) => set({ open: true, draft, seededResultId }),
+  openCopilotWith: (draft, seededResultId = null) =>
+    set((s) => ({ open: true, draft, seededResultId, draftNonce: s.draftNonce + 1 })),
   consumeDraft: () => set({ draft: null }),
   consumeSeededResultId: () => {
     const id = get().seededResultId
@@ -63,6 +69,8 @@ export const useOpenCopilot = () => useCopilotStore((s) => s.openCopilot)
 export const useOpenCopilotWith = () => useCopilotStore((s) => s.openCopilotWith)
 /** The pending pre-seed draft (null = none). */
 export const useCopilotDraft = () => useCopilotStore((s) => s.draft)
+/** Monotonic token for the current pre-seed (bumped each openCopilotWith) — the auto-run's one-shot key. */
+export const useCopilotDraftNonce = () => useCopilotStore((s) => s.draftNonce)
 /** Clear the pending draft (call after reading it into the composer). */
 export const useConsumeCopilotDraft = () => useCopilotStore((s) => s.consumeDraft)
 /** Read + clear the seeded what-if result id (call once at the first send to anchor the conversation). */
