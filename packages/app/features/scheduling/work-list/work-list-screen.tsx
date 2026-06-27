@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createParam } from 'solito'
+import { useSearchParams } from 'solito/navigation'
 import { ArrowUp, ChevronRight, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
@@ -91,8 +91,6 @@ function PriorityMark({ priority }: { priority: WorkListRowDto['priority'] }) {
 type FilterValue = 'all' | WorkListStatus
 /** Valid filter values — also the allow-list for the `?status=` deep-link (e.g. from the scorecard). */
 const FILTER_VALUES: FilterValue[] = ['all', 'at_risk', 'stranded', 'in_progress', 'scheduled', 'completed']
-/** Cross-platform query-param reader (web + native) — the work-list deep-link filter. */
-const { useParam: useStatusParam } = createParam<{ status?: string }>()
 
 /**
  * Work List table (D-worklist) — the all-work table: every order with a computed lifecycle status,
@@ -525,7 +523,7 @@ export function WorkListContent() {
   const { plantId, setPlant } = usePlantSelection(plants)
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
   // Deep-link filter (e.g. the scorecard's at-risk count → "?status=at_risk"); ignored if not a valid value.
-  const [statusParam] = useStatusParam('status')
+  const statusParam = useSearchParams()?.get('status') ?? undefined
   const initialFilter = FILTER_VALUES.includes(statusParam as FilterValue) ? (statusParam as FilterValue) : undefined
   return (
     <>
