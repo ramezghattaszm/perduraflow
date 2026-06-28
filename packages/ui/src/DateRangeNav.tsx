@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
+import { type ComponentType, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from '@tamagui/lucide-icons'
-import { XStack } from 'tamagui'
+import { type ColorTokens, XStack } from 'tamagui'
 import { AppButton } from './AppButton'
 import { DatePicker } from './DatePicker'
 import { IconButton } from './IconButton'
@@ -31,6 +31,9 @@ export interface DateRangeNavProps {
   minMs?: number
   maxMs?: number
   labels: { today: string; prev: string; next: string; pickTitle: string }
+  /** When set, the **today** affordance renders as this icon (with `labels.today` as its aria-label)
+   *  instead of a text button — for tight bars where "Today"/"This week" text is too wide. */
+  todayIcon?: ComponentType<{ size?: number; color?: ColorTokens }>
 }
 
 const dayLabel = (ms: number): string =>
@@ -52,7 +55,7 @@ const rangeLabel = (ms: number): string => {
  * @example
  * <DateRangeNav mode="day" valueMs={viewDate} onChange={setViewDate} labels={{today:'Today',…}} />
  */
-export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, minMs, maxMs, labels }: DateRangeNavProps) {
+export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, minMs, maxMs, labels, todayIcon }: DateRangeNavProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [anchor, setAnchor] = useState<Anchor | null>(null)
   const triggerRef = useRef<Measurable | null>(null)
@@ -72,11 +75,11 @@ export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, minMs, maxM
 
   return (
     <>
-      <XStack alignItems="center" gap="$2">
+      <XStack alignItems="center" gap="$1">
         <IconButton icon={ChevronLeft} label={labels.prev} disabled={prevDisabled} onPress={() => onChange(clamp(utcDay(valueMs) - step))} />
         <XStack
           ref={triggerRef as never}
-          paddingHorizontal="$3"
+          paddingHorizontal="$2"
           paddingVertical="$2"
           borderRadius="$3"
           borderWidth={1}
@@ -92,9 +95,13 @@ export function DateRangeNav({ mode, valueMs, onChange, isDayClosed, minMs, maxM
           </P>
         </XStack>
         <IconButton icon={ChevronRight} label={labels.next} disabled={nextDisabled} onPress={() => onChange(clamp(utcDay(valueMs) + step))} />
-        <AppButton variant="ghost" size="$3" onPress={() => onChange(utcDay(Date.now()))}>
-          {labels.today}
-        </AppButton>
+        {todayIcon ? (
+          <IconButton icon={todayIcon} label={labels.today} onPress={() => onChange(utcDay(Date.now()))} />
+        ) : (
+          <AppButton variant="ghost" size="$3" onPress={() => onChange(utcDay(Date.now()))}>
+            {labels.today}
+          </AppButton>
+        )}
       </XStack>
 
       <DatePicker

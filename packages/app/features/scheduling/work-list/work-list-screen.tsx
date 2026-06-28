@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'solito/navigation'
-import { ArrowUp, ChevronLeft, ChevronRight, CircleDashed, Filter, Search, TriangleAlert } from '@tamagui/lucide-icons'
+import { ArrowUp, CalendarDays, ChevronLeft, ChevronRight, CircleDashed, Filter, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
   AppButton,
@@ -343,27 +343,26 @@ export function WorkListTable({
     { value: 'completed', label: `${t('filter.completed')} · ${counts.completed}` },
   ]
 
-  // Pager (top + bottom): `‹ from-to of total ›`. Rendered only when the filtered set overflows a page.
-  const pager =
-    filtered.length > PAGE_SIZE ? (
-      <XStack alignItems="center" gap="$2">
-        <IconButton
-          icon={ChevronLeft}
-          label={t('pagination.prev')}
-          disabled={clampedPage === 0}
-          onPress={() => setPage((p) => Math.max(0, p - 1))}
-        />
-        <P size={4} color="$textSecondary">
-          {t('pagination.range', { from: rangeFrom, to: rangeTo, total: filtered.length })}
-        </P>
-        <IconButton
-          icon={ChevronRight}
-          label={t('pagination.next')}
-          disabled={clampedPage >= pageCount - 1}
-          onPress={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-        />
-      </XStack>
-    ) : null
+  // Pager (top + bottom): `‹ from-to of total ›`. Always shown; the chevrons just disable at the ends.
+  const pager = (
+    <XStack alignItems="center" gap="$1">
+      <IconButton
+        icon={ChevronLeft}
+        label={t('pagination.prev')}
+        disabled={clampedPage === 0}
+        onPress={() => setPage((p) => Math.max(0, p - 1))}
+      />
+      <P size={4} color="$textSecondary">
+        {t('pagination.range', { from: rangeFrom, to: rangeTo, total: filtered.length })}
+      </P>
+      <IconButton
+        icon={ChevronRight}
+        label={t('pagination.next')}
+        disabled={clampedPage >= pageCount - 1}
+        onPress={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+      />
+    </XStack>
+  )
 
   const columns: Column<WorkListRowDto>[] = [
     {
@@ -464,17 +463,17 @@ export function WorkListTable({
   // The status filter: full pill row on wide screens; on small it collapses to a filter icon + the
   // current selection (e.g. "All · 50") that opens a dropdown menu.
   const filterControl = small ? (
-    <XStack alignItems="center" gap="$2">
-      <Filter
-        size={16}
-        color="$textSecondary"
-      />
-      <AppSelect
-        options={filterOptions}
-        value={filter}
-        onChange={(v) => setFilter(v as FilterValue)}
-      />
-    </XStack>
+    <AppSelect
+      options={filterOptions}
+      value={filter}
+      onChange={(v) => setFilter(v as FilterValue)}
+      leadingIcon={
+        <Filter
+          size={16}
+          color="$textSecondary"
+        />
+      }
+    />
   ) : (
     <SegmentedControl<FilterValue>
       options={filterOptions}
@@ -612,11 +611,12 @@ export function WorkListTable({
           emptyTitle={rows.length === 0 ? t('empty') : t('emptyFiltered')}
           minRowWidth={980}
           rowsMatchHeader
+          dense
         />
       </YStack>
 
       {/* Bottom pager — right-aligned, mirrors the top one. */}
-      {pager ? <XStack justifyContent="flex-end">{pager}</XStack> : null}
+      <XStack justifyContent="flex-end">{pager}</XStack>
     </>
   )
 }
@@ -662,6 +662,7 @@ export function WorkListContent() {
             mode="week"
             valueMs={weekDate}
             onChange={setWeekDate}
+            todayIcon={CalendarDays}
             labels={{
               today: t('nav.today'),
               prev: t('nav.prev'),

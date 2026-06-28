@@ -70,6 +70,7 @@ export function DataTable<T extends { id: string }>({
   minRowWidth = 720,
   stackOnSmall = false,
   rowsMatchHeader = false,
+  dense = false,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -79,6 +80,8 @@ export function DataTable<T extends { id: string }>({
   emptyMessage?: string
   /** Min table width before the row scrolls horizontally on small screens (UI shell spec §7). */
   minRowWidth?: number
+  /** Tighter data rows (less vertical padding) for long lists; the header keeps its height. */
+  dense?: boolean
   /** Narrow tables (few columns): on `small`, stack each row as a card (vertical
    *  scroll only, no horizontal scroll) — PHASE-3-POLISH item 1 "tables by width". */
   stackOnSmall?: boolean
@@ -254,7 +257,7 @@ export function DataTable<T extends { id: string }>({
         {sortedRows.map((row) => (
           <XStack
             key={row.id}
-            paddingVertical="$3"
+            paddingVertical={dense ? '$1.5' : '$3'}
             paddingHorizontal={PAD_X}
             alignItems="center"
             borderTopWidth={1}

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { Dimensions } from 'react-native'
 import { ChevronDown } from '@tamagui/lucide-icons'
 import { Portal, ScrollView, XStack, YStack } from 'tamagui'
@@ -25,6 +25,9 @@ export interface AppSelectProps {
   variant?: 'box' | 'inline'
   /** Override the text shown on the trigger (else the selected option's label / placeholder). */
   triggerLabel?: string
+  /** A leading glyph inside the `box` trigger (e.g. a filter icon). When set, the trigger reads as a
+   *  button — icon + label, left-aligned, no dropdown chevron — opening the same popover menu. */
+  leadingIcon?: ReactNode
 }
 
 interface Measurable {
@@ -49,7 +52,7 @@ interface Anchor {
  * @example
  * <AppSelect options={plants} value={plantId} onChange={setPlantId} placeholder="Plant" />
  */
-export function AppSelect({ options, value, onChange, placeholder = 'Select…', variant = 'box', triggerLabel }: AppSelectProps) {
+export function AppSelect({ options, value, onChange, placeholder = 'Select…', variant = 'box', triggerLabel, leadingIcon }: AppSelectProps) {
   const triggerRef = useRef<Measurable | null>(null)
   const [anchor, setAnchor] = useState<Anchor | null>(null)
   const selected = options.find((o) => o.value === value)
@@ -113,7 +116,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
           onPress={() => (anchor ? setAnchor(null) : open())}
           cursor="pointer"
           alignItems="center"
-          justifyContent="space-between"
+          justifyContent={leadingIcon ? 'flex-start' : 'space-between'}
           gap="$2"
           height={40}
           paddingHorizontal="$3"
@@ -125,6 +128,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
           role="button"
           aria-label={label}
         >
+          {leadingIcon}
           <P
             size={3}
             weight={selected ? 'm' : 'r'}
@@ -133,10 +137,13 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
           >
             {label}
           </P>
-          <ChevronDown
-            size={16}
-            color="$textSecondary"
-          />
+          {/* The chevron is the dropdown affordance — dropped when a leading icon makes this a button. */}
+          {leadingIcon ? null : (
+            <ChevronDown
+              size={16}
+              color="$textSecondary"
+            />
+          )}
         </XStack>
       )}
 
