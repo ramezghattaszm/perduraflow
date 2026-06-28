@@ -32,7 +32,9 @@ import {
   useCopilotConversationId,
   useCopilotDraft,
   useCopilotDraftNonce,
+  useCopilotFresh,
   useSetCopilotConversation,
+  useStartNewConversation,
 } from '../../stores/copilot.store'
 import { getScreenContext } from '../../stores/screenContext.store'
 import { WhatIfOptionSet } from '../whatif/whatif-option-set'
@@ -52,11 +54,16 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   const { plantId } = usePlantSelection(plants)
   const conversationId = useCopilotConversationId()
   const setConversation = useSetCopilotConversation()
+  const fresh = useCopilotFresh()
+  const startNewConversation = useStartNewConversation()
   const draft = useCopilotDraft()
   const draftNonce = useCopilotDraftNonce()
   const consumeDraft = useConsumeCopilotDraft()
   const consumeSeededResultId = useConsumeSeededResultId()
   const [input, setInput] = useState('')
+  // Auto-scroll the thread to the bottom whenever its content grows (a new turn, the "Thinking"
+  // bubble, or an async option-set loading in), so the latest reply is in view after a response.
+  const scrollRef = useRef<{ scrollToEnd?: (opts?: { animated?: boolean }) => void } | null>(null)
 
   const { data: conversations = [] } = useConversations()
   const { data: detail } = useConversation(conversationId ?? undefined)
@@ -77,25 +84,26 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
     }
   }, [])
 
-  // Load the most recent thread once per open (persistence is built — don't start
-  // fresh). The guard makes it fire only on open, so "New conversation" (which clears
-  // the active id) isn't immediately snapped back to the recent thread.
+  // Load the most recent thread once per open (persistence is built — don't start fresh) UNLESS the
+  // user is in a fresh conversation (clicked "New conversation" or opened via "Evaluate options").
+  // That intent lives in the STORE (`fresh`), so it survives a close→reopen — the panel unmounting on
+  // close used to reset the local guard and snap a cleared thread back to the recent one.
   const didInit = useRef(false)
   useEffect(() => {
     if (didInit.current) return
-    if (conversationId) {
-      didInit.current = true // a persisted thread is already active — keep it
+    if (conversationId || fresh) {
+      didInit.current = true // a thread is active, or the user started fresh — don't auto-load
       return
     }
     if (conversations.length > 0) {
       didInit.current = true
       setConversation(conversations[0]!.id)
     }
-  }, [conversationId, conversations, setConversation])
+  }, [conversationId, fresh, conversations, setConversation])
 
   const startNew = () => {
-    didInit.current = true // opt out of auto-load so the cleared thread stays cleared
-    setConversation(null)
+    didInit.current = true // within this mount, don't re-auto-load
+    startNewConversation() // store: clear id + mark fresh so it stays new across close→reopen
     setInput('')
   }
 
@@ -208,8 +216,10 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
       </XStack>
 
       <ScrollView
+        ref={scrollRef as never}
         flex={1}
         contentContainerStyle={{ padding: 12, gap: 12 }}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd?.({ animated: true })}
       >
         {turns.length === 0 && !sending ? (
           <P

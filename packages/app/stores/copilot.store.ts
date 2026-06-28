@@ -11,6 +11,11 @@ interface CopilotState {
   open: boolean
   /** The active conversation id (loaded on open; updated as turns flow). */
   conversationId: string | null
+  /** The user is in a FRESH/new conversation (started new, or opened via "Evaluate options") and the
+   *  panel must NOT auto-load the most recent thread — even after a close→reopen. Lives in the store
+   *  (not panel-local) so the intent survives the panel unmounting on close. Cleared once a real
+   *  conversation is active (a thread loaded or created by the first turn). */
+  freshConversation: boolean
   /** A pre-seeded composer message (set when a screen opens the Copilot to ask a specific question,
    *  e.g. "Evaluate options" on an at-risk row). The panel reads it once into the input, then clears. */
   draft: string | null
@@ -33,17 +38,23 @@ interface CopilotState {
   closeCopilot: () => void
   toggleCopilot: () => void
   setConversation: (id: string | null) => void
+  /** Start a brand-new conversation: clear the active id + any pending seed, and mark the session
+   *  fresh so the panel doesn't snap back to the most recent thread on the next open. */
+  startNewConversation: () => void
 }
 
 const useCopilotStore = create<CopilotState>((set, get) => ({
   open: false,
   conversationId: null,
+  freshConversation: false,
   draft: null,
   seededResultId: null,
   draftNonce: 0,
   openCopilot: () => set({ open: true }),
+  // "Evaluate options" et al. always start a NEW conversation: clear the active id + mark fresh so the
+  // seeded turn opens its own thread instead of appending to whatever was last open.
   openCopilotWith: (draft, seededResultId = null) =>
-    set((s) => ({ open: true, draft, seededResultId, draftNonce: s.draftNonce + 1 })),
+    set((s) => ({ open: true, draft, seededResultId, draftNonce: s.draftNonce + 1, conversationId: null, freshConversation: true })),
   consumeDraft: () => set({ draft: null }),
   consumeSeededResultId: () => {
     const id = get().seededResultId
@@ -52,7 +63,10 @@ const useCopilotStore = create<CopilotState>((set, get) => ({
   },
   closeCopilot: () => set({ open: false }),
   toggleCopilot: () => set((s) => ({ open: !s.open })),
-  setConversation: (conversationId) => set({ conversationId }),
+  // A real id means a thread is active (loaded or just created) → no longer fresh; null leaves the
+  // fresh flag as-is (only startNewConversation/openCopilotWith set it).
+  setConversation: (conversationId) => set((s) => ({ conversationId, freshConversation: conversationId ? false : s.freshConversation })),
+  startNewConversation: () => set({ conversationId: null, freshConversation: true, draft: null, seededResultId: null }),
 }))
 
 // Granular selectors (each returns a stable value/function ref) — never an object
@@ -79,3 +93,7 @@ export const useConsumeSeededResultId = () => useCopilotStore((s) => s.consumeSe
 export const useCloseCopilot = () => useCopilotStore((s) => s.closeCopilot)
 /** Set the active conversation id. */
 export const useSetCopilotConversation = () => useCopilotStore((s) => s.setConversation)
+/** Whether the session is a fresh/new conversation (suppresses the recent-thread auto-load). */
+export const useCopilotFresh = () => useCopilotStore((s) => s.freshConversation)
+/** Start a brand-new conversation (the "New conversation" button). */
+export const useStartNewConversation = () => useCopilotStore((s) => s.startNewConversation)
