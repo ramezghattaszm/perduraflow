@@ -688,6 +688,9 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       demand.push({ line, ...r })
       seq++
     }
+    // Historical OTIF misses are seeded as EXECUTION late-finishes in the simulator (a thin slice of
+    // past orders finished after their due) — NOT as plan changes — so the committed plan (and its
+    // live at-risk spine) is untouched. See `injectMisses` in reset.ts / simulator.service.ts.
 
     // Per-day order templates (qty lists sum to the daily busy-minute target at std times).
     // Press A baseline = SAL-1001 / SAL-1006 (SAL-1002 is reserved for the operator beat).
@@ -870,9 +873,11 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
     })
 
     // === Historical outcomes (D57 measured_historical) — representative seed =====
-    // Prior weeks' recorded actuals the baseline arm computes from. Saltillo (plant + Press Line A)
-    // and Ramos have history; Press Line B has NONE → the honest "no historical baseline yet"
-    // empty state stays testable. A real MES/historian writes the same rows later (source 'mes').
+    // Prior weeks' recorded actuals the VS-Baseline (measured_historical) arm computes from — one row
+    // per PLANT and per producing LANE, so the Scorecard's "VS Baseline" shows numbers for every lane
+    // selection (Press A/B, both weld cells, Leak-Test), not just the plant. A real MES/historian
+    // writes the same rows later (source 'mes'). The plant-level scope averages its plant row + lane
+    // rows; the line values are chosen so each plant blends to its plant-level figure.
     const ho = (
       plantId: string,
       resourceId: string | null,
@@ -906,9 +911,15 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
     await db
       .insert(historicalOutcome)
       .values([
+        // Saltillo: plant + both press lines (Press A weaker, Press B stronger → plant blends ~0.86).
         ho(saltillo!.id, null, rwS, rwE, 0.86, 2.05, 0.85, 0.95, 0.98, 2, 23000),
         ho(saltillo!.id, pressA!.id, rwS, rwE, 0.8, 2.15, 0.82, 0.94, 0.985, 2, 11500),
+        ho(saltillo!.id, pressB!.id, rwS, rwE, 0.92, 1.95, 0.91, 0.95, 0.985, 0, 12000),
+        // Ramos: plant + both weld cells + the shared leak-test station.
         ho(ramos!.id, null, rwS, rwE, 0.89, 2.15, 0.9, 0.83, 0.976, 1, 5150),
+        ho(ramos!.id, weld1!.id, rwS, rwE, 0.88, 2.18, 0.89, 0.82, 0.974, 1, 2200),
+        ho(ramos!.id, weld2!.id, rwS, rwE, 0.9, 2.12, 0.91, 0.84, 0.978, 0, 2200),
+        ho(ramos!.id, leakStation!.id, rwS, rwE, 0.91, 1.2, 0.93, 0.86, 0.985, 0, 5150),
       ])
 
     // === Autonomy config — ADVISORY-FIRST for the demo ==========================
@@ -932,7 +943,7 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       '  ✓ operator beat: SAL-1002 (Ana 30%, narrow day-0 window) — verify it roots `operator`'
     )
     console.log(
-      '  ✓ historical outcomes: 3 rows (Saltillo + Press Line A + Ramos); Press Line B = none (empty-state)'
+      '  ✓ historical outcomes: 7 rows (2 plants + every producing lane — VS-Baseline shows per-lane)'
     )
   }
 

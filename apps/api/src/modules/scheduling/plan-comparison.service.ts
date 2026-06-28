@@ -24,11 +24,34 @@ export class PlanComparisonService {
 
   /** Live plan vs the requested baseline arm (empty-state when a baseline is absent). */
   async compare(tenantId: string, plantId: string, source: BaselineSource, resourceId?: string): Promise<PlanComparisonDto> {
-    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
     const versionId = (await this.repo.findCommittedVersion(tenantId, plantId))?.id ?? null
+
+    // EXECUTION COMPARISON (measured_historical) = actuals vs actuals: the committed version's RECORDED
+    // outcomes (OTIF/cost/OEE from actuals — the same numbers the Scorecard tiles show) vs the
+    // historian's recorded outcomes. Apples-to-apples. This arm reads the COMMITTED version's actuals,
+    // so it needs NO live re-solve — skip `buildBaseContext` + `sequence` entirely (that re-solve, then
+    // DISCARDED here, was the bulk of the latency). Falls through to the plan path only when there's no
+    // committed version yet (then the live side is the plan-based snapshot).
+    if (source === 'measured_historical' && versionId) {
+      const rows = await this.repo.listHistoricalOutcomes(tenantId, plantId, resourceId)
+      const live = await this.liveExecutionKpis(tenantId, plantId, versionId, resourceId)
+      return {
+        source,
+        emptyState: rows.length === 0,
+        plantId,
+        scheduleVersionId: versionId,
+        live,
+        baseline: rows.length === 0 ? null : aggregate(rows),
+        labelKey: labelFor(source),
+      }
+    }
+
+    // Plan-based path (the engine-lift arm, or measured_historical before a first commit): needs the
+    // live engine plan, so build the base context + sequence.
+    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
     const rateByResource = this.rates(ctx.resourceById)
 
-    // No demand at all → nothing to compare; honest empty state for both arms.
+    // No demand at all → nothing to compare; honest empty state.
     if (ctx.infeasibleReason || ctx.items.length === 0) {
       return { source, emptyState: true, plantId, scheduleVersionId: versionId, live: null, baseline: null, labelKey: labelFor(source) }
     }
@@ -51,16 +74,12 @@ export class PlanComparisonService {
       return { source, emptyState: false, plantId, scheduleVersionId: versionId, live: livePlan, baseline, labelKey: labelFor(source) }
     }
 
-    // EXECUTION COMPARISON (measured_historical) = actuals vs actuals: the committed
-    // version's RECORDED outcomes (OTIF/cost/OEE from actuals — the same numbers the
-    // Scorecard tiles show) vs the historian's recorded outcomes. Apples-to-apples.
+    // measured_historical with NO committed version yet → live is the plan-based snapshot.
     const rows = await this.repo.listHistoricalOutcomes(tenantId, plantId, resourceId)
-    const liveActuals = versionId ? await this.liveExecutionKpis(tenantId, plantId, versionId, resourceId) : livePlan
     if (rows.length === 0) {
-      return { source, emptyState: true, plantId, scheduleVersionId: versionId, live: liveActuals, baseline: null, labelKey: labelFor(source) }
+      return { source, emptyState: true, plantId, scheduleVersionId: versionId, live: livePlan, baseline: null, labelKey: labelFor(source) }
     }
-    const baseline = aggregate(rows)
-    return { source, emptyState: false, plantId, scheduleVersionId: versionId, live: liveActuals, baseline, labelKey: labelFor(source) }
+    return { source, emptyState: false, plantId, scheduleVersionId: versionId, live: livePlan, baseline: aggregate(rows), labelKey: labelFor(source) }
   }
 
   /** The committed version's actuals-based KPIs (reuses the Scorecard computation). */
