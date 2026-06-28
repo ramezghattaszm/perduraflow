@@ -52,7 +52,7 @@ CI — only `.github/workflows/test.yml`). The session builds that.
 **Should set for prod:**
 - `NODE_ENV=production` (also flips the refresh cookie to `Secure` — see §5).
 - `PORT` (default 3010).
-- `CORS_ORIGIN` — the **web origin** (e.g. `https://app.perdura.example.com`). Default is `http://localhost:3011`. CORS runs with `credentials: true`, so this must be the exact browser origin.
+- `CORS_ORIGIN` — the **web origin** = `https://perdura.thezmgroup.com`. Default is `http://localhost:3011`. CORS runs with `credentials: true`, so this must be the exact browser origin.
 
 **Optional / feature-gated (sensible defaults exist):**
 - LLM (Copilot/narration): `LLM_PROVIDER` = `recorded` (default — deterministic, **no external calls**,
@@ -65,7 +65,7 @@ CI — only `.github/workflows/test.yml`). The session builds that.
 
 ### Web (`apps/next`) — **build-time** public env
 
-- `NEXT_PUBLIC_API_URL` — the API base **including** `/api/v1` (e.g. `https://api.perdura.example.com/api/v1`).
+- `NEXT_PUBLIC_API_URL` — the API base **including** `/api/v1` = `https://perduraapi.thezmgroup.com/api/v1`.
   Resolved in `packages/app/lib/api-base.ts`; **baked into the client bundle at `next build`** — it must be
   present at build time, not just runtime. Fallback is `http://localhost:3010/api/v1`.
 - (Native equivalent is `EXPO_PUBLIC_API_URL`, set in the EAS build — not AWS.)
@@ -118,13 +118,40 @@ There are **no Dockerfiles yet** — the session writes them (multi-stage Node 2
 
 ---
 
-## 6. Decisions to confirm with the owner before building
+## 6. Decisions — CONFIRMED by the owner
 
-- Domain strategy (single parent domain for app+api? custom domain?) — drives the cookie/CORS setup (§5.1).
-- LLM in prod: keep `recorded` (offline, deterministic) or wire a real provider + key?
-- Seed the demo dataset in the deployed env, or start empty (real tenant)?
-- Compute choice: App Runner (simplest, container in → URL out) vs ECS Fargate + ALB (more control) vs
-  Amplify (web) + App Runner (API). Native/EAS is separate and out of AWS scope.
+- **Domains (decided):**
+  - Web: `https://perdura.thezmgroup.com`
+  - API: `https://perduraapi.thezmgroup.com`  (base incl. prefix: `https://perduraapi.thezmgroup.com/api/v1`)
+  - Both are subdomains of `thezmgroup.com` → **same-site**, so the `sameSite:'lax'` host-only refresh
+    cookie works with no code change. Just ensure: **both on HTTPS** (ACM cert), and set
+    `CORS_ORIGIN=https://perdura.thezmgroup.com` on the API. No cookie/auth code change needed.
+  - DNS: the parent zone is `thezmgroup.com` — you'll need records (Route 53 or wherever it's hosted)
+    pointing `perdura` → web and `perduraapi` → API endpoints.
+- **LLM (decided):** same as dev → **Groq**. Set `LLM_PROVIDER=groq` and `GROQ_API_KEY` = the dev Groq key
+  (get it from the owner / dev `.env`; store in Secrets Manager). `LLM_MODEL` optional (preset default).
+- **Seed (decided):** seed exactly as dev → after `db:migrate`, run the standard seed against the deployed
+  DB (`bun --filter @perduraflow/api db:seed`, or `demo:reset` for a clean wipe+seed — the Magna-Coahuila
+  demo tenant + warm-start actuals; login `admin@perduraflow.test` / `Password123` — change this before
+  any real exposure). Same data as dev.
+- **Compute choice (OPEN):** App Runner vs ECS Fargate+ALB vs Amplify(web)+App Runner(API) — **to be
+  discussed with the deploy session.** Native/EAS is separate and out of AWS scope.
+
+### Concrete env values implied by the above
+```
+# API (apps/api)
+DATABASE_URL=postgresql://…rds…/<db>?sslmode=require
+JWT_ACCESS_SECRET=<fresh ≥32 chars>
+JWT_REFRESH_SECRET=<fresh ≥32 chars>
+NODE_ENV=production
+CORS_ORIGIN=https://perdura.thezmgroup.com
+LLM_PROVIDER=groq
+GROQ_API_KEY=<dev Groq key>
+# storage/email optional — default local/console is fine for the demo
+
+# Web (apps/next) — BUILD TIME
+NEXT_PUBLIC_API_URL=https://perduraapi.thezmgroup.com/api/v1
+```
 
 ---
 
