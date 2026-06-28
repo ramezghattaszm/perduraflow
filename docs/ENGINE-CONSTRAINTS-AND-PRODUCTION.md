@@ -95,6 +95,20 @@ For an evaluated plan: **score = Σ (rawValue × weight)** over six factors; **l
 
 **Comparatives** — precomputed deltas between options (the "why not B" substrate): each option carries its factor contributions + constraint bindings, so the relative reasoning is addressable without re-solving (phase-5 §5.1 / phase-6 Type-1).
 
+### On-Time / OTIF — the THREE computations (do not collapse them)
+
+On-Time is computed **differently on each surface by design** — they answer different questions. They are deliberately separate; do not "fix" one to read another (a past mistake).
+
+| Surface | What it answers | Computation | Code |
+|---|---|---|---|
+| **Scorecard On-Time** (main KPI) | How did **this version** deliver? | **Per-version, order-grain, actuals-aware**: an order is late if ANY executed op finished past its due (historical delivery truth) OR any unexecuted op is plan-at-risk (live prediction). Reconciles with the order-grain work-list status engine. | `versionMetrics().otif`; `GET /scheduling/scorecard?versionId=` is **explicitly per-version** |
+| **Cockpit On-Time** (board KPI strip) | How is the **plant** delivering, continuously? | **Over the Reporting-Policy window** (config-driven, default 14 days = `[today−Nd, today)`), **order-grain delivery** (on-time iff an order's latest actual finish in the window ≤ its due), from the **authoritative executed actuals** (latest-committed authority, cross-version → **stable across a re-solve**). A continuous, plan-current view that reflects historical late deliveries. The live forward at-risk is the **separate At-risk tile** (`committedAtRisk`), NOT folded in here. | `variance.plantOnTime` = `computePlantOnTime()` (mirrors `computePlantThroughput`; shares `resolveContinuousActuals`) |
+| **Scorecard "VS Baseline" → `measured_historical`** | Live vs the historian | **live** = the Scorecard main-KPI OTIF (per-version). **baseline** = the **Cockpit On-Time computation** (continuous), NOT the seeded `historical_outcome.otif` — so the scorecard's historical On-Time and the cockpit agree (one computation, no divergence). Only On-Time is overridden; the other baseline KPIs (cost/OEE/throughput) stay the seeded historian rows. | `plan-comparison.compare()` — `liveExecutionKpis` (live) + `computePlantOnTime` override (baseline) |
+
+**Throughput and OEE follow the SAME two-home split** (cockpit continuous over the Reporting-Policy window vs scorecard per-version) — `plantThroughputAttainment` / `plantOee` vs the per-version scorecard figures.
+
+**Why On-Time isn't a fake 100% in the demo.** With a clean warm-start every actual landed on-time/on-plan, so every On-Time read 100%. `demo:reset` now opt-in-injects **deterministic execution misses** into the historical window (simulator `injectMisses`): ~5% of past orders **delivered late** (the order's last op slides late — start AND end shift together, run length unchanged → **OEE untouched**) and a separate ~3% **started off-plan** (actual start ≥ 15-min adherence tolerance early). Plan-independent (actuals only) → the **committed plan + its live at-risk spine are untouched**; disjoint sets so OTIF and Adherence move on **different orders**; keyed on stable demand-line ids → **byte-identical across resets**.
+
 ### Versioning
 - **`WEIGHT_SET_VERSION = 'aps-w2'`** (`= OBJECTIVE_DEFAULT_VERSION`) — stamped into every stored rationale so contributions stay interpretable if weights re-tune.
 - **`RATIONALE_SCHEMA_VERSION = '1.0'`** — the rationale shape (independent of weights).
