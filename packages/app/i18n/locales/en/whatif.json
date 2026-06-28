@@ -74,7 +74,8 @@
   "trigger": {
     "title": "Conditions",
     "seeOptions": "See options",
-    "closeOptions": "Close options"
+    "closeOptions": "Close options",
+    "reviewImpact": "Review impact"
   },
   "condition": {
     "lineDown": "{{resource}} is down",
@@ -82,6 +83,10 @@
     "lineDownAbsorbed": "Outage absorbed — no added delivery risk; the affected work re-sequences around it.",
     "demand": "{{line}} demand changed",
     "demandDetail": "Order quantity {{from}} → {{to}} — re-evaluate the plan.",
+    "demandDetailEvaluating": "Order quantity {{from}} → {{to}} — evaluating impact…",
+    "demandDetailImpact_one": "Order quantity {{from}} → {{to}} — {{count}} order at risk. Review impact.",
+    "demandDetailImpact_other": "Order quantity {{from}} → {{to}} — {{count}} orders at risk. Review impact.",
+    "demandDetailNoImpact": "Order quantity {{from}} → {{to}} — no added delivery risk under the best option. Review impact.",
     "material": "{{component}} arrives {{time}}",
     "materialDetail": "{{count}} op(s) gated by material — wait or re-sequence around it."
   }

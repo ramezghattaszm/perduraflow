@@ -112,6 +112,11 @@ export function BoardContent() {
   const commit = useCommitSchedule()
   const discard = useDiscardDraft()
   const whatIf = useWhatIf()
+  // A SECOND, independent evaluate instance for the demand-change PREVIEW (auto-run on detection) — kept
+  // separate from `whatIf` (the on-click option-set popup) so the background preview never flips the
+  // popup's pending/result state. Both hit the same deterministic, cached engine, so the "Review impact"
+  // click reuses this result (no second solve).
+  const previewEval = useWhatIf()
   const runSeeOptions = useSeeOptions()
   const runDiscussOptions = useDiscussOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
@@ -119,6 +124,11 @@ export function BoardContent() {
   const media = useMedia()
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResultDto | null>(null)
   const [whatIfError, setWhatIfError] = useState<string | null>(null)
+  // The demand-change PREVIEW result (auto-evaluated, never persisted). Drives the banner's impact count
+  // AND the board's preview highlight — BOTH read this one result's at-risk set (Addition B: they cannot
+  // disagree). Distinct from `whatIfResult` (the on-click popup) so the highlight/banner show without a
+  // popup. Cleared when the demand condition resolves (applied or reset) — see the auto-eval effect.
+  const [demandPreview, setDemandPreview] = useState<WhatIfResultDto | null>(null)
   // Which condition produced the visible option-set — lets that condition's CTA toggle
   // (See options ⇄ Close options) and collapse what it opened.
   const [whatIfTrigger, setWhatIfTrigger] = useState<string | null>(null)
@@ -396,6 +406,57 @@ export function BoardContent() {
       from: plannedQtyByLine.get(d.demandLineId),
     }))
     .filter((c) => c.from != null && c.from !== c.to)
+
+  // ── Demand-change preview (auto-evaluate; nothing persisted) ────────────────────────────────────
+  // A detected demand change auto-runs `evaluate()` (the in-memory what-if) so the impact is ALREADY
+  // computed when the banner renders — no manual "re-solve" step (Addition B). The model is hypothetical-
+  // ONLY for the PLAN: `demand_input` is already written (the external order revision is a real fact), but
+  // no draft/version is created here — the committed plan stays untouched until the planner applies an
+  // option. Keyed on the exact demand state (`demandSig`) so it runs once per change and re-runs only when
+  // the change differs; cleared when no demand condition remains (applied or reset by the simulator).
+  const demandSig = demandConditions
+    .map((c) => `${c.demandLineId}:${c.to}`)
+    .sort()
+    .join('|')
+  const evaluatedDemandSig = useRef<string | null>(null)
+  useEffect(() => {
+    if (readOnly || !plantId) return
+    if (demandConditions.length === 0) {
+      // Condition resolved (option applied, or simulator reset the qty) → drop the preview + overlay.
+      evaluatedDemandSig.current = null
+      setDemandPreview(null)
+      return
+    }
+    if (evaluatedDemandSig.current === demandSig) return // already evaluated this exact demand state
+    evaluatedDemandSig.current = demandSig
+    const changeSet: ChangeSet = {
+      origin: { type: 'demand' },
+      changes: demandConditions.map((c) => ({ kind: 'demand_qty' as const, demandLineId: c.demandLineId, to: c.to })),
+    }
+    // mutateAsync (not mutate+onSuccess): StrictMode double-invoke drops a per-call mutate callback, so
+    // the preview would never populate on mount. Guard the resolve against a demand state that moved on.
+    previewEval
+      .mutateAsync({ plantId, changeSet })
+      .then((res) => {
+        if (evaluatedDemandSig.current === demandSig) setDemandPreview(res)
+      })
+      .catch(() => {
+        if (evaluatedDemandSig.current === demandSig) setDemandPreview(null)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on demandSig; previewEval is a stable mutation
+  }, [demandSig, readOnly, plantId])
+
+  // The preview's recommended option + its at-risk set (the blast radius) — the ONE source for both the
+  // banner count and the board highlight. Fall back to the first feasible option if no recommendation.
+  const previewOption = demandPreview
+    ? demandPreview.options.find((o) => o.id === demandPreview.recommendedOptionId) ??
+      demandPreview.options.find((o) => o.feasible) ??
+      null
+    : null
+  const previewAtRiskOrders = previewOption?.atRiskOrders ?? []
+  const previewAtRiskCount = previewAtRiskOrders.length
+  // The CHANGED orders themselves (the cause) — kept distinct from their blast radius in the overlay.
+  const demandChangeIds = new Set(demandConditions.map((c) => c.demandLineId))
 
   // Learned cycle overlays keyed by (resource, op) — the LearnedParamPanel source.
   const learnedCycleByKey = useMemo(
@@ -1105,12 +1166,20 @@ export function BoardContent() {
               })}
               {demandConditions.map((c) => {
                 const open = whatIfOpenFor(`demand-${c.demandLineId}`)
+                // Impact-result copy (Addition B): once the auto-evaluate has landed, the banner reports the
+                // outcome ("N orders at risk") instead of a "re-evaluate" prompt — the evaluation already ran.
+                // N reads the SAME preview set the board highlights (never the committed plan, which is 0).
+                const detail = demandPreview
+                  ? previewAtRiskCount > 0
+                    ? t('whatif:condition.demandDetailImpact', { from: c.from, to: c.to, count: previewAtRiskCount })
+                    : t('whatif:condition.demandDetailNoImpact', { from: c.from, to: c.to })
+                  : t('whatif:condition.demandDetailEvaluating', { from: c.from, to: c.to })
                 return (
                   <ConditionCard
                     key={`demand-${c.demandLineId}`}
                     title={t('whatif:condition.demand', { line: c.demandLineId })}
-                    detail={t('whatif:condition.demandDetail', { from: c.from, to: c.to })}
-                    cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
+                    detail={detail}
+                    cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.reviewImpact')}
                     loading={whatIf.isPending && whatIfTrigger === `demand-${c.demandLineId}`}
                     disabled={readOnly}
                     onPress={() => (open ? closeWhatIf() : runDemandWhatIf(c.demandLineId, c.to))}
