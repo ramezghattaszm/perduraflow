@@ -639,6 +639,20 @@ export function BoardContent() {
   /** A condition's option-set is currently open → its CTA reads "Close options". */
   const whatIfOpenFor = (triggerKey: string) =>
     whatIfTrigger === triggerKey && Boolean(whatIfResult)
+  /** Open the option-set for a demand change. REUSE the already-evaluated preview (`demandPreview`) so the
+   *  popup's options are exactly the ones the banner counted + the board highlighted (one set, no second
+   *  solve). Falls back to a fresh evaluate only if the preview hasn't landed yet. */
+  const reviewDemandImpact = (demandLineId: string, to: number) => {
+    if (demandPreview) {
+      setSelectedBarId(null)
+      setSelectedResourceId(null)
+      setWhatIfError(null)
+      setWhatIfTrigger(`demand-${demandLineId}`)
+      setWhatIfResult(demandPreview)
+    } else {
+      runDemandWhatIf(demandLineId, to)
+    }
+  }
   const runDemandWhatIf = (demandLineId: string, to: number) =>
     runWhatIf(
       {
@@ -962,6 +976,12 @@ export function BoardContent() {
               onApplied={(v) => {
                 setVersionId(v)
                 setWhatIfResult(null) // clears whatIfPanel → the effect closes the popup
+                // CONFIRM (Decision 2): applyOption just persisted the draft. The demand revision was
+                // already written at signal time (Addition A retired — no second write to coordinate), so
+                // there's nothing to fail-half-way. Clear the preview overlay now (don't wait for the draft
+                // refetch to drop the demand condition) so it doesn't linger over the just-applied plan.
+                setDemandPreview(null)
+                evaluatedDemandSig.current = null
               }}
             />
           </YStack>
@@ -1197,7 +1217,7 @@ export function BoardContent() {
                     cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.reviewImpact')}
                     loading={whatIf.isPending && whatIfTrigger === `demand-${c.demandLineId}`}
                     disabled={readOnly}
-                    onPress={() => (open ? closeWhatIf() : runDemandWhatIf(c.demandLineId, c.to))}
+                    onPress={() => (open ? closeWhatIf() : reviewDemandImpact(c.demandLineId, c.to))}
                   />
                 )
               })}
