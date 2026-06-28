@@ -71,13 +71,18 @@ export class LearningRepository {
           eq(executionActual.scheduleVersionId, scheduleVersionId),
         ),
       )
-      .orderBy(asc(executionActual.seq))
+      // Recency order (createdAt), seq as an intra-call tiebreak: a per-op "last cycle wins" dedup must
+      // pick the MOST RECENTLY emitted cycle. `seq` resets to 0 each simulate() call, so a later run (a
+      // scoped wear-drift) would sort before an earlier one and lose the dedup — picking the stale cycle.
+      .orderBy(asc(executionActual.createdAt), asc(executionActual.seq))
   }
 
   /**
    * Actuals for a set of resources with `actualStart` in `[startMs, endMs)` — the executed-past
    * population for continuous plant KPIs, spanning every executing version (each row keeps its own
-   * `scheduleVersionId`; nothing is moved). Ordered by `seq` so the last-per-op is deterministic.
+   * `scheduleVersionId`; nothing is moved). Ordered by `createdAt` (recency) so the per-op dedup keeps
+   * the MOST RECENTLY emitted cycle — `seq` resets each simulate() call, so a later scoped wear-drift
+   * would otherwise sort before the warm-start and lose the dedup, hiding the drift from the lane KPIs.
    */
   listActualsForResourcesInWindow(
     tenantId: string,
@@ -97,7 +102,7 @@ export class LearningRepository {
           lt(executionActual.actualStart, new Date(endMs)),
         ),
       )
-      .orderBy(asc(executionActual.seq))
+      .orderBy(asc(executionActual.createdAt), asc(executionActual.seq))
   }
 
   // --- learned parameters (one settled row per key) --------------------------
