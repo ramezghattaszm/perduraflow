@@ -309,7 +309,15 @@ export function SimulatorContent() {
               {t('simulator.conditionHint')}
             </P>
             <FormField label={t('simulator.order')}>
-              <AppSelect options={orderOptions} value={orderId} onChange={setOrderId} placeholder={t('simulator.needOrder')} />
+              <AppSelect
+                options={orderOptions}
+                value={orderId}
+                onChange={setOrderId}
+                placeholder={t('simulator.needOrder')}
+                searchable
+                searchPlaceholder={t('simulator.searchOrders')}
+                noMatchesText={t('simulator.noOrders')}
+              />
             </FormField>
             <FormField label={t('simulator.newQty')}>
               <AppInput value={newQty} onChangeText={setNewQty} keyboardType="numeric" />

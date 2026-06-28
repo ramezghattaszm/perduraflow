@@ -243,6 +243,8 @@
     "conditionMaterialReset": "Cleared — component on hand.",
     "evaluate": "Evaluate scenario",
     "needOrder": "Select an order",
+    "searchOrders": "Search orders…",
+    "noOrders": "No matching orders",
     "needLine": "Select a line",
     "wearHint": "Mutates state: feeds seeded actuals (with optional wear drift) into the closed loop → learning + predictions.",
     "conditionHint": "Sets the condition in the data (does not re-solve). Open the Board to review options and apply.",

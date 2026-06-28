@@ -1,7 +1,7 @@
 import { type ReactNode, useRef, useState } from 'react'
 import { Dimensions } from 'react-native'
-import { ChevronDown } from '@tamagui/lucide-icons'
-import { Portal, ScrollView, XStack, YStack } from 'tamagui'
+import { ChevronDown, Search } from '@tamagui/lucide-icons'
+import { Input, Portal, ScrollView, XStack, YStack } from 'tamagui'
 import { P } from './typography'
 
 /** One option in an {@link AppSelect}. */
@@ -31,6 +31,13 @@ export interface AppSelectProps {
   /** Looser popover rows + no inter-row separators (a roomier menu). Default `false` keeps the
    *  compact, divided list so existing selects are unchanged. */
   looseMenu?: boolean
+  /** Show a type-to-filter search field at the top of the popover (case-insensitive substring match on
+   *  the label). For long lists (e.g. hundreds of orders). Default `false` keeps the plain list. */
+  searchable?: boolean
+  /** Placeholder for the search field (only when `searchable`). */
+  searchPlaceholder?: string
+  /** Shown in the menu when a search matches no options (only when `searchable`). */
+  noMatchesText?: string
 }
 
 interface Measurable {
@@ -55,12 +62,21 @@ interface Anchor {
  * @example
  * <AppSelect options={plants} value={plantId} onChange={setPlantId} placeholder="Plant" />
  */
-export function AppSelect({ options, value, onChange, placeholder = 'Select…', variant = 'box', triggerLabel, leadingIcon, looseMenu = false }: AppSelectProps) {
+export function AppSelect({ options, value, onChange, placeholder = 'Select…', variant = 'box', triggerLabel, leadingIcon, looseMenu = false, searchable = false, searchPlaceholder = 'Search…', noMatchesText = 'No matches' }: AppSelectProps) {
   const triggerRef = useRef<Measurable | null>(null)
   const [anchor, setAnchor] = useState<Anchor | null>(null)
+  const [query, setQuery] = useState('')
   const selected = options.find((o) => o.value === value)
   const label = triggerLabel ?? selected?.label ?? placeholder
   const inline = variant === 'inline'
+  // Type-to-filter (searchable only): case-insensitive substring on the label. Trimmed so trailing
+  // spaces don't blank the list. When not searchable (or no query), the full option set shows.
+  const q = query.trim().toLowerCase()
+  const visibleOptions = searchable && q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options
+  const close = () => {
+    setAnchor(null)
+    setQuery('')
+  }
 
   // Position the dropdown so it always stays on-screen: open DOWN when there's room below, otherwise
   // open UP (anchored to the trigger's top); clamp the left edge to the viewport; and cap the height
@@ -96,7 +112,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
       {inline ? (
         <XStack
           ref={triggerRef as never}
-          onPress={() => (anchor ? setAnchor(null) : open())}
+          onPress={() => (anchor ? close() : open())}
           cursor="pointer"
           alignSelf="flex-start"
           hoverStyle={{ opacity: 0.7 }}
@@ -116,7 +132,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
       ) : (
         <XStack
           ref={triggerRef as never}
-          onPress={() => (anchor ? setAnchor(null) : open())}
+          onPress={() => (anchor ? close() : open())}
           cursor="pointer"
           alignItems="center"
           justifyContent={leadingIcon ? 'flex-start' : 'space-between'}
@@ -160,7 +176,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
             bottom={0}
             zIndex={250000}
             pointerEvents="auto"
-            onPress={() => setAnchor(null)}
+            onPress={close}
           />
           <YStack
             position="fixed"
@@ -176,13 +192,48 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
             elevation="$4"
             overflow="hidden"
           >
+            {/* Type-to-filter field — sticky above the scroll list so it stays put while the (filtered)
+                options scroll. Autofocused on open; the divider separates it from the rows. */}
+            {searchable ? (
+              <XStack
+                alignItems="center"
+                gap="$2"
+                paddingHorizontal="$3"
+                height={40}
+                borderBottomWidth={1}
+                borderBottomColor="$borderColor"
+              >
+                <Search size={15} color="$textSecondary" />
+                <Input
+                  flex={1}
+                  unstyled
+                  autoFocus
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={searchPlaceholder}
+                  placeholderTextColor="$textTertiary"
+                  color="$textPrimary"
+                  fontSize={14}
+                  borderWidth={0}
+                  backgroundColor="transparent"
+                  aria-label={searchPlaceholder}
+                />
+              </XStack>
+            ) : null}
             {/* maxHeight (computed from the available space) lives on the ScrollView so a long list
                 caps the scroll container and scrolls within view instead of being clipped/off-screen. */}
             <ScrollView maxHeight={anchor.maxHeight}>
               {/* A basic vertical list: full-width rows (click anywhere to select), a thin divider
                   between rows (no per-item border/pill), and compact padding. */}
               <YStack>
-                {options.map((o, i) => (
+                {searchable && visibleOptions.length === 0 ? (
+                  <XStack paddingHorizontal="$3" paddingVertical="$2.5">
+                    <P size={3} color="$textTertiary" numberOfLines={1}>
+                      {noMatchesText}
+                    </P>
+                  </XStack>
+                ) : null}
+                {visibleOptions.map((o, i) => (
                   <XStack
                     key={o.value}
                     onPress={
@@ -190,7 +241,7 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
                         ? undefined
                         : () => {
                             onChange(o.value)
-                            setAnchor(null)
+                            close()
                           }
                     }
                     cursor={o.disabled ? 'default' : 'pointer'}
