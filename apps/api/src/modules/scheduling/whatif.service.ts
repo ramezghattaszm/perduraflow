@@ -152,16 +152,24 @@ export class WhatIfService {
     )
     const distinct = [...survivors, ...infeasible]
 
+    const targetDemandLineId = changeSet.changes.find((c) => c.kind === 'at_risk_remediation')?.demandLineId ?? null
     // Rank by score (asc); infeasible sink to the end. The id tie-break now only ever
-    // separates genuinely-distinct same-score plans (legitimate).
+    // separates genuinely-distinct same-score plans (legitimate). For an at-risk REMEDIATION, an option
+    // that FIXES the target order ranks above one that doesn't — the remediation's objective is to clear
+    // THAT order, not to minimise the plant-wide score, so the order that achieves it must lead (and the
+    // recommendation, which is the first target-fixer, is then also rank 1 — no "rank 1 ≠ recommended").
     const ranked = [...distinct].sort((a, b) => {
       if (a.feasible !== b.feasible) return a.feasible ? -1 : 1
+      if (targetDemandLineId) {
+        const af = planFixesTarget(a.placements, targetDemandLineId)
+        const bf = planFixesTarget(b.placements, targetDemandLineId)
+        if (af !== bf) return af ? -1 : 1
+      }
       if (a.scored && b.scored && a.scored.score !== b.scored.score) return a.scored.score - b.scored.score
       return a.spec.id.localeCompare(b.spec.id)
     })
 
     const baseKpis = scorePlan(basePlacements, { rateByResource, basePlacements, overtimeHours: 0, weights: ctx.weights }).kpis
-    const targetDemandLineId = changeSet.changes.find((c) => c.kind === 'at_risk_remediation')?.demandLineId ?? null
     const options = this.buildOptions(ranked, ctx.weightSetVersion, targetDemandLineId)
     const recommendedOptionId = options.find((o) => o.feasible)?.id ?? null
     const determinismKey = this.determinismKey(committed, changeSet, changed, baseOverlay, ctx.weightSetVersion, ctx.downtime, ctx.baseInputsDigest)
@@ -797,7 +805,7 @@ export class WhatIfService {
           atRiskOrders: [], // infeasible → no runnable plan → no preview blast radius
         }
       }
-      const comparatives = this.comparatives(r, feasible)
+      const comparatives = this.comparatives(r, feasible, targetDemandLineId)
       const rationale: StructuredRationale = {
         schemaVersion: RATIONALE_SCHEMA_VERSION,
         weightSetVersion,
@@ -828,23 +836,38 @@ export class WhatIfService {
     })
   }
 
-  /** Why this option beats/loses each other feasible option — computed once, queryable later. */
+  /**
+   * Why this option beats/loses each other feasible option — computed once, queryable later. For an
+   * at-risk REMEDIATION the verdict is TARGET-AWARE: an option that clears the target order beats one
+   * that doesn't (and vice-versa), regardless of plant-wide factor dominance — otherwise a lower-score
+   * option that leaves the target late would read as "preferred" while a different option is recommended
+   * for actually fixing it (the contradiction this resolves). The deciding difference in that case is the
+   * target's firm-lateness, not whatever plant-wide factor happens to differ most. When both options have
+   * the SAME target outcome (both fix, or neither does), it falls back to plant-wide factor dominance.
+   */
   private comparatives(
     self: ReturnType<WhatIfService['runOption']>,
     feasible: ReturnType<WhatIfService['runOption']>[],
+    targetDemandLineId: string | null,
   ): OptionComparative[] {
     if (!self.scored) return []
+    const selfFixes = planFixesTarget(self.placements, targetDemandLineId)
     const out: OptionComparative[] = []
     for (const other of feasible) {
       if (other.spec.id === self.spec.id || !other.scored) continue
       const deltaScore = Number((self.scored.score - other.scored.score).toFixed(4))
-      const deciding = factorDeltas(self.scored.factors, other.scored.factors)
-      out.push({
-        vsOptionId: other.spec.id,
-        deltaScore,
-        verdict: dominanceVerdict(self.scored.factors, other.scored.factors),
-        decidingFactors: deciding,
-      })
+      const otherFixes = planFixesTarget(other.placements, targetDemandLineId)
+      // Target-fix decides when it differs (remediation only); else plant-wide factor dominance.
+      const targetDecides = targetDemandLineId != null && selfFixes !== otherFixes
+      const verdict: OptionComparative['verdict'] = targetDecides
+        ? selfFixes
+          ? 'preferred'
+          : 'dominated'
+        : dominanceVerdict(self.scored.factors, other.scored.factors)
+      const deciding = targetDecides
+        ? [{ key: 'lateness' as const, delta: latenessDelta(self.scored.factors, other.scored.factors) }]
+        : factorDeltas(self.scored.factors, other.scored.factors)
+      out.push({ vsOptionId: other.spec.id, deltaScore, verdict, decidingFactors: deciding })
     }
     return out
   }
@@ -985,6 +1008,23 @@ function atRiskOrdersOf(placements: Placement[]): WhatIfAtRiskOrder[] {
       resourceIds: [...e.resources].sort(),
     }))
     .sort((a, b) => a.demandLineId.localeCompare(b.demandLineId))
+}
+
+/** Does THIS plan leave the remediation target order feasible AND on-time? The per-order "fix" at the
+ *  placement level (mirrors {@link fixesTarget}, which reads it off a built option). False when there's
+ *  no target (a non-remediation change-set) or the target isn't placed. */
+function planFixesTarget(placements: Placement[], targetDemandLineId: string | null): boolean {
+  if (!targetDemandLineId) return false
+  const t = targetOutcomeOf(placements, targetDemandLineId)
+  return t != null && t.feasible && !t.firmLate
+}
+
+/** The firm-lateness factor's contribution delta between two plans — the honest deciding difference when
+ *  a remediation comparison is decided by whether the option clears the target (not a plant-wide factor). */
+function latenessDelta(a: RationaleFactor[], b: RationaleFactor[]): number {
+  const la = a.find((f) => f.key === 'lateness')?.contribution ?? 0
+  const lb = b.find((f) => f.key === 'lateness')?.contribution ?? 0
+  return Number((la - lb).toFixed(4))
 }
 
 /** Does a SELECTABLE option leave the target order feasible AND on-time? (the per-order "fix") */

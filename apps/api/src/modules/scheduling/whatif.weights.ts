@@ -67,8 +67,13 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * additive data in the stored option payload, but a pre-wi-14 cached result lacks the field (→ would
  * replay an empty preview), so bump to invalidate stale caches. The banner count + board highlight both
  * read this set, so they cannot contradict.
+ * `wi-15` = at-risk remediation ranking + comparatives are TARGET-AWARE — an option that clears the
+ * target order ranks above (and is "preferred" over) one that doesn't, regardless of plant-wide score.
+ * Fixes the contradiction where a lower-score option that left the target late read as "better than the
+ * alternatives" while a different option was recommended for actually fixing it. Ranking/verdict output
+ * changed for remediation change-sets, so bump to invalidate cached results.
  */
-export const ENGINE_VERSION = 'wi-14'
+export const ENGINE_VERSION = 'wi-15'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000
