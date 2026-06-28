@@ -25,6 +25,9 @@ type MaxWidth = number | 'small' | 'medium' | 'large' | 'fullscreen'
 const widthProps: Record<'small' | 'medium' | 'large', number> = { small: 800, medium: 1100, large: 1800 }
 // Web fills the viewport with 100dvh; native fills its Stack screen via 100%.
 const FULL_HEIGHT = Platform.OS === 'web' ? '100dvh' : '100%'
+/** Bottom clearance so a page's last row (e.g. the work-list pager) scrolls clear of the fixed
+ *  Copilot launcher (circular `$5` at `bottom: 24` → ~72px tall) sitting at the viewport corner. */
+const COPILOT_CLEARANCE = 96
 
 export interface AppShellProps {
   activeId: string
@@ -117,7 +120,7 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', title, children }:
               {/* flexGrow (not flex:1) — fills the viewport when short, but GROWS + scrolls
                   when content is taller; flex:1's flexShrink clamps to the viewport and
                   clips overflow (BAR-PANEL-FIX §5). */}
-              <YStack flexGrow={1} padding="$4" gap="$4" width="100%" paddingBottom={insets.bottom + 16}>
+              <YStack flexGrow={1} padding="$4" gap="$4" width="100%" paddingBottom={insets.bottom + COPILOT_CLEARANCE}>
                 {children}
               </YStack>
             </ScrollView>
@@ -137,7 +140,7 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', title, children }:
               breadcrumb={breadcrumb}
             />
             <ScrollView flex={1}>
-              <YStack flexGrow={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center" paddingBottom={insets.bottom + 24}>
+              <YStack flexGrow={1} padding="$6" gap="$5" maxWidth={max} width="100%" alignSelf="center" paddingBottom={insets.bottom + COPILOT_CLEARANCE}>
                 {children}
               </YStack>
             </ScrollView>
