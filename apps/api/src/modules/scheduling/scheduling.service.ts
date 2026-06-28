@@ -764,6 +764,11 @@ export class SchedulingService {
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
     const partCache = new Map<string, PartDto | null>()
     const priorityCache = new Map<string, number>()
+    // Per-request memo of the per-part primary routing and the per-op resource group. Both are read
+    // inside the per-demand-line loop, but there are only a handful of distinct parts/groups — caching
+    // turns ~(lines + ops) round-trips into ~(parts + groups) and is what makes buildBaseContext fast.
+    const routingCache = new Map<string, Awaited<ReturnType<typeof md.getPrimaryRoutingForPart>>>()
+    const groupCache = new Map<string, Awaited<ReturnType<typeof md.getResourceGroup>>>()
 
     // Material gate (D36, §4.8): per finished part, the earliest start its consumed
     // buy-components allow = the latest component availability. Sourced from the interim
@@ -789,14 +794,16 @@ export class SchedulingService {
     for (const line of demand) {
       const part = partCache.get(line.partId) ?? (await md.getPart(tenantId, line.partId))
       partCache.set(line.partId, part)
-      const routing = await md.getPrimaryRoutingForPart(tenantId, line.partId)
+      if (!routingCache.has(line.partId)) routingCache.set(line.partId, await md.getPrimaryRoutingForPart(tenantId, line.partId))
+      const routing = routingCache.get(line.partId)
       if (!part || !routing || routing.operations.length === 0) {
         infeasibleReason = `Demand ${line.demandLineId}: no active primary routing for part ${line.partId}`
         break
       }
       const priorityRank = await this.priorityRankFor(tenantId, line.customerId, line.programId, priorityCache)
       for (const op of routing.operations) {
-        const group = await md.getResourceGroup(tenantId, op.resourceGroupId)
+        if (!groupCache.has(op.resourceGroupId)) groupCache.set(op.resourceGroupId, await md.getResourceGroup(tenantId, op.resourceGroupId))
+        const group = groupCache.get(op.resourceGroupId)
         const eligible = (group?.memberResourceIds ?? []).filter((id) => activeResourceIds.has(id)).sort()
         if (eligible.length === 0) {
           infeasibleReason = `Demand ${line.demandLineId}: no eligible active resource for op ${op.opSeq}`
@@ -1265,8 +1272,22 @@ export class SchedulingService {
     const hasActuals = actuals.length > 0
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
 
-    // OTIF is plan-based (the schedule's on-time fraction) — valid without actuals.
-    const otif = ops.filter((o) => !o.atRisk).length / ops.length
+    // OTIF is ORDER-grain on-time delivery (a delivery outcome, not an op tally). An order is late if
+    // ANY of its ops misses: an EXECUTED op misses when its actual end fell past the order's due (the
+    // historical delivery truth); an UNEXECUTED op misses when the plan flags it at-risk (the forward
+    // prediction — reflects the live at-risk spine). So historical late finishes and live at-risk both
+    // count, and the count reconciles with the order-grain work-list status engine.
+    const dueByLine = new Map(
+      (await this.repo.listDemand(tenantId, plantId)).map((d) => [d.demandLineId, d.requiredDate.getTime()]),
+    )
+    const orderLate = new Map<string, boolean>()
+    for (const o of ops) {
+      const a = actualByOp.get(o.id)
+      const due = dueByLine.get(o.demandLineId) ?? Number.POSITIVE_INFINITY
+      const late = a ? new Date(a.actualEnd).getTime() > due : o.atRisk
+      orderLate.set(o.demandLineId, (orderLate.get(o.demandLineId) ?? false) || late)
+    }
+    const otif = orderLate.size > 0 ? [...orderLate.values()].filter((l) => !l).length / orderLate.size : 1
 
     // OEE / throughput / adherence are EXECUTION metrics → accumulate over EXECUTED ops only (those
     // with an actual). Including the rolling window's unexecuted future ops would inflate the runtime
