@@ -8,6 +8,7 @@ import {
   type NavSection,
   OrgAvatar,
   P,
+  PerduraMark,
   ScrollView,
   SidebarNav,
   useMedia,
@@ -277,15 +278,10 @@ function BrandZone({
   )
 }
 
-/** Sidebar footer: subordinate PerduraFlow product mark; mark-only when collapsed. */
+/** Sidebar footer: subordinate Perdura product mark; mark-only when collapsed. */
 function PoweredBy({ collapsed, label }: { collapsed: boolean; label: string }) {
-  const mark = (
-    <XStack width={24} height={24} borderRadius="$3" backgroundColor="$primary" alignItems="center" justifyContent="center">
-      <P size={5} weight="h" color="$surface">
-        PF
-      </P>
-    </XStack>
-  )
+  const mark = <PerduraMark size={24} />
+
   return collapsed ? (
     <XStack justifyContent="center" paddingVertical="$2">
       {mark}
