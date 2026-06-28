@@ -80,7 +80,7 @@ async function simulatePast(
     // ~2 DAYS out → a live, advisory (queued) wear PREDICTION on the cycle param. No knife's edge: the
     // noise is deterministic so this lands identically every reset. (The live drift demo is where a
     // DEFINED injected step actually crosses the band and the rule ADOPTS ml.)
-    ...(drift ? { drift: { resourceId: drift.resourceId, param: 'cycle' as const, magnitude: drift.magnitude, rampOverEvents: 40, curve: 2 } } : {}),
+    ...(drift ? { drift: { resourceId: drift.resourceId, param: 'cycle' as const, magnitude: drift.magnitude, rampOverEvents: 300, curve: 3 } } : {}),
   }
   const res = await fetch(`${API}/dev/scheduling/simulate`, { method: 'POST', headers: h, body: JSON.stringify(body) })
   if (!res.ok) throw new Error(`simulate ${res.status}`)
@@ -94,7 +94,11 @@ async function main(): Promise<void> {
   const truncated = await truncateAll(pool)
   console.log(`  ✓ wiped ${truncated} tables (learned values, actuals, schedule versions)`)
 
-  await seed() // re-creates the deterministic baseline (own connection)
+  // One shared clock for the whole reset (SEED-SPEC §8 check #9): the seed's rolling window
+  // and the simulator's past/future cutoff must agree on "today" — sampling Date.now() twice
+  // could straddle a UTC day boundary. Inject it; the builder takes no wall-clock of its own.
+  const nowMs = Date.now()
+  await seed(nowMs) // re-creates the deterministic baseline (own connection)
 
   // Build a committed baseline for every plant that has demand (Saltillo + Ramos), then execute its
   // PAST days via the simulator (the rolling window's warm-start). Requires the API running.
@@ -109,7 +113,7 @@ async function main(): Promise<void> {
   if (plants.length === 0) throw new Error('reset: no plants with seeded demand found')
   // The wear line (Press Line A) — its cycle drifts in the past window → adopted ml + a live prediction.
   const pressA = (await pool.query<{ id: string }>(`SELECT id FROM master_data.resource WHERE name = 'Press Line A' LIMIT 1`)).rows[0]?.id
-  const todayStartMs = Math.floor(Date.now() / 86_400_000) * 86_400_000
+  const todayStartMs = Math.floor(nowMs / 86_400_000) * 86_400_000
   try {
     const h = await login()
     // Press Line A's cycle is tuned to climb to JUST BELOW the +5% wear threshold over the past
