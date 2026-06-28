@@ -72,7 +72,7 @@ export function SimulatorContent() {
   const [scenario, setScenario] = useState<Scenario>('wear')
   // Tool-wear (inject) controls
   const [versionId, setVersionId] = useState<string | null>(null)
-  const [cycles, setCycles] = useState('14')
+  const [cycles, setCycles] = useState('4')
   const [driftOn, setDriftOn] = useState(false)
   const [driftResource, setDriftResource] = useState<string | null>(null)
   const [magnitude, setMagnitude] = useState('0.08')
@@ -157,7 +157,13 @@ export function SimulatorContent() {
     if (!versionId) return
     simulate.mutate({
       scheduleVersionId: versionId,
-      cyclesPerOp: Math.max(1, Number(cycles) || 12),
+      cyclesPerOp: Math.max(1, Number(cycles) || 4),
+      // Rolling window (matches demo:reset): only PAST ops execute → emit actuals; today/future ops stay
+      // PLANNED. Without this the simulator emitted actuals for every op (future included), which (a) marked
+      // future jobs "completed" — so the learned wear had nothing left to predict for — and (b) ballooned
+      // the emit (321 ops × cycles) into a slow run. Past-only keeps future ops eligible to receive the
+      // learned/predicted cycle on the next re-solve (the forward-risk story).
+      completedBeforeMs: Math.floor(Date.now() / MS_PER_DAY) * MS_PER_DAY,
       ...(driftOn && driftResource
         ? { drift: { resourceId: driftResource, param: 'cycle' as const, magnitude: Number(magnitude) || 0.08, rampOverEvents: 6 } }
         : {}),
