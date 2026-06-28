@@ -165,7 +165,12 @@ export function SimulatorContent() {
       // learned/predicted cycle on the next re-solve (the forward-risk story).
       completedBeforeMs: Math.floor(Date.now() / MS_PER_DAY) * MS_PER_DAY,
       ...(driftOn && driftResource
-        ? { drift: { resourceId: driftResource, param: 'cycle' as const, magnitude: Number(magnitude) || 0.08, rampOverEvents: 6 } }
+        ? {
+            // Scope the run to the drifted lane only — so drifting one line leaves every other lane's
+            // history + prediction untouched (re-emitting the whole plant at standard would wipe them).
+            onlyResourceId: driftResource,
+            drift: { resourceId: driftResource, param: 'cycle' as const, magnitude: Number(magnitude) || 0.08, rampOverEvents: 6 },
+          }
         : {}),
     })
   }

@@ -144,6 +144,10 @@ export class SimulatorService {
     // inside each op. (Ops come back ordered by sequence position.)
     const resCycleIdx = new Map<string, number>()
     for (const op of ops) {
+      // Single-lane scope: when set, only the targeted resource emits — every other lane's history (and
+      // its learned wear/prediction) is left intact. Without this, drifting one line re-emits the WHOLE
+      // plant at standard and overwrites other lanes' accumulated drift (e.g. wiping a live prediction).
+      if (req.onlyResourceId != null && op.resourceId !== req.onlyResourceId) continue
       // Rolling window: only COMPLETED (past) ops execute; today/future ops stay planned.
       if (req.completedBeforeMs != null && op.plannedEnd.getTime() > req.completedBeforeMs) continue
       const std = await stdFor(op.partId, op.routingOperationId)

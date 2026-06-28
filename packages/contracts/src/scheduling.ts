@@ -1001,6 +1001,13 @@ export const simulateActualsSchema = z
      */
     completedBeforeMs: z.number().int().nonnegative().optional(),
     /**
+     * Scope emission to a SINGLE resource — only ops on this resource emit actuals; every other lane is
+     * left untouched. The UI live-drift uses it so drifting one line doesn't re-emit (and overwrite) the
+     * rest of the plant's history — which would wipe another lane's accumulated wear/prediction. Absent =
+     * emit for every lane (the warm-start reset, which seeds the full plant history in one pass).
+     */
+    onlyResourceId: z.string().min(1).optional(),
+    /**
      * Seed deterministic EXECUTION misses into the historical actuals so warm-start Schedule
      * Adherence isn't a fake 100%: a thin, stable slice of past ops are backdated as started off
      * their planned window (actual start shifted beyond the adherence tolerance). Opt-in (the
