@@ -52,7 +52,13 @@ export class LearningRepository {
           eq(executionActual.routingOperationId, routingOperationId),
         ),
       )
-      .orderBy(asc(executionActual.seq), asc(executionActual.createdAt))
+      // Order by true recency (ingestion time), seq only as an intra-call tiebreak. `seq` RESETS to 0
+      // every simulate call, so using it as the primary sort interleaves separate runs by their local
+      // index — a later, smaller run (e.g. a scoped wear-drift of ~300 actuals) would sort BEFORE the
+      // warm-start's ~1050, dropping its drifted cycles out of the learner's trailing window so the drift
+      // never registers. `createdAt` is monotonic across runs (and ≈ seq within a run, which is emitted
+      // sequentially), so the most recent actuals are correctly at the tail.
+      .orderBy(asc(executionActual.createdAt), asc(executionActual.seq))
   }
 
   listActualsForVersion(tenantId: string, scheduleVersionId: string): Promise<ExecutionActual[]> {
