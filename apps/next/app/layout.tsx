@@ -10,8 +10,8 @@ import {
 import { Providers } from './providers'
 
 export const metadata: Metadata = {
-  title: 'PerduraFlow',
-  description: 'Built with the PerduraFlow template.',
+  title: 'Perdura',
+  description: 'Built with the Perdura template.',
   icons: '/favicon.ico',
 }
 

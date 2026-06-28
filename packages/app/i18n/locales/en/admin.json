@@ -35,7 +35,7 @@
   },
   "shell": {
     "brandSubtitle": "Production",
-    "poweredBy": "Powered by PerduraFlow",
+    "poweredBy": "Powered by Perdura",
     "openMenu": "Open menu",
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
@@ -64,7 +64,7 @@
   "priority": { "label": "Priority", "inherit": "Inherit from customer", "standard": "Standard", "high": "High", "critical": "Critical" },
   "preferences": {
     "title": "Preferences",
-    "subtitle": "Personalize how PerduraFlow looks for you.",
+    "subtitle": "Personalize how Perdura looks for you.",
     "theme": "Theme",
     "themeHint": "Match your device appearance or pick a fixed theme.",
     "system": "System",
