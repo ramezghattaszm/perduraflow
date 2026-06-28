@@ -12,7 +12,15 @@ import { Providers } from './providers'
 export const metadata: Metadata = {
   title: 'Perdura',
   description: 'Built with the Perdura template.',
-  icons: '/favicon.ico',
+  manifest: '/site.webmanifest',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon-32x32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/favicon-16x16.png', type: 'image/png', sizes: '16x16' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
