@@ -18,6 +18,7 @@ import { useTranslation } from '../../i18n'
 import { useSafeArea } from '../../provider/safe-area/use-safe-area'
 import { useUpdatePreferences } from '../../hooks/useMe'
 import { useCurrentUser } from '../../stores/auth.store'
+import { CROSS_TAB_SYNC_ENABLED, useConditionSync } from '../../lib/cross-tab'
 import { TopBar } from './top-bar'
 import { ADMIN_NAV, OPERATIONAL_NAV, type NavConfigSection } from './nav'
 
@@ -58,6 +59,10 @@ export function AppShell({ activeId, maxWidth = 'fullscreen', title, children }:
   const [navOpen, setNavOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const collapsed = Boolean(user?.preferences?.sidebarCollapsed)
+  // Reflect cross-tab simulator condition changes in this tab without a manual refresh. Gated by the
+  // CROSS_TAB_SYNC_ENABLED kill switch (set it false in lib/cross-tab.ts to disable the whole feature);
+  // the hook is always called (rules of hooks) and no-ops when the flag is false.
+  useConditionSync(CROSS_TAB_SYNC_ENABLED)
 
   const build = (nav: NavConfigSection[], onAfter: () => void): NavSection[] =>
     nav.map((section) => ({

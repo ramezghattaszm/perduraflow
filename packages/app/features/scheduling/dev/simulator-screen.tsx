@@ -33,6 +33,7 @@ import {
 import { useSimulateActuals } from '../../../hooks/useLearning'
 import { queryClient } from '../../../lib/query-client'
 import { QUERY_KEYS } from '../../../lib/query-keys'
+import { broadcastConditionChange } from '../../../lib/cross-tab'
 import { AdminShell } from '../../shell/admin-shell'
 
 type Scenario = 'wear' | 'demand' | 'lineDown' | 'material' | 'operator'
@@ -106,6 +107,16 @@ export function SimulatorContent() {
   useEffect(() => {
     setApplied(null)
   }, [scenario, plantId])
+  // Cross-tab: a condition set here only changes the data (no re-solve), so tell other tabs (the
+  // Board) to refetch — the new condition then shows without a manual refresh. `applied` flips to a
+  // value on every successful condition action; `simulate.data` on a wear emission.
+  useEffect(() => {
+    if (applied) broadcastConditionChange()
+  }, [applied])
+  useEffect(() => {
+    if (simulate.data) broadcastConditionChange()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- broadcast on each new emission result
+  }, [simulate.data])
   // Prefill the new-qty with the selected order's current quantity.
   useEffect(() => {
     const o = demand.find((d) => d.demandLineId === orderId)
