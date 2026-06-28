@@ -457,6 +457,21 @@ export function BoardContent() {
   const previewAtRiskCount = previewAtRiskOrders.length
   // The CHANGED orders themselves (the cause) — kept distinct from their blast radius in the overlay.
   const demandChangeIds = new Set(demandConditions.map((c) => c.demandLineId))
+  const previewAtRiskIds = new Set(previewAtRiskOrders.map((o) => o.demandLineId))
+  // Transient board overlay (Decision 2): re-colour the COMMITTED bars in place — cause (the changed
+  // order) vs blast radius (projected at-risk) — driven by the preview, NOT workList/committedAtRisk, so
+  // it stays visually distinct from real committed at-risk and nothing is persisted. The cause highlights
+  // immediately (it's the changed order); the consequence fills in once the auto-evaluate lands.
+  const previewBars: GanttBar[] = visibleBars.map((b) => ({
+    ...b,
+    previewCause: b.demandLineId != null && demandChangeIds.has(b.demandLineId),
+    previewAtRisk: b.demandLineId != null && previewAtRiskIds.has(b.demandLineId),
+  }))
+  // Addition D — keep the highlight consistent with the shipped work-list week scoping: highlight what's
+  // in the viewed week; surface at-risk orders that fall OUTSIDE it as a count + jump (don't auto-pull the
+  // board across weeks). `dueDateIso` is the order's required date (the same key the work-list scopes on).
+  const visibleDemandIds = new Set(visibleBars.map((b) => b.demandLineId))
+  const outOfWeekAtRisk = previewAtRiskOrders.filter((o) => !visibleDemandIds.has(o.demandLineId))
 
   // Learned cycle overlays keyed by (resource, op) — the LearnedParamPanel source.
   const learnedCycleByKey = useMemo(
@@ -1209,6 +1224,33 @@ export function BoardContent() {
               })}
             </YStack>
           )}
+          {/* Addition D — at-risk orders outside the viewed week aren't auto-pulled into view; surface them
+              as a count + jump (consistent with the work-list week scoping). Empty when every impact is in
+              the viewed week (e.g. the qty-150 case → all impacts land this week → this never renders). */}
+          {outOfWeekAtRisk.length > 0 ? (
+            <XStack marginTop="$2" gap="$2" alignItems="center" flexWrap="wrap">
+              <P size={4} color="$textSecondary">
+                {t('whatif:condition.outOfWeek', { count: outOfWeekAtRisk.length })}
+              </P>
+              <P
+                size={4}
+                color="$primary"
+                cursor="pointer"
+                hoverStyle={{ opacity: 0.8 }}
+                onPress={() => {
+                  const earliest = outOfWeekAtRisk
+                    .map((o) => new Date(o.dueDateIso).getTime())
+                    .sort((a, b) => a - b)[0]
+                  if (earliest != null) {
+                    setViewDate(earliest)
+                    setHorizonMode('week')
+                  }
+                }}
+              >
+                {t('whatif:condition.outOfWeekJump')}
+              </P>
+            </XStack>
+          ) : null}
           {whatIfError ? (
             <XStack
               marginTop="$3"
@@ -1319,7 +1361,7 @@ export function BoardContent() {
       ) : detail ? (
         <ScheduleGantt
           resources={ganttResources}
-          bars={visibleBars}
+          bars={previewBars}
           closures={ganttClosures}
           horizon={horizonMode}
           viewDateMs={viewDate}
@@ -1401,7 +1443,7 @@ export function BoardContent() {
         />
       ) : null}
 
-      {detail ? <GanttLegend /> : null}
+      {detail ? <GanttLegend preview={demandPreview != null || demandChangeIds.size > 0} /> : null}
 
       {/* Click/tap detail (op card / line-down / resource-wear) opens in the global popup — see the
           detailPanel effects above. No inline panel here. */}
@@ -1546,8 +1588,10 @@ function overlapsAnyWindow(startMs: number, endMs: number, windows: Array<{ from
   return windows.some((w) => startMs < w.to && endMs > w.from)
 }
 
-/** Gantt legend — swatches match the bar visuals exactly; source lives here, not in bars. */
-function GanttLegend() {
+/** Gantt legend — swatches match the bar visuals exactly; source lives here, not in bars. The two
+ *  preview entries (cause / projected at-risk) show ONLY while a demand-change preview is active, so the
+ *  legend doesn't advertise an overlay that isn't on the board. */
+function GanttLegend({ preview = false }: { preview?: boolean }) {
   const { t } = useTranslation('scheduling')
   const Entry = ({ swatch, label }: { swatch: ReactNode; label: string }) => (
     <XStack
@@ -1623,6 +1667,39 @@ function GanttLegend() {
         }
         label={t('legend.atRisk')}
       />
+      {/* preview · cause (changed order) = solid cyan outline; preview · projected at-risk = dashed amber.
+          Both only while a preview is live (transient overlay), matching the bar visuals exactly. */}
+      {preview ? (
+        <>
+          <Entry
+            swatch={
+              <YStack
+                width={22}
+                height={12}
+                borderRadius="$2"
+                backgroundColor="$primary"
+                borderWidth={2}
+                borderColor="$info"
+              />
+            }
+            label={t('legend.previewCause')}
+          />
+          <Entry
+            swatch={
+              <YStack
+                width={22}
+                height={12}
+                borderRadius="$2"
+                backgroundColor="$primary"
+                borderWidth={2}
+                borderColor="$warning"
+                style={{ borderStyle: 'dashed' }}
+              />
+            }
+            label={t('legend.previewAtRisk')}
+          />
+        </>
+      ) : null}
       {/* measured (ml_adjusted) = purple fill — the learned-from-actuals overlay */}
       <Entry
         swatch={

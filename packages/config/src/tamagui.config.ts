@@ -49,10 +49,12 @@ const palette = {
   successLight: '#16A34A',
   dangerLight: '#DC2626',
   warningLight: '#D97706',
+  infoLight: '#0891B2', // cyan — informational accent (e.g. preview "cause"), distinct from blue/amber/red
   // status — dark (brighter)
   successDark: '#4ADE80',
   dangerDark: '#F87171',
   warningDark: '#FBBF24',
+  infoDark: '#38BDF8',
   // translucent + tints
   whiteA18: 'rgba(255,255,255,0.18)',
   whiteA08: 'rgba(255,255,255,0.08)',
@@ -90,6 +92,7 @@ const lightColors = {
   success: palette.successLight,
   danger: palette.dangerLight,
   warning: palette.warningLight,
+  info: palette.infoLight,
   gradientStart: palette.gradTopLight,
   gradientEnd: palette.gradBottomLight,
   // --- Extended ---
@@ -119,6 +122,7 @@ const darkColors = {
   success: palette.successDark,
   danger: palette.dangerDark,
   warning: palette.warningDark,
+  info: palette.infoDark,
   gradientStart: palette.gradTopDark,
   gradientEnd: palette.gradBottomDark,
   // --- Extended ---

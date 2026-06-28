@@ -70,6 +70,36 @@ export const LineDownClosure: Story = {
   ),
 }
 
+/** Demand-change PREVIEW overlay — a transient, never-persisted what-if highlight on the committed
+ *  plan. The changed order (CAUSE) gets a solid cyan outline + corner dot; the orders it would push
+ *  at-risk (CONSEQUENCE) get a dashed amber outline. Both stay distinct from committed at-risk's solid
+ *  red, so "the change", "its blast radius", and "already at-risk" never read alike. */
+export const DemandChangePreview: Story = {
+  render: () => (
+    <YStack padding="$4">
+      <ScheduleGantt
+        resources={[
+          { id: 'weld', label: 'Weld Cell 1', subLabel: 'Welding' },
+          { id: 'leak', label: 'Leak-Test Station', subLabel: 'Inspection' },
+        ]}
+        horizonStartMs={origin}
+        horizonEndMs={end}
+        barDetail={(b) => <YStack padding="$1"><P size={3}>{b.label}</P></YStack>}
+        bars={[
+          // CAUSE — the order whose demand was bumped (cyan outline + corner dot).
+          { id: 'c1', resourceId: 'weld', label: 'RAM-2001', sourceTag: 'std', startMs: origin, endMs: origin + 180 * m, setupMin: 15, runMin: 165, atRisk: false, changeover: false, previewCause: true },
+          { id: 'c2', resourceId: 'leak', label: 'RAM-2001', sourceTag: 'std', startMs: origin + 185 * m, endMs: origin + 230 * m, setupMin: 5, runMin: 40, atRisk: false, changeover: false, previewCause: true },
+          // CONSEQUENCE — orders pushed at-risk on the shared leak station (dashed amber).
+          { id: 'x1', resourceId: 'leak', label: 'RAM-2002', sourceTag: 'std', startMs: origin + 235 * m, endMs: origin + 300 * m, setupMin: 5, runMin: 60, atRisk: false, changeover: true, previewAtRisk: true },
+          { id: 'x2', resourceId: 'leak', label: 'RAM-2003', sourceTag: 'std', startMs: origin + 305 * m, endMs: origin + 380 * m, setupMin: 5, runMin: 70, atRisk: false, changeover: false, previewAtRisk: true },
+          // A pre-existing COMMITTED at-risk order (solid red) — unrelated to the preview, shown for contrast.
+          { id: 'a1', resourceId: 'weld', label: 'RAM-2004', sourceTag: 'std', startMs: origin + 330 * m, endMs: origin + 470 * m, setupMin: 25, runMin: 115, atRisk: true, changeover: true },
+        ]}
+      />
+    </YStack>
+  ),
+}
+
 /** Learned (ml) bars — distinct $ml fill + a confidence bar (phase 3). */
 export const Learned: Story = {
   render: () => (

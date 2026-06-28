@@ -64,6 +64,14 @@ export interface GanttBar {
   /** STRANDED: this op sits inside an active line-down window — it can't run as planned. Rendered
    *  muted + a dashed danger outline ("can't run as planned"), distinct from at-risk's solid outline. */
   stranded?: boolean
+  /** PREVIEW · CAUSE: this op belongs to the order whose demand change is being previewed (the SOURCE of
+   *  the impact). A solid info (cyan) outline + corner marker — distinct from at-risk/stranded danger. A
+   *  transient, never-persisted overlay; cleared when the preview ends. */
+  previewCause?: boolean
+  /** PREVIEW · CONSEQUENCE: this op's order would go at-risk IF the previewed demand change is adopted
+   *  (the blast radius). A DASHED warning (amber) outline — "projected at-risk", distinct from committed
+   *  at-risk's solid danger. Transient; cleared when the preview ends. */
+  previewAtRisk?: boolean
   changeover: boolean
   /** Learned (ml_adjusted) cycle/setup → distinct `$ml` fill + a confidence bar (phase 3, FS13). */
   ml?: boolean
@@ -206,6 +214,10 @@ export function ScheduleGantt({ resources, bars, closures, horizonStartMs, horiz
     predicted: theme.warning?.val ?? '#D97706',
     accent: theme.primaryLight?.val ?? '#5b8def',
     danger: theme.danger?.val ?? '#f87171',
+    // Preview overlay (demand-change what-if): warning = projected at-risk (consequence), info = the
+    // changed order (cause). Distinct hues from danger (committed at-risk) so the two never read alike.
+    warning: theme.warning?.val ?? '#D97706',
+    info: theme.info?.val ?? '#38BDF8',
     selected: theme.primary?.val ?? '#3f6fd6',
     axisBg: theme.surfaceRaised?.val ?? '#1A2030',
     grid: theme.borderColor?.val ?? '#232C3D',
@@ -534,6 +546,19 @@ export function ScheduleGantt({ resources, bars, closures, horizonStartMs, horiz
                   ) : null}
                   {b.changeover ? <Rect x={x - 2} y={y - 4} width={3} height={BAR_H + 8} rx={1.5} fill={c.accent} opacity={0.85} /> : null}
                   {b.atRisk ? <Circle cx={x + w - 10} cy={y + 8} r={3.5} fill={c.danger} /> : null}
+                  {/* PREVIEW · consequence — projected at-risk under the demand change (DASHED amber). Only
+                      when not already committed-at-risk (solid danger wins); the cause outline overrides it. */}
+                  {b.previewAtRisk && !b.atRisk && !b.previewCause ? (
+                    <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill="none" stroke={c.warning} strokeWidth={2} strokeDasharray="5 3" />
+                  ) : null}
+                  {/* PREVIEW · cause — the changed order (SOLID cyan + a corner marker so it's unmistakable as
+                      the SOURCE, independent of colour). Drawn last of the overlays so it always reads on top. */}
+                  {b.previewCause ? (
+                    <>
+                      <Rect x={x} y={y} width={w} height={BAR_H} rx={6} ry={6} fill="none" stroke={c.info} strokeWidth={2.5} />
+                      <Circle cx={x + 9} cy={y + 8} r={3.5} fill={c.info} />
+                    </>
+                  ) : null}
                   {/* selected state — an outset ring while this bar's panel/sheet is open */}
                   {selectedBarId === b.id ? (
                     <Rect x={x - 3} y={y - 3} width={w + 6} height={BAR_H + 6} rx={9} ry={9} fill="none" stroke={c.selected} strokeWidth={2.5} />

@@ -71,6 +71,8 @@
     "setup": "Setup",
     "changeover": "Changeover (attribute switch)",
     "atRisk": "At-risk (late vs due)",
+    "previewCause": "Demand change (preview)",
+    "previewAtRisk": "Projected at-risk (preview)",
     "measured": "Measured (learned from actuals)",
     "predicted": "Pre-adopted forecast (not yet measured)",
     "sourceNote": "std = standard time"
