@@ -1508,8 +1508,21 @@ export class SchedulingService {
 
     const md = await this.resolveMasterData(tenantId)
     const ops = await this.repo.operationsForVersion(version.id)
-    const actuals = await this.learning.listActualsForVersion(tenantId, version.id)
-    const actualOpIds = new Set(actuals.map((a) => a.scheduledOperationId))
+    // Execution reality is CROSS-VERSION: an order op that has RUN — an actual on the authoritative
+    // committed plan — is `completed` no matter which version is being viewed. Key it by
+    // (demandLineId, opSeq), NOT the per-version op id, so a DRAFT (whose freshly-created ops carry no
+    // actuals of their own) INHERITS the committed plan's completed past. Without this a draft surfaced
+    // every already-executed order as open + overdue, flooding the week-scoped list with the whole
+    // back-catalogue (the committed view was fine only because its ops carry their own actuals).
+    const authority = version.status === 'committed' ? version : await this.repo.findCommittedVersion(tenantId, version.plantId)
+    const executedKeys = new Set<string>()
+    if (authority) {
+      const authorityOps = authority.id === version.id ? ops : await this.repo.operationsForVersion(authority.id)
+      const authorityActualOpIds = new Set(
+        (await this.learning.listActualsForVersion(tenantId, authority.id)).map((a) => a.scheduledOperationId)
+      )
+      for (const o of authorityOps) if (authorityActualOpIds.has(o.id)) executedKeys.add(`${o.demandLineId}:${o.opSeq}`)
+    }
     const resourceName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
     // Same computed chains the queue/board/Copilot read (built from the unfiltered ops).
@@ -1562,7 +1575,7 @@ export class SchedulingService {
       atRisk: o.atRisk,
       atRiskReason: o.atRiskReason,
       stranded: stranded.has(o.id),
-      hasActual: actualOpIds.has(o.id),
+      hasActual: executedKeys.has(`${o.demandLineId}:${o.opSeq}`),
       chain: chains.get(`${o.demandLineId}:${o.opSeq}`) ?? null,
     }))
 
