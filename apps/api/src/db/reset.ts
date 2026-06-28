@@ -74,6 +74,9 @@ async function simulatePast(
     scheduleVersionId: versionId,
     cyclesPerOp: 2,
     completedBeforeMs: todayStartMs,
+    // Seed deterministic execution misses into the historical window so warm-start Schedule
+    // Adherence isn't a fake 100% (a thin slice of past orders ran off their planned window).
+    injectMisses: true,
     // Convex (accelerating) wear that leaves Press A's cycle with COMFORTABLE MARGIN below the +5%
     // adopt threshold (window mean ~+1.8%) — so it does NOT adopt — while the steeper RECENT slope
     // reads clearly above the (now tight, deterministic) noise floor and projects a threshold-crossing

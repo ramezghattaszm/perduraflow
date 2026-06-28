@@ -28,6 +28,22 @@ export class SimulatorService {
   // trend reads cleanly above the noise floor (so a deterministic days-out prediction emerges), and
   // pure-noise series on non-drifting params stay below the trend threshold (no spurious predictions).
   private readonly YIELD = 0.97 // baseline good-quantity fraction
+  // Historical adherence misses (opt-in, `injectMisses`): a deterministic ~7.5% of past orders ran
+  // off their planned window — backdated with the actual start shifted EARLIER than planned by more
+  // than the 15-min adherence tolerance (duration preserved, so the actual end shifts equally and
+  // on-time delivery / OEE are untouched — only Schedule Adherence drops, to low-mid 90s). Keyed on
+  // the stable demand-line id, so a whole order's ops shift together and resets are byte-identical.
+  // ~3% dedicated adherence-shift orders; the OTIF-miss orders also read as off-plan (their late op
+  // slid), so the two together land plant adherence in the low-to-mid 90s without lockstep.
+  private readonly ADH_MISS_FRAC = 0.03
+  private readonly ADH_SHIFT_MS = 30 * 60_000 // 30 min > the 15-min adherence tolerance
+  // Historical OTIF misses (opt-in, `injectMisses`): a deterministic ~5% of past orders DELIVERED
+  // late — the order's last op slid late (start AND end shift together, run length unchanged → OEE
+  // untouched) so its finish fell past the due. Keyed on the demand-line id and DISJOINT from the
+  // adherence-shift set, so OTIF and Adherence are driven by different orders. Plan-independent (no
+  // re-sequence): only the actual times move, so the committed plan + its live at-risk spine stand.
+  private readonly OTIF_MISS_FRAC = 0.05
+  private readonly OTIF_LATE_MS = 45 * 60_000 // finished this far past due
 
   constructor(
     private readonly repo: SchedulingRepository,
@@ -97,6 +113,19 @@ export class SimulatorService {
     const ops = await this.repo.operationsForVersion(version.id)
     const md = await this.resolveMasterData(tenantId)
 
+    // For OTIF misses (opt-in): the order's due + its LAST op (the delivery), so a late finish is
+    // backdated onto that op's actual end only.
+    const dueByLine = new Map<string, number>()
+    const lastOpSeqByLine = new Map<string, number>()
+    if (req.injectMisses) {
+      for (const dmd of await this.repo.listDemand(tenantId, version.plantId)) {
+        dueByLine.set(dmd.demandLineId, dmd.requiredDate.getTime())
+      }
+      for (const op of ops) {
+        lastOpSeqByLine.set(op.demandLineId, Math.max(lastOpSeqByLine.get(op.demandLineId) ?? 0, op.opSeq))
+      }
+    }
+
     // Resolve the D7 std baselines per op (carried on the actual so the learner is self-contained).
     const stdCache = new Map<string, RoutingOperationDto | undefined>()
     const stdFor = async (partId: string, routingOperationId: string): Promise<RoutingOperationDto | undefined> => {
@@ -125,6 +154,16 @@ export class SimulatorService {
       // are regenerated every reset — so a `demo:reset` is truly reproducible (same actuals, same
       // learned values, same prediction every time). D2 determinism.
       const noiseKey = `${op.demandLineId}:${op.opSeq}`
+      // OTIF miss (opt-in): this order delivered late → its LAST op's actual end is pushed past the due
+      // (below). Adherence miss (opt-in, DISJOINT from OTIF): this order ran off its planned window →
+      // backdate the actual start earlier than planned (beyond tolerance). Both keyed per-order so an
+      // order's ops move together; excluding OTIF orders from the adherence set keeps the two metrics
+      // on different orders.
+      const otifMiss = req.injectMisses && seeded(`${op.demandLineId}:otif`) < this.OTIF_MISS_FRAC
+      const adhMiss =
+        req.injectMisses && !otifMiss && seeded(`${op.demandLineId}:adh`) < this.ADH_MISS_FRAC
+      const opStart = adhMiss ? new Date(op.plannedStart.getTime() - this.ADH_SHIFT_MS) : op.plannedStart
+      const lateFinish = otifMiss && op.opSeq === lastOpSeqByLine.get(op.demandLineId)
       for (let k = 0; k < req.cyclesPerOp; k++) {
         const ri = resCycleIdx.get(op.resourceId) ?? 0
         resCycleIdx.set(op.resourceId, ri + 1)
@@ -140,8 +179,17 @@ export class SimulatorService {
         // falls behind plan (the variance beat); throughput scales by std/actual cycle.
         const throughputFrac = actualCycle > 0 ? Math.min(1, stdCycle / actualCycle) : 1
         const goodQty = Math.max(0, Math.round(op.plannedQty * yieldFrac * throughputFrac))
-        const start = op.plannedStart
         const durMin = actualSetup + actualCycle * op.plannedQty
+        // Delivery: normally [start, start+run]. An OTIF-miss order's last op finished past its due —
+        // the whole op slides LATE (start AND end shift together), so the run length is unchanged and
+        // OEE is untouched; only the delivery (end vs due) moves. Other ops keep their planned start.
+        const due = dueByLine.get(op.demandLineId)
+        let startMs = opStart.getTime()
+        let endMs = startMs + durMin * 60_000
+        if (lateFinish && due != null) {
+          endMs = Math.max(endMs, due + this.OTIF_LATE_MS)
+          startMs = endMs - durMin * 60_000
+        }
         const payload: ExecutionActualPayload = {
           actualEventId: `${version.id}:${op.id}:${k}`,
           scheduleVersionId: version.id,
@@ -149,8 +197,8 @@ export class SimulatorService {
           resourceId: op.resourceId,
           routingOperationId: op.routingOperationId,
           partId: op.partId,
-          actualStart: start.toISOString(),
-          actualEnd: new Date(start.getTime() + durMin * 60_000).toISOString(),
+          actualStart: new Date(startMs).toISOString(),
+          actualEnd: new Date(endMs).toISOString(),
           actualSetupTime: actualSetup,
           actualCycleTime: actualCycle,
           stdSetupTime: stdSetup,

@@ -965,6 +965,14 @@ export const simulateActualsSchema = z
      * only its PAST days (today/future stay planned). Absent = emit for every op (the live-drift demo).
      */
     completedBeforeMs: z.number().int().nonnegative().optional(),
+    /**
+     * Seed deterministic EXECUTION misses into the historical actuals so warm-start Schedule
+     * Adherence isn't a fake 100%: a thin, stable slice of past ops are backdated as started off
+     * their planned window (actual start shifted beyond the adherence tolerance). Opt-in (the
+     * rolling-window reset sets it); the live-drift demo leaves it off. Duration is preserved, so
+     * OEE/throughput and on-time delivery are unaffected — only adherence moves.
+     */
+    injectMisses: z.boolean().default(false),
     drift: z
       .object({
         resourceId: z.string().min(1),
