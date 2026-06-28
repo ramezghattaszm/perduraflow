@@ -972,7 +972,7 @@ export const simulateActualsSchema = z
      * rolling-window reset sets it); the live-drift demo leaves it off. Duration is preserved, so
      * OEE/throughput and on-time delivery are unaffected — only adherence moves.
      */
-    injectMisses: z.boolean().default(false),
+    injectMisses: z.boolean().optional(),
     drift: z
       .object({
         resourceId: z.string().min(1),
