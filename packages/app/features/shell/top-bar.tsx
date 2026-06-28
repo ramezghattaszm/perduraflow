@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'solito/navigation'
-import { ChevronRight, Menu, PanelLeft, Search, Settings } from '@tamagui/lucide-icons'
+import { ChevronRight, Menu, PanelLeft, Settings } from '@tamagui/lucide-icons'
 import {
   IconButton,
   NotificationBell,
@@ -102,41 +102,6 @@ export function TopBar({ isSmall, collapsed, onToggleCollapse, onOpenDrawer, onO
       ) : null}
 
       <YStack flex={1} />
-
-      {!isSmall ? (
-        <XStack
-          alignItems="center"
-          gap="$2"
-          height={34}
-          paddingHorizontal="$3"
-          borderRadius="$6"
-          borderWidth={1}
-          borderColor="$borderColor"
-          backgroundColor="$background"
-          cursor="pointer"
-          hoverStyle={{ backgroundColor: '$hoverFill' }}
-          role="button"
-          aria-label={t('shell.search')}
-        >
-          <Search size={16} color="$textSecondary" />
-          <P size={4} color="$textSecondary">
-            {t('shell.search')}
-          </P>
-          <XStack
-            marginLeft="$2"
-            paddingHorizontal="$2"
-            paddingVertical="$0.5"
-            borderRadius="$3"
-            backgroundColor="$surfaceRaised"
-            borderWidth={1}
-            borderColor="$borderColor"
-          >
-            <P size={5} color="$textSecondary">
-              ⌘K
-            </P>
-          </XStack>
-        </XStack>
-      ) : null}
 
       {!isSmall && onOpenAdmin ? (
         <IconButton icon={Settings} label={t('shell.administration')} onPress={onOpenAdmin} />
