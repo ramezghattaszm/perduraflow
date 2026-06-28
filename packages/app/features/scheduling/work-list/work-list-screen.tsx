@@ -133,8 +133,9 @@ export function WorkListTable({
   headerRight?: ReactNode
 }) {
   const { t } = useTranslation(['workList', 'scheduling'])
-  // On small screens the filter pills (SegmentedControl) collapse to a dropdown (icon + selection).
-  const small = Boolean(useMedia()['max-md'])
+  // At medium width and below, the filter pills (SegmentedControl) collapse to a filter button
+  // (icon + selection) that opens a popover menu.
+  const collapseFilter = Boolean(useMedia()['max-lg'])
   const runSeeOptions = useSeeOptions()
   const runDiscussOptions = useDiscussOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
@@ -462,11 +463,12 @@ export function WorkListTable({
 
   // The status filter: full pill row on wide screens; on small it collapses to a filter icon + the
   // current selection (e.g. "All · 50") that opens a dropdown menu.
-  const filterControl = small ? (
+  const filterControl = collapseFilter ? (
     <AppSelect
       options={filterOptions}
       value={filter}
       onChange={(v) => setFilter(v as FilterValue)}
+      looseMenu
       leadingIcon={
         <Filter
           size={16}
@@ -482,8 +484,64 @@ export function WorkListTable({
     />
   )
 
+  // Symbol legend — keys the row markers without re-stating them per row. Sits at the bottom-left.
+  const legend = (
+    <XStack
+      gap="$3"
+      alignItems="center"
+      flexWrap="wrap"
+    >
+      <XStack
+        gap="$1"
+        alignItems="center"
+      >
+        <TriangleAlert
+          size={13}
+          color="$danger"
+        />
+        <P
+          size={5}
+          color="$textTertiary"
+        >
+          {t('priority.critical')}
+        </P>
+      </XStack>
+      <XStack
+        gap="$1"
+        alignItems="center"
+      >
+        <ArrowUp
+          size={14}
+          color="$warning"
+        />
+        <P
+          size={5}
+          color="$textTertiary"
+        >
+          {t('priority.high')}
+        </P>
+      </XStack>
+      <XStack
+        gap="$1"
+        alignItems="center"
+      >
+        <CircleDashed
+          size={12}
+          color="$textTertiary"
+        />
+        <P
+          size={5}
+          color="$textTertiary"
+        >
+          {t('firmness.forecast')}
+        </P>
+      </XStack>
+    </XStack>
+  )
+
   return (
-    <>
+    // Tight vertical rhythm — small gaps between the controls, the list, and the bottom row.
+    <YStack gap="$2">
       {/* Controls row: filter + search (left); the optional date-nav slot then the pager (right). */}
       <XStack
         flexWrap="wrap"
@@ -541,83 +599,31 @@ export function WorkListTable({
         </XStack>
       </XStack>
 
-      {/* Legend + list as ONE tight group — the legend sits right above the list (small gap),
-          below the controls, right-aligned. */}
-      <YStack gap="$1.5">
-        <XStack
-          justifyContent="flex-end"
-        >
-          <XStack
-            gap="$3"
-            alignItems="center"
-            flexWrap="wrap"
-          >
-            <XStack
-              gap="$1"
-              alignItems="center"
-            >
-              <TriangleAlert
-                size={13}
-                color="$danger"
-              />
-              <P
-                size={5}
-                color="$textTertiary"
-              >
-                {t('priority.critical')}
-              </P>
-            </XStack>
-            <XStack
-              gap="$1"
-              alignItems="center"
-            >
-              <ArrowUp
-                size={14}
-                color="$warning"
-              />
-              <P
-                size={5}
-                color="$textTertiary"
-              >
-                {t('priority.high')}
-              </P>
-            </XStack>
-            <XStack
-              gap="$1"
-              alignItems="center"
-            >
-              <CircleDashed
-                size={12}
-                color="$textTertiary"
-              />
-              <P
-                size={5}
-                color="$textTertiary"
-              >
-                {t('firmness.forecast')}
-              </P>
-            </XStack>
-          </XStack>
-        </XStack>
+      <DataTable
+        columns={columns}
+        rows={paged}
+        isLoading={isLoading}
+        onRowPress={(r) => {
+          setDrilledOpSeq(null)
+          setSelectedId((cur) => (cur === r.id ? null : r.id))
+        }}
+        emptyTitle={rows.length === 0 ? t('empty') : t('emptyFiltered')}
+        minRowWidth={980}
+        rowsMatchHeader
+        dense
+      />
 
-        <DataTable
-          columns={columns}
-          rows={paged}
-          isLoading={isLoading}
-          onRowPress={(r) => {
-            setDrilledOpSeq(null)
-            setSelectedId((cur) => (cur === r.id ? null : r.id))
-          }}
-          emptyTitle={rows.length === 0 ? t('empty') : t('emptyFiltered')}
-          minRowWidth={980}
-          rowsMatchHeader
-          dense
-        />
-      </YStack>
-
-      {/* Bottom pager — right-aligned, mirrors the top one. */}
-      <XStack justifyContent="flex-end">{pager}</XStack>
-    </>
+      {/* Bottom row: legend (left) + pager (right). */}
+      <XStack
+        flexWrap="wrap"
+        gap="$3"
+        alignItems="center"
+        justifyContent="space-between"
+      >
+        {legend}
+        {pager}
+      </XStack>
+    </YStack>
   )
 }
 

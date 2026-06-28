@@ -257,7 +257,7 @@ export function DataTable<T extends { id: string }>({
         {sortedRows.map((row) => (
           <XStack
             key={row.id}
-            paddingVertical={dense ? '$1.5' : '$3'}
+            paddingVertical={dense ? '$2' : '$3'}
             paddingHorizontal={PAD_X}
             alignItems="center"
             borderTopWidth={1}

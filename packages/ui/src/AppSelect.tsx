@@ -28,6 +28,9 @@ export interface AppSelectProps {
   /** A leading glyph inside the `box` trigger (e.g. a filter icon). When set, the trigger reads as a
    *  button — icon + label, left-aligned, no dropdown chevron — opening the same popover menu. */
   leadingIcon?: ReactNode
+  /** Looser popover rows + no inter-row separators (a roomier menu). Default `false` keeps the
+   *  compact, divided list so existing selects are unchanged. */
+  looseMenu?: boolean
 }
 
 interface Measurable {
@@ -52,7 +55,7 @@ interface Anchor {
  * @example
  * <AppSelect options={plants} value={plantId} onChange={setPlantId} placeholder="Plant" />
  */
-export function AppSelect({ options, value, onChange, placeholder = 'Select…', variant = 'box', triggerLabel, leadingIcon }: AppSelectProps) {
+export function AppSelect({ options, value, onChange, placeholder = 'Select…', variant = 'box', triggerLabel, leadingIcon, looseMenu = false }: AppSelectProps) {
   const triggerRef = useRef<Measurable | null>(null)
   const [anchor, setAnchor] = useState<Anchor | null>(null)
   const selected = options.find((o) => o.value === value)
@@ -193,10 +196,10 @@ export function AppSelect({ options, value, onChange, placeholder = 'Select…',
                     cursor={o.disabled ? 'default' : 'pointer'}
                     opacity={o.disabled ? 0.45 : 1}
                     paddingHorizontal="$3"
-                    paddingVertical="$1.5"
+                    paddingVertical={looseMenu ? '$2.5' : '$1.5'}
                     backgroundColor={o.value === value ? '$primarySoft' : 'transparent'}
                     hoverStyle={o.disabled ? undefined : { backgroundColor: o.value === value ? '$primarySoft' : '$hoverFill' }}
-                    {...(i > 0 ? { borderTopWidth: 1, borderTopColor: '$borderColor' } : {})}
+                    {...(i > 0 && !looseMenu ? { borderTopWidth: 1, borderTopColor: '$borderColor' } : {})}
                     role="button"
                     aria-label={o.label}
                     aria-disabled={o.disabled}
