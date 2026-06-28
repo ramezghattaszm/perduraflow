@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'solito/navigation'
-import { ArrowUp, ChevronRight, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
+import { ArrowUp, ChevronLeft, ChevronRight, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
   AppButton,
   AppSelect,
   type Column,
   DataTable,
+  DateRangeNav,
+  IconButton,
   Input,
   LatenessChain,
   P,
@@ -101,6 +103,16 @@ const FILTER_VALUES: FilterValue[] = ['all', 'at_risk', 'stranded', 'in_progress
  * construction.
  */
 const MS_PER_DAY = 86_400_000
+/** Client-side page size (UI-controlled for now — the API returns the whole week's rows). */
+const PAGE_SIZE = 50
+const utcDay = (ms: number): number => Math.floor(ms / MS_PER_DAY) * MS_PER_DAY
+/** Roll a weekend day forward to the next working day (Sat→Mon, Sun→Mon) so the default week is the
+ *  upcoming working week — matches the API default + the board, keeping the surfaces on one week. */
+const nextWorkingDay = (ms: number): number => {
+  const day = utcDay(ms)
+  const dow = new Date(day).getUTCDay()
+  return day + (dow === 6 ? 2 : dow === 0 ? 1 : 0) * MS_PER_DAY
+}
 
 export function WorkListTable({
   plantId,
@@ -185,6 +197,23 @@ export function WorkListTable({
     }
     return rows.filter((r) => (filter === 'all' || r.status === filter) && matches(r))
   }, [rows, filter, search, t])
+
+  // Client-side pagination (UI-controlled): the API hands back the whole week, but rendering hundreds
+  // of rows at once is slow, so we show PAGE_SIZE at a time with prev/next. Reset to the first page
+  // whenever the result set changes shape (filter, search, or the viewed week).
+  const [page, setPage] = useState(0)
+  useEffect(() => {
+    setPage(0)
+  }, [filter, search, weekAnchor])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const clampedPage = Math.min(page, pageCount - 1)
+  const paged = useMemo(
+    () => filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE),
+    [filtered, clampedPage],
+  )
+  const rangeFrom = filtered.length === 0 ? 0 : clampedPage * PAGE_SIZE + 1
+  const rangeTo = Math.min(filtered.length, clampedPage * PAGE_SIZE + PAGE_SIZE)
+
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
 
   // The drilled-into op card (the SAME component the board's Gantt bar opens), shown in the popup when
@@ -302,13 +331,13 @@ export function WorkListTable({
   // Don't leak the popup onto the next screen if the table unmounts while it's open.
   useEffect(() => () => { if (detailPopupOpenRef.current) hidePopup() }, [hidePopup])
 
-  // Open-work surface — no `completed` chip (executed orders live on the cockpit/scorecard, not here).
   const filterOptions: { value: FilterValue; label: string }[] = [
     { value: 'all', label: `${t('filter.all')} · ${counts.total}` },
     { value: 'at_risk', label: `${t('filter.at_risk')} · ${counts.atRisk}` },
     { value: 'stranded', label: `${t('filter.stranded')} · ${counts.stranded}` },
     { value: 'in_progress', label: `${t('filter.in_progress')} · ${counts.inProgress}` },
     { value: 'scheduled', label: `${t('filter.scheduled')} · ${counts.scheduled}` },
+    { value: 'completed', label: `${t('filter.completed')} · ${counts.completed}` },
   ]
 
   // Day-as-lens: a row is emphasized when the board is zoomed to a day and any of the order's ops run
@@ -521,7 +550,7 @@ export function WorkListTable({
 
       <DataTable
         columns={columns}
-        rows={filtered}
+        rows={paged}
         isLoading={isLoading}
         onRowPress={(r) => {
           setDrilledOpSeq(null)
@@ -532,6 +561,34 @@ export function WorkListTable({
         rowsMatchHeader
         rowEmphasis={rowOnSelectedDay}
       />
+
+      {/* Pager — only when the filtered set overflows one page. */}
+      {filtered.length > PAGE_SIZE ? (
+        <XStack
+          alignItems="center"
+          justifyContent="flex-end"
+          gap="$3"
+        >
+          <P
+            size={4}
+            color="$textSecondary"
+          >
+            {t('pagination.range', { from: rangeFrom, to: rangeTo, total: filtered.length })}
+          </P>
+          <IconButton
+            icon={ChevronLeft}
+            label={t('pagination.prev')}
+            disabled={clampedPage === 0}
+            onPress={() => setPage((p) => Math.max(0, p - 1))}
+          />
+          <IconButton
+            icon={ChevronRight}
+            label={t('pagination.next')}
+            disabled={clampedPage >= pageCount - 1}
+            onPress={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+          />
+        </XStack>
+      ) : null}
     </>
   )
 }
@@ -548,23 +605,45 @@ export function WorkListContent() {
   // Deep-link filter (e.g. the scorecard's at-risk count → "?status=at_risk"); ignored if not a valid value.
   const statusParam = useSearchParams()?.get('status') ?? undefined
   const initialFilter = FILTER_VALUES.includes(statusParam as FilterValue) ? (statusParam as FilterValue) : undefined
+  // The standalone Work List has its OWN week control (the board passes its viewed week instead).
+  // Defaults to the upcoming working week (weekend-rolled), matching the board + API default.
+  const [weekDate, setWeekDate] = useState<number>(() => nextWorkingDay(Date.now()))
+  const weekAnchor = new Date(weekDate).toISOString().slice(0, 10)
   return (
     <>
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
-          <YStack width={220}>
-            <AppSelect
-              options={plantOptions}
-              value={plantId}
-              onChange={setPlant}
-              placeholder={t('plant')}
+          <XStack
+            gap="$3"
+            alignItems="center"
+            flexWrap="wrap"
+            justifyContent="flex-end"
+          >
+            <DateRangeNav
+              mode="week"
+              valueMs={weekDate}
+              onChange={setWeekDate}
+              labels={{
+                today: t('nav.today'),
+                prev: t('nav.prev'),
+                next: t('nav.next'),
+                pickTitle: t('nav.pick'),
+              }}
             />
-          </YStack>
+            <YStack width={220}>
+              <AppSelect
+                options={plantOptions}
+                value={plantId}
+                onChange={setPlant}
+                placeholder={t('plant')}
+              />
+            </YStack>
+          </XStack>
         }
       />
-      <WorkListTable plantId={plantId ?? undefined} initialFilter={initialFilter} />
+      <WorkListTable plantId={plantId ?? undefined} initialFilter={initialFilter} weekAnchor={weekAnchor} />
     </>
   )
 }

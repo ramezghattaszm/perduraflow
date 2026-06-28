@@ -46,5 +46,16 @@
     "why": "Why at-risk",
     "back": "Back to order",
     "selectHint": "Select a row to see its operations."
+  },
+  "nav": {
+    "today": "This week",
+    "prev": "Previous week",
+    "next": "Next week",
+    "pick": "Pick a week"
+  },
+  "pagination": {
+    "range": "{{from}}–{{to}} of {{total}}",
+    "prev": "Previous page",
+    "next": "Next page"
   }
 }
