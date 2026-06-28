@@ -70,7 +70,6 @@ export function DataTable<T extends { id: string }>({
   minRowWidth = 720,
   stackOnSmall = false,
   rowsMatchHeader = false,
-  rowEmphasis,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -87,9 +86,6 @@ export function DataTable<T extends { id: string }>({
    *  for a flat table whose rows share the header's `$surface` and invert to `$background` on hover
    *  (used when the table sits directly on the page, with no surrounding card). */
   rowsMatchHeader?: boolean
-  /** Emphasis predicate — emphasized rows get a left accent + tint (a *lens*, never a filter): used
-   *  to spotlight a selected slice (e.g. the work-list's selected day) without hiding the rest. */
-  rowEmphasis?: (row: T) => boolean
 }) {
   const rowBg = rowsMatchHeader ? '$surface' : '$background'
   const rowHoverBg = rowsMatchHeader ? '$background' : '$surface'
@@ -255,9 +251,7 @@ export function DataTable<T extends { id: string }>({
             )
           })}
         </XStack>
-        {sortedRows.map((row) => {
-          const emphasized = rowEmphasis?.(row) ?? false
-          return (
+        {sortedRows.map((row) => (
           <XStack
             key={row.id}
             paddingVertical="$3"
@@ -265,8 +259,7 @@ export function DataTable<T extends { id: string }>({
             alignItems="center"
             borderTopWidth={1}
             borderTopColor="$borderColor"
-            backgroundColor={emphasized ? '$primarySoft' : rowBg}
-            {...(emphasized ? { borderLeftWidth: 3, borderLeftColor: '$primary' } : {})}
+            backgroundColor={rowBg}
             cursor={onRowPress ? 'pointer' : undefined}
             hoverStyle={onRowPress ? { backgroundColor: rowHoverBg } : undefined}
             onPress={onRowPress ? () => onRowPress(row) : undefined}
@@ -300,8 +293,7 @@ export function DataTable<T extends { id: string }>({
               )
             })}
           </XStack>
-          )
-        })}
+        ))}
       </YStack>
     </ScrollView>
   )

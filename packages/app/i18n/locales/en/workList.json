@@ -54,7 +54,7 @@
     "pick": "Pick a week"
   },
   "pagination": {
-    "range": "{{from}}–{{to}} of {{total}}",
+    "range": "{{from}}-{{to}} of {{total}}",
     "prev": "Previous page",
     "next": "Next page"
   }

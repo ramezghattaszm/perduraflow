@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'solito/navigation'
-import { ArrowUp, ChevronLeft, ChevronRight, CircleDashed, Search, TriangleAlert } from '@tamagui/lucide-icons'
+import { ArrowUp, ChevronLeft, ChevronRight, CircleDashed, Filter, Search, TriangleAlert } from '@tamagui/lucide-icons'
 import type { WorkListRowDto, WorkListStatus } from '@perduraflow/contracts'
 import {
   AppButton,
@@ -18,6 +18,7 @@ import {
   SegmentedControl,
   StatusPill,
   type StatusTone,
+  useMedia,
   XStack,
   YStack,
 } from '@perduraflow/ui'
@@ -119,7 +120,7 @@ export function WorkListTable({
   versionId,
   initialFilter,
   weekAnchor,
-  selectedDayMs,
+  headerRight,
 }: {
   plantId: string | undefined
   versionId?: string
@@ -127,11 +128,13 @@ export function WorkListTable({
   /** ISO date of the viewed working week (the board's week) — scopes the list forward to that week.
    *  Omit (standalone screen) → the API defaults to the week containing today. */
   weekAnchor?: string
-  /** When the board is zoomed to one day, that day (UTC ms) — its rows are emphasized as a LENS
-   *  (never a filter); null/omitted = whole-week view, no emphasis. */
-  selectedDayMs?: number | null
+  /** Extra control rendered in the top-right of the controls row, to the LEFT of the pager (e.g. the
+   *  standalone screen's week date-nav). The board omits it (it has its own date nav up top). */
+  headerRight?: ReactNode
 }) {
   const { t } = useTranslation(['workList', 'scheduling'])
+  // On small screens the filter pills (SegmentedControl) collapse to a dropdown (icon + selection).
+  const small = Boolean(useMedia()['max-md'])
   const runSeeOptions = useSeeOptions()
   const runDiscussOptions = useDiscussOptions()
   const { show: showPopup, hide: hidePopup } = usePopup()
@@ -340,13 +343,27 @@ export function WorkListTable({
     { value: 'completed', label: `${t('filter.completed')} · ${counts.completed}` },
   ]
 
-  // Day-as-lens: a row is emphasized when the board is zoomed to a day and any of the order's ops run
-  // on that day. This HIGHLIGHTS — it never hides the rest of the week's open work (handoff §3).
-  const rowOnSelectedDay = (r: WorkListRowDto): boolean => {
-    if (selectedDayMs == null || !r.plannedStart || !r.plannedEnd) return false
-    const dayStart = Math.floor(selectedDayMs / MS_PER_DAY) * MS_PER_DAY
-    return Date.parse(r.plannedStart) < dayStart + MS_PER_DAY && Date.parse(r.plannedEnd) > dayStart
-  }
+  // Pager (top + bottom): `‹ from-to of total ›`. Rendered only when the filtered set overflows a page.
+  const pager =
+    filtered.length > PAGE_SIZE ? (
+      <XStack alignItems="center" gap="$2">
+        <IconButton
+          icon={ChevronLeft}
+          label={t('pagination.prev')}
+          disabled={clampedPage === 0}
+          onPress={() => setPage((p) => Math.max(0, p - 1))}
+        />
+        <P size={4} color="$textSecondary">
+          {t('pagination.range', { from: rangeFrom, to: rangeTo, total: filtered.length })}
+        </P>
+        <IconButton
+          icon={ChevronRight}
+          label={t('pagination.next')}
+          disabled={clampedPage >= pageCount - 1}
+          onPress={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+        />
+      </XStack>
+    ) : null
 
   const columns: Column<WorkListRowDto>[] = [
     {
@@ -444,8 +461,31 @@ export function WorkListTable({
     },
   ]
 
+  // The status filter: full pill row on wide screens; on small it collapses to a filter icon + the
+  // current selection (e.g. "All · 50") that opens a dropdown menu.
+  const filterControl = small ? (
+    <XStack alignItems="center" gap="$2">
+      <Filter
+        size={16}
+        color="$textSecondary"
+      />
+      <AppSelect
+        options={filterOptions}
+        value={filter}
+        onChange={(v) => setFilter(v as FilterValue)}
+      />
+    </XStack>
+  ) : (
+    <SegmentedControl<FilterValue>
+      options={filterOptions}
+      value={filter}
+      onChange={setFilter}
+    />
+  )
+
   return (
     <>
+      {/* Controls row: filter + search (left); the optional date-nav slot then the pager (right). */}
       <XStack
         flexWrap="wrap"
         gap="$3"
@@ -457,11 +497,7 @@ export function WorkListTable({
           alignItems="center"
           flexWrap="wrap"
         >
-          <SegmentedControl<FilterValue>
-            options={filterOptions}
-            value={filter}
-            onChange={setFilter}
-          />
+          {filterControl}
           {/* Search field styled to match the app-shell top-bar search pill. */}
           <XStack
             alignItems="center"
@@ -494,101 +530,93 @@ export function WorkListTable({
             />
           </XStack>
         </XStack>
-        {/* Symbol legend (top-right) — keys the row markers without re-stating them per row. */}
         <XStack
           gap="$3"
           alignItems="center"
           flexWrap="wrap"
+          marginLeft="auto"
+          justifyContent="flex-end"
         >
-          <XStack
-            gap="$1"
-            alignItems="center"
-          >
-            <TriangleAlert
-              size={13}
-              color="$danger"
-            />
-            <P
-              size={5}
-              color="$textTertiary"
-            >
-              {t('priority.critical')}
-            </P>
-          </XStack>
-          <XStack
-            gap="$1"
-            alignItems="center"
-          >
-            <ArrowUp
-              size={14}
-              color="$warning"
-            />
-            <P
-              size={5}
-              color="$textTertiary"
-            >
-              {t('priority.high')}
-            </P>
-          </XStack>
-          <XStack
-            gap="$1"
-            alignItems="center"
-          >
-            <CircleDashed
-              size={12}
-              color="$textTertiary"
-            />
-            <P
-              size={5}
-              color="$textTertiary"
-            >
-              {t('firmness.forecast')}
-            </P>
-          </XStack>
+          {headerRight}
+          {pager}
         </XStack>
       </XStack>
 
-      <DataTable
-        columns={columns}
-        rows={paged}
-        isLoading={isLoading}
-        onRowPress={(r) => {
-          setDrilledOpSeq(null)
-          setSelectedId((cur) => (cur === r.id ? null : r.id))
-        }}
-        emptyTitle={rows.length === 0 ? t('empty') : t('emptyFiltered')}
-        minRowWidth={980}
-        rowsMatchHeader
-        rowEmphasis={rowOnSelectedDay}
-      />
-
-      {/* Pager — only when the filtered set overflows one page. */}
-      {filtered.length > PAGE_SIZE ? (
+      {/* Legend + list as ONE tight group — the legend sits right above the list (small gap),
+          below the controls, right-aligned. */}
+      <YStack gap="$1.5">
         <XStack
-          alignItems="center"
           justifyContent="flex-end"
-          gap="$3"
         >
-          <P
-            size={4}
-            color="$textSecondary"
+          <XStack
+            gap="$3"
+            alignItems="center"
+            flexWrap="wrap"
           >
-            {t('pagination.range', { from: rangeFrom, to: rangeTo, total: filtered.length })}
-          </P>
-          <IconButton
-            icon={ChevronLeft}
-            label={t('pagination.prev')}
-            disabled={clampedPage === 0}
-            onPress={() => setPage((p) => Math.max(0, p - 1))}
-          />
-          <IconButton
-            icon={ChevronRight}
-            label={t('pagination.next')}
-            disabled={clampedPage >= pageCount - 1}
-            onPress={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-          />
+            <XStack
+              gap="$1"
+              alignItems="center"
+            >
+              <TriangleAlert
+                size={13}
+                color="$danger"
+              />
+              <P
+                size={5}
+                color="$textTertiary"
+              >
+                {t('priority.critical')}
+              </P>
+            </XStack>
+            <XStack
+              gap="$1"
+              alignItems="center"
+            >
+              <ArrowUp
+                size={14}
+                color="$warning"
+              />
+              <P
+                size={5}
+                color="$textTertiary"
+              >
+                {t('priority.high')}
+              </P>
+            </XStack>
+            <XStack
+              gap="$1"
+              alignItems="center"
+            >
+              <CircleDashed
+                size={12}
+                color="$textTertiary"
+              />
+              <P
+                size={5}
+                color="$textTertiary"
+              >
+                {t('firmness.forecast')}
+              </P>
+            </XStack>
+          </XStack>
         </XStack>
-      ) : null}
+
+        <DataTable
+          columns={columns}
+          rows={paged}
+          isLoading={isLoading}
+          onRowPress={(r) => {
+            setDrilledOpSeq(null)
+            setSelectedId((cur) => (cur === r.id ? null : r.id))
+          }}
+          emptyTitle={rows.length === 0 ? t('empty') : t('emptyFiltered')}
+          minRowWidth={980}
+          rowsMatchHeader
+        />
+      </YStack>
+
+      {/* Bottom pager — right-aligned, mirrors the top one. */}
+      {pager ? <XStack justifyContent="flex-end">{pager}</XStack> : null}
     </>
   )
 }
@@ -615,35 +643,34 @@ export function WorkListContent() {
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
-          <XStack
-            gap="$3"
-            alignItems="center"
-            flexWrap="wrap"
-            justifyContent="flex-end"
-          >
-            <DateRangeNav
-              mode="week"
-              valueMs={weekDate}
-              onChange={setWeekDate}
-              labels={{
-                today: t('nav.today'),
-                prev: t('nav.prev'),
-                next: t('nav.next'),
-                pickTitle: t('nav.pick'),
-              }}
+          <YStack width={220}>
+            <AppSelect
+              options={plantOptions}
+              value={plantId}
+              onChange={setPlant}
+              placeholder={t('plant')}
             />
-            <YStack width={220}>
-              <AppSelect
-                options={plantOptions}
-                value={plantId}
-                onChange={setPlant}
-                placeholder={t('plant')}
-              />
-            </YStack>
-          </XStack>
+          </YStack>
         }
       />
-      <WorkListTable plantId={plantId ?? undefined} initialFilter={initialFilter} weekAnchor={weekAnchor} />
+      <WorkListTable
+        plantId={plantId ?? undefined}
+        initialFilter={initialFilter}
+        weekAnchor={weekAnchor}
+        headerRight={
+          <DateRangeNav
+            mode="week"
+            valueMs={weekDate}
+            onChange={setWeekDate}
+            labels={{
+              today: t('nav.today'),
+              prev: t('nav.prev'),
+              next: t('nav.next'),
+              pickTitle: t('nav.pick'),
+            }}
+          />
+        }
+      />
     </>
   )
 }

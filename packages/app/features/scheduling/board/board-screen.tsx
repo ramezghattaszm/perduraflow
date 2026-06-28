@@ -1353,7 +1353,6 @@ export function BoardContent() {
             plantId={plantId ?? undefined}
             versionId={versionId ?? undefined}
             weekAnchor={weekAnchorIso}
-            selectedDayMs={horizonMode === 'day' ? viewDate : null}
           />
         </YStack>
       ) : null}
