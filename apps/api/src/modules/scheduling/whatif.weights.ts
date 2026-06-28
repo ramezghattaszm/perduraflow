@@ -62,8 +62,13 @@ export const RATIONALE_SCHEMA_VERSION = '1.0'
  * sentinel folded into lateness, weight 10), so a remediation that makes it FIT (faster operator)
  * earns scored credit. Additive on the infeasible case only — feasible-plan scores are unchanged —
  * but it's a scoring change, so bump. `firmLateHours` KPI stays honest; `infeasibleFirmOps` is the count.
+ * `wi-14` = each option now carries its order-grain `atRiskOrders` set (the demand-change preview's
+ * blast radius — the cockpit highlights it without persisting). Placement + scoring UNCHANGED; this is
+ * additive data in the stored option payload, but a pre-wi-14 cached result lacks the field (→ would
+ * replay an empty preview), so bump to invalidate stale caches. The banner count + board highlight both
+ * read this set, so they cannot contradict.
  */
-export const ENGINE_VERSION = 'wi-13'
+export const ENGINE_VERSION = 'wi-14'
 
 /** Expedite pull-ahead for protect-delivery policy (large enough to front-load). */
 export const EXPEDITE_BONUS_HOURS = 100_000

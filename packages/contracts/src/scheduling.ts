@@ -793,6 +793,24 @@ export interface CostedKpis {
 }
 
 /**
+ * One order left at-risk by an option's evaluated (never-persisted) plan — the preview "blast radius"
+ * the cockpit highlights without writing a draft. ORDER-grain: an order is at-risk iff any of its ops
+ * carries the sequencer's `atRisk` flag (`end > due` OR window-overflow) — the SAME meaning the
+ * committed board + work-list use, so a preview highlight reads like-for-like against committed at-risk.
+ * - `firmLate` — a FIRM op breaches its due (vs a forecast breach); drives emphasis.
+ * - `reason` — the binding op's at-risk reason (capacity / material / operator / …), for the impact panel.
+ * - `dueDateIso` — the order's required date; the viewed-week scope key (consistent with the work-list).
+ * - `resourceIds` — the resources its at-risk ops sit on in THIS plan (blast-radius-by-line).
+ */
+export interface WhatIfAtRiskOrder {
+  demandLineId: string
+  firmLate: boolean
+  reason: string | null
+  dueDateIso: string
+  resourceIds: string[]
+}
+
+/**
  * One ranked what-if option. Carries its costed KPIs, a feasibility verdict
  * (feasibility-honest — an infeasible option says why, never silently mangled),
  * a score, and the structured rationale.
@@ -814,6 +832,13 @@ export interface WhatIfOption {
    * not a plant-wide infeasibility leak from unrelated orders. Null for non-remediation what-ifs (and
    * old cached results → the verdict falls back to the plant-wide rule). Plant-wide SCORING is unchanged. */
   targetOutcome?: { feasible: boolean; firmLate: boolean } | null
+  /**
+   * The orders THIS option's plan leaves at-risk (order-grain) — the preview blast radius the cockpit
+   * highlights without persisting. The banner count AND the board highlight both read THIS array (never
+   * the `lateOrders` KPI independently), so they cannot contradict (the changed order itself, the cause,
+   * is identified separately from the change-set). Empty for an infeasible option (no runnable plan).
+   * Optional so old cached results (pre-field) deserialize cleanly → treated as `[]`. */
+  atRiskOrders?: WhatIfAtRiskOrder[]
 }
 
 /**

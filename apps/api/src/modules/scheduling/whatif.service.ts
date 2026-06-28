@@ -11,6 +11,7 @@ import {
   type ResourceDowntimeDto,
   type ScheduleVersionDto,
   type StructuredRationale,
+  type WhatIfAtRiskOrder,
   type WhatIfOption,
   type WhatIfResultDto,
   type WhatIfUnremediable,
@@ -793,6 +794,7 @@ export class WhatIfService {
           score: Number.POSITIVE_INFINITY,
           rationale: emptyRationale(r.spec.id),
           targetOutcome,
+          atRiskOrders: [], // infeasible → no runnable plan → no preview blast radius
         }
       }
       const comparatives = this.comparatives(r, feasible)
@@ -821,6 +823,7 @@ export class WhatIfService {
         score: r.scored.score,
         rationale,
         targetOutcome,
+        atRiskOrders: atRiskOrdersOf(r.placements),
       }
     })
   }
@@ -954,6 +957,34 @@ function targetOutcomeOf(
     feasible: ops.every((p) => p.placedFeasible),
     firmLate: ops.some((p) => p.firmness === 'firm' && p.plannedEndMs > p.requiredDateMs),
   }
+}
+
+/**
+ * The orders an evaluated plan leaves at-risk (order-grain) — the preview blast radius. An order is
+ * at-risk iff ANY of its ops carries the sequencer `atRisk` flag (the canonical board meaning), so the
+ * count here equals what the cockpit highlights (Addition B: banner N === highlighted orders, by
+ * construction — both read this set). `firmLate` = a FIRM op past due; `reason`/`resourceIds` from the
+ * order's at-risk ops; `dueDateIso` = the order due (the viewed-week scope key). Deterministic ordering.
+ */
+function atRiskOrdersOf(placements: Placement[]): WhatIfAtRiskOrder[] {
+  const byOrder = new Map<string, { firmLate: boolean; reason: string | null; dueMs: number; resources: Set<string> }>()
+  for (const p of placements) {
+    if (!p.atRisk) continue
+    const e = byOrder.get(p.demandLineId) ?? { firmLate: false, reason: null, dueMs: p.requiredDateMs, resources: new Set<string>() }
+    if (p.firmness === 'firm' && p.plannedEndMs > p.requiredDateMs) e.firmLate = true
+    if (!e.reason && p.atRiskReason) e.reason = p.atRiskReason
+    e.resources.add(p.resourceId)
+    byOrder.set(p.demandLineId, e)
+  }
+  return [...byOrder.entries()]
+    .map(([demandLineId, e]) => ({
+      demandLineId,
+      firmLate: e.firmLate,
+      reason: e.reason,
+      dueDateIso: new Date(e.dueMs).toISOString(),
+      resourceIds: [...e.resources].sort(),
+    }))
+    .sort((a, b) => a.demandLineId.localeCompare(b.demandLineId))
 }
 
 /** Does a SELECTABLE option leave the target order feasible AND on-time? (the per-order "fix") */
