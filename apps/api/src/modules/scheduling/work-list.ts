@@ -100,18 +100,24 @@ const STATUS_RANK: Record<WorkListStatus, number> = {
  * **Overdue-but-OPEN orders are carried unconditionally** (an open order past its due is the floor's
  * top priority — shown regardless of the week bound); a completed order is *not* pinned (its past due
  * is just history). Navigating to a past week surfaces that week's completed orders. The week bound is
- * a *display* scope: the canonical `committedAtRisk` count is computed over the **whole order set**
- * (week-agnostic), so the cockpit/scorecard at-risk KPIs that reconcile to it are unchanged by it.
+ * a *display* scope (it is week-agnostic — independent of the viewed week). The canonical
+ * `committedAtRisk` count is scoped to a NEAR-TERM horizon (`atRiskBeforeMs`) rather than the whole
+ * horizon, so the headline counts the firm delivery risk a planner can act on now — overdue + the next
+ * window — not far-future structural lateness. It is still week-agnostic (anchored on today, not the
+ * viewed week), so the cockpit/scorecard at-risk KPIs that reconcile to it stay in lockstep.
  *
  * @param opts.weekStartMs Inclusive lower / @param opts.weekEndMs exclusive upper bound (ms) of the
  *   viewed working week. A row shows when its span intersects that week, OR it is overdue-but-open.
  *   Omit both for no bound (every order).
+ * @param opts.atRiskBeforeMs Exclusive upper bound (ms) on an order's required date for it to count
+ *   toward `committedAtRisk` — the near-term at-risk horizon (today + the Reporting-Policy window).
+ *   Overdue at-risk orders (required date in the past) always count. Omit for no bound (every week).
  */
 export function buildWorkList(
   ops: WorkListOpInput[],
   orders: Map<string, WorkListOrderMeta>,
   nowMs: number,
-  opts: { weekStartMs?: number; weekEndMs?: number } = {}
+  opts: { weekStartMs?: number; weekEndMs?: number; atRiskBeforeMs?: number } = {}
 ): { rows: WorkListRowDto[]; counts: WorkListCountsDto } {
   const byOrder = new Map<string, WorkListOpInput[]>()
   for (const op of ops) {
@@ -167,12 +173,19 @@ export function buildWorkList(
     })
   }
 
-  // The CANONICAL at-risk-committed-orders count — firm orders currently at-risk — computed over the
-  // WHOLE order set (week-agnostic). The single source the cockpit/scorecard at-risk KPIs and the
-  // baseline "late orders" live column all read, so the surfaces reconcile. Computing it before the
-  // week bound keeps it unchanged by the display scoping. The week-scoped `atRisk` below is the
-  // all-firmness browse count.
-  const committedAtRisk = rows.filter((r) => r.status === 'at_risk' && r.firmness === 'firm').length
+  // The CANONICAL at-risk-committed-orders count — firm orders currently at-risk, scoped to the NEAR
+  // TERM (overdue + due before `atRiskBeforeMs`) so the headline is actionable delivery risk, not
+  // far-future structural lateness. Anchored on today (NOT the viewed week), so it stays the single,
+  // stable source the cockpit/scorecard at-risk KPIs + the baseline "late orders" column all reconcile
+  // to. Omit the bound → every week counts (prior whole-horizon behaviour). The week-scoped `atRisk`
+  // below is the separate all-firmness browse count.
+  const { atRiskBeforeMs } = opts
+  const committedAtRisk = rows.filter(
+    (r) =>
+      r.status === 'at_risk' &&
+      r.firmness === 'firm' &&
+      (atRiskBeforeMs == null || Date.parse(r.requiredDate) < atRiskBeforeMs)
+  ).length
 
   // Bound the DISPLAY rows to the viewed week (span-intersection, so an order running INTO the week
   // still shows); carry overdue-but-OPEN orders unconditionally (an open order past its due is the

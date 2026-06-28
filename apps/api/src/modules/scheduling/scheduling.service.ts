@@ -1594,7 +1594,13 @@ export class SchedulingService {
     const anchorMs = weekAnchorMs ?? rollWeekend(nowMs)
     const weekStartMs = startOfDayUtc(anchorMs) - (((new Date(anchorMs).getUTCDay() + 6) % 7) * MS_PER_DAY)
     const weekEndMs = weekStartMs + 7 * MS_PER_DAY
-    const { rows, counts } = buildWorkList(opInputs, orders, nowMs, { weekStartMs, weekEndMs })
+    // Near-term at-risk horizon: today + the Reporting-Policy window. The canonical `committedAtRisk`
+    // counts firm orders at-risk that are overdue or due within this window — actionable delivery risk —
+    // NOT far-future structural lateness across the whole horizon. Anchored on today (not the viewed
+    // week), so the count stays stable as the planner navigates weeks.
+    const { reportingWindowDays } = await this.config.resolveReporting(tenantId, version.plantId)
+    const atRiskBeforeMs = startOfDayUtc(nowMs) + reportingWindowDays * MS_PER_DAY
+    const { rows, counts } = buildWorkList(opInputs, orders, nowMs, { weekStartMs, weekEndMs, atRiskBeforeMs })
     return { plantId: resolvedPlant, scheduleVersionId: version.id, counts, rows }
   }
 
