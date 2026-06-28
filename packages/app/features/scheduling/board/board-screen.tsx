@@ -324,12 +324,14 @@ export function BoardContent() {
     return wins.find((w) => w.from <= now && now < w.to) ?? [...wins].sort((a, b) => a.from - b.from)[0]!
   }
 
-  // KPI strip (D-util headline) — all computed from the committed schedule, no literals. On-time +
-  // At-risk derive from the ops (+ demand firmness); Utilization + Throughput come from the SAME
-  // variance payload as the lane badges, so the strip and lanes reconcile.
+  // KPI strip (D-util headline) — all computed from the committed schedule, no literals. On-time is the
+  // CONTINUOUS plant On-Time over the reporting window (same variance payload as Utilization/Throughput
+  // and the lane badges, so they reconcile) — a continuous, plan-current view that reflects historical
+  // delivery, distinct from the per-version Scorecard OTIF. At-risk derives from the work-list.
   const kpiOps = detail?.operations ?? []
+  // Fallback before the variance payload loads: the plan-only on-time fraction (avoids a flash of empty).
   const onTimePct =
-    kpiOps.length > 0 ? 1 - kpiOps.filter((o) => o.atRisk).length / kpiOps.length : 1
+    variance?.plantOnTime ?? (kpiOps.length > 0 ? 1 - kpiOps.filter((o) => o.atRisk).length / kpiOps.length : 1)
   // Firm at-risk orders, keyed by demand line, from the WORK-LIST (the order-grain single source the
   // exception queue uses) — NOT the demand endpoint, which omits warm-start/synthetic lines and so
   // can't see every at-risk order. This drives the per-order "Evaluate options" action: it carries the

@@ -246,6 +246,16 @@ export interface PerformanceVarianceDto {
    */
   plantThroughputAttainment: number | null
   /**
+   * CONTINUOUS plant On-Time delivery over the Reporting-Policy window — the fraction of orders that
+   * delivered by their due, aggregated from the authoritative executed actuals across versions (the
+   * SAME substrate as continuous throughput). Order-grain (an order is on-time iff its latest finish
+   * in the window ≤ its due), so the seeded historical late deliveries pull it below 100% — a
+   * continuous, plan-current view, distinct from the per-version Scorecard OTIF. The cockpit On-Time
+   * KPI reads THIS; `null` when nothing executed in the window. (The live forward at-risk is the
+   * separate At-risk tile / work-list committedAtRisk.)
+   */
+  plantOnTime: number | null
+  /**
    * CONTINUOUS historical OEE (A·P·Q) over the Reporting-Policy window — aggregated from the
    * measured_historical (`historical_outcome`) rows, the SAME scope the scorecard's "Historical"
    * baseline arm uses, so the historical number is identical on both surfaces (no divergence).

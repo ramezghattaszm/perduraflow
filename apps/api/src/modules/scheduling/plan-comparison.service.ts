@@ -35,15 +35,18 @@ export class PlanComparisonService {
     if (source === 'measured_historical' && versionId) {
       const rows = await this.repo.listHistoricalOutcomes(tenantId, plantId, resourceId)
       const live = await this.liveExecutionKpis(tenantId, plantId, versionId, resourceId)
-      return {
-        source,
-        emptyState: rows.length === 0,
-        plantId,
-        scheduleVersionId: versionId,
-        live,
-        baseline: rows.length === 0 ? null : aggregate(rows),
-        labelKey: labelFor(source),
+      if (rows.length === 0) {
+        return { source, emptyState: true, plantId, scheduleVersionId: versionId, live, baseline: null, labelKey: labelFor(source) }
       }
+      const baseline = aggregate(rows)
+      // On-Time baseline uses the cockpit's CONTINUOUS On-Time computation (NOT the seeded otif), so the
+      // scorecard's historical On-Time matches the cockpit — one computation, no divergence. The other
+      // baseline KPIs (cost/OEE/throughput) stay the historian's recorded rows. (live.otif is already the
+      // scorecard main-KPI OTIF, via liveExecutionKpis.)
+      const ot = await this.scheduling.computePlantOnTime(tenantId, plantId)
+      const scopedOnTime = resourceId ? (ot.byResource.get(resourceId) ?? null) : ot.plant
+      if (scopedOnTime != null) baseline.otif = r4(scopedOnTime)
+      return { source, emptyState: false, plantId, scheduleVersionId: versionId, live, baseline, labelKey: labelFor(source) }
     }
 
     // Plan-based path (the engine-lift arm, or measured_historical before a first commit): needs the

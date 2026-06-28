@@ -1028,6 +1028,9 @@ export class SchedulingService {
     // the executed past, stable across re-solve. Feeds the KPI strip headline + the lane "behind plan"
     // chip (per-resource continuous attainment). Distinct from the per-version attainment below.
     const cont = await this.computePlantThroughput(tenantId, version.plantId)
+    // CONTINUOUS plant On-Time delivery over the same window — order-grain (delivered by due), from the
+    // SAME authoritative actuals. The cockpit On-Time KPI reads this; reflects historical late deliveries.
+    const onTime = await this.computePlantOnTime(tenantId, version.plantId)
     // CONTINUOUS historical OEE (A·P·Q) — the cockpit headline. Read from the seeded measured_historical
     // rows over the Reporting-Policy window (same source as the scorecard's Historical baseline arm), so
     // it's plan-independent, present from demo:reset, and never waits for a re-solve.
@@ -1116,6 +1119,8 @@ export class SchedulingService {
       throughputAttainment: hasActuals && totalPlanned > 0 ? totalGood / totalPlanned : null,
       // CONTINUOUS plant throughput (cross-version, Reporting-Policy window) — the scorecard retrospective.
       plantThroughputAttainment: cont.plant,
+      // CONTINUOUS plant On-Time (cross-version, Reporting-Policy window) — the cockpit On-Time headline.
+      plantOnTime: onTime.plant,
       // CONTINUOUS historical OEE (A·P·Q) from measured_historical rows — the cockpit headline.
       plantOee: histOee.plant,
       reportingWindowStart: new Date(cont.windowStartMs).toISOString(),
@@ -1209,6 +1214,64 @@ export class SchedulingService {
       byResource.set(rid, pl > 0 ? (goodByRes.get(rid) ?? 0) / pl : null)
     }
     return { plant: plantPlanned > 0 ? plantGood / plantPlanned : null, byResource, windowStartMs, windowEndMs }
+  }
+
+  /**
+   * Continuous **plant On-Time** delivery over the Reporting-Policy window — the cockpit On-Time KPI
+   * AND the scorecard's historical-baseline On-Time (one computation, no divergence). ORDER-grain (an
+   * order delivered on-time iff its LATEST actual finish in the window ≤ its due), read from the SAME
+   * authoritative executed actuals as continuous throughput (latest-committed authority, cross-version
+   * → stable across a re-solve). So the seeded historical late deliveries pull it below 100% — a
+   * continuous, plan-current view, distinct from the per-version scorecard OTIF. Per-resource: an order
+   * counts for every resource it touched in the window (on-time iff the WHOLE order delivered by due).
+   * `null` per scope on an empty window (dash, not 100%). Public — the plan-comparison baseline reads it.
+   */
+  async computePlantOnTime(
+    tenantId: string,
+    plantId: string,
+  ): Promise<{ plant: number | null; byResource: Map<string, number | null> }> {
+    const { authoritative, resourceIds } = await this.resolveContinuousActuals(tenantId, plantId)
+    if (authoritative.length === 0) return { plant: null, byResource: new Map() }
+    const lineByOp = new Map(
+      (await this.repo.findOpsByIds(authoritative.map((a) => a.scheduledOperationId))).map((o) => [o.id, o.demandLineId]),
+    )
+    const dueByLine = new Map(
+      (await this.repo.listDemand(tenantId, plantId)).map((d) => [d.demandLineId, d.requiredDate.getTime()]),
+    )
+    // Per order: its delivery in the window (latest actual finish across its executed ops) + which
+    // resources it touched.
+    const deliveryByLine = new Map<string, number>()
+    const resourcesByLine = new Map<string, Set<string>>()
+    for (const a of authoritative) {
+      const line = lineByOp.get(a.scheduledOperationId)
+      if (!line) continue
+      deliveryByLine.set(line, Math.max(deliveryByLine.get(line) ?? 0, new Date(a.actualEnd).getTime()))
+      let touched = resourcesByLine.get(line)
+      if (!touched) resourcesByLine.set(line, (touched = new Set()))
+      touched.add(a.resourceId)
+    }
+    if (deliveryByLine.size === 0) return { plant: null, byResource: new Map() }
+    const lateByLine = new Map<string, boolean>()
+    for (const [line, delivery] of deliveryByLine) {
+      const due = dueByLine.get(line)
+      lateByLine.set(line, due != null && delivery > due) // no due on record → not judged late
+    }
+    const plant = deliveryByLine.size > 0 ? [...lateByLine.values()].filter((late) => !late).length / deliveryByLine.size : null
+    const onTimeByRes = new Map<string, number>()
+    const totalByRes = new Map<string, number>()
+    for (const [line, touched] of resourcesByLine) {
+      const late = lateByLine.get(line) ?? false
+      for (const rid of touched) {
+        totalByRes.set(rid, (totalByRes.get(rid) ?? 0) + 1)
+        if (!late) onTimeByRes.set(rid, (onTimeByRes.get(rid) ?? 0) + 1)
+      }
+    }
+    const byResource = new Map<string, number | null>()
+    for (const rid of resourceIds) {
+      const total = totalByRes.get(rid) ?? 0
+      byResource.set(rid, total > 0 ? (onTimeByRes.get(rid) ?? 0) / total : null)
+    }
+    return { plant, byResource }
   }
 
   /**
