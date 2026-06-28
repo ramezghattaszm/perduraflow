@@ -142,7 +142,7 @@
     "behindResource": "behind {{blocker}} on {{resource}}",
     "behindPredecessor": "waiting on its earlier op (op {{opSeq}})",
     "divergent": "{{immediate}} · root cause: {{cause}} ({{rootOrder}}) — {{lever}}",
-    "hopResource": "{{order}} op {{opSeq}} · {{resource}} — line occupied, held by",
+    "hopResource": "{{order}} op {{opSeq}} · {{resource}} — line occupied, held by {{blocker}}",
     "hopPredecessor": "{{order}} op {{opSeq}} · {{resource}} — waiting on its earlier op",
     "hopRoot": "{{order}} op {{opSeq}} · {{resource}} — {{cause}}",
     "expand": "Show chain",

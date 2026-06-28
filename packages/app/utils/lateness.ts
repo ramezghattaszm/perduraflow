@@ -77,12 +77,17 @@ export function latenessSummary(chain: LatenessChainDto, t: TFn): string {
 export function latenessLines(chain: LatenessChainDto, t: TFn): string[] {
   const lines = chain.hops.map((h, i) => {
     const isRoot = i === chain.hops.length - 1
-    if (!isRoot && h.kind === 'resource')
+    if (!isRoot && h.kind === 'resource') {
+      // Name the holder INLINE (the next hop is what occupies the line ahead of this op) so "held by"
+      // isn't left dangling — the next line then elaborates that holder's own chain down to the root.
+      const next = chain.hops[i + 1]!
       return t('lateness.hopResource', {
         order: h.demandLineId,
         opSeq: h.opSeq,
         resource: h.resourceName,
+        blocker: t('lateness.heldBy', { order: next.demandLineId, opSeq: next.opSeq }),
       })
+    }
     if (!isRoot && h.kind === 'predecessor')
       return t('lateness.hopPredecessor', {
         order: h.demandLineId,
