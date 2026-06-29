@@ -5,9 +5,10 @@ import type { NarrationInput, NarrationMode, RationaleFactor, StructuredRational
  * allowed to use (A19 translate-only). Every fact traces to the structured rationale
  * (a factor's value + weighted contribution, a binding constraint, or a precomputed
  * comparative), so the prose can **characterise the trade-off** — what the option
- * prioritises, what it gives up, why it beats the alternatives — while inventing
- * nothing (DoD proof #5). This is the EN language surface; the rationale stays
- * i18n-keyed for the UI.
+ * prioritises, what it gives up, and how it compares on the weighted total — while
+ * inventing nothing (DoD proof #5). Comparative facts carry DIRECTION in words (a
+ * trade-off is never a "win"); the gateway must not reverse them. This is the EN
+ * language surface; the rationale stays i18n-keyed for the UI.
  */
 
 const num = (v: unknown): string => (typeof v === 'number' ? String(v) : String(v ?? ''))
@@ -67,14 +68,36 @@ function constraintLine(detailKey: string, p: Record<string, string | number>): 
   }
 }
 
-/** A comparative as a fact: how this option fares vs another, and the deciding factor. */
+/** Magnitude of a score/contribution delta as a plain number (direction is stated in words, not by sign). */
+const mag = (x: number): string => String(Math.round(Math.abs(x) * 10) / 10)
+
+/**
+ * A comparative as a fact — with DIRECTION in words so the narration can't misread a signed delta.
+ * The **weighted total** decides (`deltaScore`; lower score = better), stated plainly so a *trade-off* can
+ * never read as a "win": a lower-total option is "the better total … a trade-off, not a win on every
+ * factor", a higher-total one is "the worse total … {other} is preferred". Each deciding factor then says
+ * whether THIS option is *lower* (better) or *higher* (worse) than the other on it — never a bare ±number.
+ */
 function comparativeLine(self: WhatIfOption, others: WhatIfOption[], c: StructuredRationale['comparatives'][number]): string | null {
   const other = others.find((o) => o.id === c.vsOptionId)
   if (!other) return null
-  const rel = c.verdict === 'preferred' ? 'beats' : c.verdict === 'dominated' ? 'loses to' : 'trades off with'
-  const d = c.decidingFactors[0]
-  const why = d ? ` — the deciding difference is ${FACTOR_NAME[d.key] ?? d.key} (Δ ${d.delta} in its contribution)` : ''
-  return `Versus ${label(other.labelKey)}, ${label(self.labelKey)} ${rel} it${why}.`
+  const selfL = label(self.labelKey)
+  const otherL = label(other.labelKey)
+  // The weighted total verdict — dominance when it holds, else the signed total gap (lower score = better).
+  const total =
+    c.verdict === 'preferred'
+      ? `${selfL} dominates ${otherL} (better on every factor)`
+      : c.verdict === 'dominated'
+        ? `${selfL} is dominated by ${otherL} (worse on every factor)`
+        : c.deltaScore < 0
+          ? `${selfL} is the better total (lower weighted score by ${mag(c.deltaScore)}) — a trade-off, not a win on every factor`
+          : c.deltaScore > 0
+            ? `${selfL} is the worse total (higher weighted score by ${mag(c.deltaScore)}) — ${otherL} is preferred`
+            : `${selfL} ties ${otherL} on the weighted score`
+  // Each deciding factor with direction (lower weighted contribution = better; higher = worse).
+  const bits = c.decidingFactors.map((d) => `${d.delta < 0 ? 'lower' : d.delta > 0 ? 'higher' : 'equal'} ${FACTOR_NAME[d.key] ?? d.key} (by ${mag(d.delta)})`)
+  const why = bits.length ? `; on the deciding factors, ${selfL} has ${bits.join(' and ')}` : ''
+  return `Versus ${otherL}, ${total}${why}.`
 }
 
 /** The complete fact set for one option: full factor breakdown + constraints + comparatives. */

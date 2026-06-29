@@ -31,13 +31,17 @@ const SYSTEM_PROMPT = [
   'Write 2–4 sentences that explain the TRADE-OFF, like a planner\'s note:',
   '- what this option prioritises (the factors it keeps low or at zero),',
   '- what it gives up (the factors it accepts as higher), and',
-  '- why it beats the alternatives (name the deciding factor from the comparison).',
+  '- how it compares on the weighted total and the deciding factors (use the comparison\'s stated direction).',
   '',
   'Strict rules (translate-only):',
   '- Use ONLY the supplied facts. Introduce no fact, number, cause, factor, or option not given.',
   '- You MAY characterise relative size from the given contributions — e.g. call the largest',
   '  contributor the main driver, or a zero/near-zero factor negligible — but invent no new number.',
   '- Do not re-rank or re-decide; the engine already chose. Keep every number exactly as given.',
+  '- Comparatives state a DIRECTION — render it exactly. If a fact says this option is HIGHER (worse) on',
+  '  a factor, never call it lower or better (and vice-versa). If it says "trades off" or "the worse',
+  '  total", never say this option "beats" the other — a trade-off is not a win on every factor, and only',
+  '  the option named the better total / recommended may be described as preferred.',
   '- Specific and neutral, flowing prose. No preamble, no bullet lists, no "as an AI".',
 ].join('\n')
 
