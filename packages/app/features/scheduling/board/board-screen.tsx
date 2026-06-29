@@ -616,14 +616,15 @@ export function BoardContent() {
     (detail?.operations ?? []).some((op) => {
       const l = learnedCycleByKey.get(`${op.resourceId}:${op.routingOperationId}`)
       if (!l || l.status !== 'held' || l.learnedValue == null || op.cycleSource !== 'standard') return false
-      // Mirror the application gate (buildLearnedOverlay): a pre-adopted forecast (`ml_predicted`) applies
-      // only where the op is RUNNING AT/AFTER its crossing (`plannedEnd > crossingAt`). So a pre-crossing
-      // op correctly runs `standard` and is NOT stale — only an op past the crossing still on `standard`
-      // is genuinely unapplied (else the banner false-positives on pre-crossing/past ops forever). No live
-      // crossing → fall back to forward-only (start of day). Measured `ml_adjusted` isn't gated → stale.
+      // Mirror the application gate (buildLearnedOverlay): a pre-adopted forecast (`ml_predicted`) keeps an
+      // op on `standard` when it STARTS before the crossing — even if it ends after (a "straddle" op that
+      // began on the old, un-worn tool). So gate on `plannedStart >= crossingAt`, NOT `plannedEnd`: only an
+      // op that STARTS at/after the crossing yet still runs `standard` is genuinely unapplied. Using
+      // plannedEnd false-positived the banner on the straddle op (starts pre-crossing, ends post) forever
+      // after a clean re-solve. No live crossing → fall back to forward-only. Measured `ml_adjusted` → stale.
       if (l.source !== 'ml_predicted') return true
       const crossing = crossingByKey.get(`${op.resourceId}:${op.routingOperationId}`)
-      return crossing != null ? new Date(op.plannedEnd).getTime() > crossing : new Date(op.plannedStart).getTime() >= today
+      return crossing != null ? new Date(op.plannedStart).getTime() >= crossing : new Date(op.plannedStart).getTime() >= today
     })
 
   const onSolve = () => {
@@ -791,8 +792,11 @@ export function BoardContent() {
   const linePred = selectedResourceId
     ? (() => {
         const cyclePreds = predictions.filter((p) => p.resourceId === selectedResourceId && p.param === 'cycle' && p.crossingAt)
+        // Among ACTED ops, the STRONGEST (highest-confidence) — the same one the Exception Queue keeps when it
+        // collapses a lane's per-op forecasts, so the board gauge and the queue's pre-adjusted row agree.
+        const acted = cyclePreds.filter((p) => p.disposition === 'auto_committed' || p.disposition === 'approved')
         return (
-          cyclePreds.find((p) => p.disposition === 'auto_committed' || p.disposition === 'approved') ??
+          (acted.length ? acted.reduce((a, b) => (b.confidence > a.confidence ? b : a)) : undefined) ??
           [...cyclePreds].sort((a, b) => new Date(a.crossingAt!).getTime() - new Date(b.crossingAt!).getTime())[0]
         )
       })()
