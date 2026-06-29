@@ -163,6 +163,17 @@ export class LearningService implements OnModuleInit {
     }
     const result = evaluate(series, std, priorState)
 
+    // Preserve a held auto-commit overlay (A18 Tier-1). A pre-adopted `ml_predicted` value is HELD until
+    // a solve consumes it OR actuals genuinely CROSS the band. The whole point of the auto-commit is to
+    // carry the predicted wear forward to the next solve, so below-band actuals must NOT touch the overlay:
+    // not walk it back to `standard`, and not relabel it `ml_adjusted` (which would falsely claim a MEASURED
+    // adoption when the lane is still forecast-only). `evaluate` can't tell a forecast pre-adoption from a
+    // measured one (it sees only the held value), so guard here on a genuine crossing — the window mean
+    // clearing the adopt band. Below band → keep the held `ml_predicted` untouched; at/above band → fall
+    // through so the rule steps a real `ml_adjusted` (the live-drift adopt path is unaffected).
+    const crossed = result.windowMean >= std * (1 + RULE.STEP_BAND)
+    if (prior?.source === 'ml_predicted' && prior.status === 'held' && !crossed) return
+
     await this.repo.upsertLearned({
       tenantId,
       resourceId,

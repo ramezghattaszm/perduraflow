@@ -143,6 +143,10 @@ export class SimulatorService {
     // emission (chronological) order, so wear accrues day-over-day across past ops — not reset
     // inside each op. (Ops come back ordered by sequence position.)
     const resCycleIdx = new Map<string, number>()
+    // Merge singular `drift` + multi-lane `drifts` into a per-resource lookup (last wins). One pass can
+    // wear several lanes to different points; each keeps its own ramp via the per-resource resCycleIdx.
+    const driftByResource = new Map<string, NonNullable<typeof req.drift>>()
+    for (const d of [...(req.drift ? [req.drift] : []), ...(req.drifts ?? [])]) driftByResource.set(d.resourceId, d)
     for (const op of ops) {
       // Single-lane scope: when set, only the targeted resource emits — every other lane's history (and
       // its learned wear/prediction) is left intact. Without this, drifting one line re-emits the WHOLE
@@ -153,7 +157,7 @@ export class SimulatorService {
       const std = await stdFor(op.partId, op.routingOperationId)
       const stdCycle = std?.stdCycleTime ?? op.cycleTime
       const stdSetup = std?.stdSetupTime ?? op.setupTime
-      const drifting = req.drift && req.drift.resourceId === op.resourceId
+      const opDrift = driftByResource.get(op.resourceId)
       // Seed the noise on STABLE keys (demand line + op seq + cycle), NOT the version/op ULIDs which
       // are regenerated every reset — so a `demo:reset` is truly reproducible (same actuals, same
       // learned values, same prediction every time). D2 determinism.
@@ -173,9 +177,9 @@ export class SimulatorService {
         resCycleIdx.set(op.resourceId, ri + 1)
         const epsCycle = (seeded(`${noiseKey}:c:${k}`) - 0.5) * 2 * this.NOISE
         const epsSetup = (seeded(`${noiseKey}:s:${k}`) - 0.5) * 2 * this.NOISE
-        const ramp = req.drift ? Math.pow(Math.min(1, ri / req.drift.rampOverEvents), req.drift.curve ?? 1) : 0
-        const driftCycle = drifting && req.drift!.param === 'cycle' ? 1 + req.drift!.magnitude * ramp : 1
-        const driftSetup = drifting && req.drift!.param === 'setup' ? 1 + req.drift!.magnitude * ramp : 1
+        const ramp = opDrift ? Math.pow(Math.min(1, ri / opDrift.rampOverEvents), opDrift.curve ?? 1) : 0
+        const driftCycle = opDrift && opDrift.param === 'cycle' ? 1 + opDrift.magnitude * ramp : 1
+        const driftSetup = opDrift && opDrift.param === 'setup' ? 1 + opDrift.magnitude * ramp : 1
         const actualCycle = stdCycle * (1 + epsCycle) * driftCycle
         const actualSetup = stdSetup * (1 + epsSetup) * driftSetup
         const yieldFrac = this.YIELD + (seeded(`${noiseKey}:y:${k}`) - 0.5) * 0.04

@@ -922,17 +922,21 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
         ho(ramos!.id, leakStation!.id, rwS, rwE, 0.91, 1.2, 0.93, 0.86, 0.985, 0, 5150),
       ])
 
-    // === Autonomy config — ADVISORY-FIRST for the demo ==========================
-    // A high Tier-1 auto-adopt threshold (a TENANT override) so the warm-start's Press Line A
-    // wear PREDICTION stays QUEUED (advisory — "predicting, not yet adopted") instead of auto-
-    // pre-adopting at reset. Real wear still ADOPTS via the learning rule when actuals cross the
-    // band (the live-drift demo's payoff). Other autonomy fields fall through to the shipped floor.
+    // === Autonomy config — TIER-1 AUTO-ADOPT AT 0.85 (a TENANT override) =========
+    // The gate auto-commits a Tier-1 wear prediction once confidence ≥ this. At 0.85 the warm-start
+    // shows BOTH ends of the autonomy gradient at reset, deterministically:
+    //   • Press Line A — conf ~0.67 (crossing ~2 days out) → stays QUEUED ("predicting, awaiting you").
+    //   • Press Line B — worn nearer end-of-life, conf ~0.88 (crossing ~8 h out) → AUTO-COMMITTED: the
+    //     ml_predicted overlay is pre-adopted for the next solve and the Exception Queue shows it
+    //     auto-handled. (0.88 is about the ceiling for a not-yet-crossed lane — steeper and the newest
+    //     actual crosses the band, at which point the learning rule ADOPTS instead, the live-drift payoff.)
+    // Other autonomy fields fall through to the shipped floor.
     await db.insert(configOverride).values({
       tenantId,
       settingGroup: 'autonomy',
       level: 'tenant',
       scopeId: tenantId,
-      payload: { tier1AutoThreshold: 0.97 },
+      payload: { tier1AutoThreshold: 0.85 },
       revision: 1,
     })
 

@@ -68,7 +68,7 @@ async function simulatePast(
   h: Record<string, string>,
   versionId: string,
   todayStartMs: number,
-  drift: { resourceId: string; magnitude: number } | null,
+  drifts: { resourceId: string; magnitude: number; rampOverEvents: number; curve: number }[],
 ): Promise<number> {
   const body = {
     scheduleVersionId: versionId,
@@ -77,13 +77,16 @@ async function simulatePast(
     // Seed deterministic execution misses into the historical window so warm-start Schedule
     // Adherence isn't a fake 100% (a thin slice of past orders ran off their planned window).
     injectMisses: true,
-    // Convex (accelerating) wear that leaves Press A's cycle with COMFORTABLE MARGIN below the +5%
-    // adopt threshold (window mean ~+1.8%) — so it does NOT adopt — while the steeper RECENT slope
-    // reads clearly above the (now tight, deterministic) noise floor and projects a threshold-crossing
-    // ~2 DAYS out → a live, advisory (queued) wear PREDICTION on the cycle param. No knife's edge: the
-    // noise is deterministic so this lands identically every reset. (The live drift demo is where a
-    // DEFINED injected step actually crosses the band and the rule ADOPTS ml.)
-    ...(drift ? { drift: { resourceId: drift.resourceId, param: 'cycle' as const, magnitude: drift.magnitude, rampOverEvents: 300, curve: 3 } } : {}),
+    // Multi-lane wear, one pass (resCycleIdx is per-resource so each lane ramps independently):
+    //  • Press A — convex (accelerating) wear with COMFORTABLE MARGIN below the +5% adopt threshold
+    //    (window mean ~+1.8%) so it does NOT adopt, while the steeper RECENT slope projects a crossing
+    //    ~2 DAYS out → a live, advisory (QUEUED) prediction: "predicting, awaiting you."
+    //  • Press B — worn FURTHER so the projected crossing lands inside the Tier-1 confidence horizon
+    //    (≥ the seeded 0.85 gate) → the forecast AUTO-COMMITS (disposition auto_committed; ml_predicted
+    //    overlay pre-adopted for next solve) → the Exception Queue shows it AUTO-HANDLED.
+    // Deterministic noise → both land identically every reset. (The live drift demo is the DEFINED step
+    // that actually crosses the band and ADOPTS ml.)
+    ...(drifts.length ? { drifts: drifts.map((d) => ({ resourceId: d.resourceId, param: 'cycle' as const, magnitude: d.magnitude, rampOverEvents: d.rampOverEvents, curve: d.curve })) } : {}),
   }
   const res = await fetch(`${API}/dev/scheduling/simulate`, { method: 'POST', headers: h, body: JSON.stringify(body) })
   if (!res.ok) throw new Error(`simulate ${res.status}`)
@@ -114,8 +117,10 @@ async function main(): Promise<void> {
     )
   ).rows
   if (plants.length === 0) throw new Error('reset: no plants with seeded demand found')
-  // The wear line (Press Line A) — its cycle drifts in the past window → adopted ml + a live prediction.
+  // The wear lines — Press A drifts to a QUEUED prediction (proposing); Press B drifts further so its
+  // forecast clears the Tier-1 confidence gate → AUTO-COMMITTED (the auto-handled beat). Both in Saltillo.
   const pressA = (await pool.query<{ id: string }>(`SELECT id FROM master_data.resource WHERE name = 'Press Line A' LIMIT 1`)).rows[0]?.id
+  const pressB = (await pool.query<{ id: string }>(`SELECT id FROM master_data.resource WHERE name = 'Press Line B' LIMIT 1`)).rows[0]?.id
   const todayStartMs = Math.floor(nowMs / 86_400_000) * 86_400_000
   try {
     const h = await login()
@@ -124,10 +129,16 @@ async function main(): Promise<void> {
     // NOT enough to step to `ml_adjusted`. Adoption is the live-drift demo's payoff (collision 2):
     // trigger drift and watch it cross the threshold and adopt. So one pass: solve + commit + execute
     // the past (actuals = history + variance + the prediction's fuel; the board stays std at reset).
-    const drift = pressA ? { resourceId: pressA, magnitude: 0.11 } : null
+    const drifts = [
+      ...(pressA ? [{ resourceId: pressA, magnitude: 0.11, rampOverEvents: 300, curve: 3 }] : []),
+      // Press B: tuned so the projected crossing lands inside the Tier-1 horizon (conf ≥ 0.85 gate) →
+      // auto_committed. Steeper than A (lower ramp / higher magnitude) but still BELOW the band at the
+      // window mean, so the engine forecasts-and-adopts rather than reacting to an already-crossed step.
+      ...(pressB ? [{ resourceId: pressB, magnitude: 0.46, rampOverEvents: 215, curve: 6 }] : []),
+    ]
     for (const p of plants) {
       const v = await buildBaseline(h, p.id)
-      const emitted = await simulatePast(h, v, todayStartMs, drift)
+      const emitted = await simulatePast(h, v, todayStartMs, drifts)
       console.log(`  ✓ ${p.name}: warm-start baseline committed + ${emitted} past actuals`)
     }
   } catch (e) {

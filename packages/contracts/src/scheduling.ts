@@ -1033,6 +1033,27 @@ export const simulateActualsSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * Multi-lane drift (warm-start only): ramp SEVERAL resources in one pass, each with its own
+     * params. `resCycleIdx` is per-resource, so every lane's ramp accrues independently — no k-collision
+     * (a second same-version `simulate` pass would re-hit the idempotent `actualEventId` and no-op).
+     * The seed uses this to wear two presses to different points: one queued/proposing, one past the
+     * Tier-1 confidence gate → auto-committed. Merged with `drift` (singular); per op the matching spec
+     * wins (last one for a resource).
+     */
+    drifts: z
+      .array(
+        z
+          .object({
+            resourceId: z.string().min(1),
+            param: z.enum(['cycle', 'setup']).default('cycle'),
+            magnitude: z.number(),
+            rampOverEvents: z.number().int().positive().default(8),
+            curve: z.number().positive().optional(),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict()
 export type SimulateActualsRequest = z.infer<typeof simulateActualsSchema>
