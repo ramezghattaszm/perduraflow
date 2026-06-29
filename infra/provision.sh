@@ -93,10 +93,10 @@ if [ -z "$IID" ] || [ "$IID" = "None" ]; then
       --user-data "file://${INFRA_DIR:-$(pwd)}/user-data.sh" \
       --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${PERDURA_TAG_NAME}}]" \
       --query 'Instances[0].InstanceId' --output text 2>/tmp/perdura-run-err)" && break
-    echo "  run-instances attempt $attempt failed ($(tr -d '\n' </tmp/perdura-run-err | tail -c 160)); retrying in 10s…"; sleep 10
+    echo "  run-instances attempt $attempt failed ($(tr -d '\n' </tmp/perdura-run-err | tail -c 160)); retrying in 10s..."; sleep 10
   done
   [ -n "$IID" ] && [ "$IID" != "None" ] || { echo "run-instances failed"; cat /tmp/perdura-run-err; exit 1; }
-  echo "  launched $IID — waiting until running…"
+  echo "  launched $IID — waiting until running..."
   aws ec2 wait instance-running --instance-ids "$IID"
 else
   echo "  ✓ reusing existing $IID"

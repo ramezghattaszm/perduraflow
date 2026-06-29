@@ -6,6 +6,6 @@ require_auth
 id="$(instance_id)"
 [ -n "$id" ] && [ "$id" != "None" ] || { echo "No instance tagged Name=$PERDURA_TAG_NAME found." >&2; exit 1; }
 aws ec2 stop-instances --instance-ids "$id" >/dev/null
-echo "Stopping $id… (data persists on the EBS volume + named docker volumes)."
+echo "Stopping $id... (data persists on the EBS volume + named docker volumes)."
 aws ec2 wait instance-stopped --instance-ids "$id"
 echo "✓ stopped."
