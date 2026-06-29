@@ -40,7 +40,7 @@ import {
   useSolveSchedule,
   useWorkList,
 } from '../../../hooks/useScheduling'
-import { useLearnedParameters, usePredictions, useVariance } from '../../../hooks/useLearning'
+import { useDismissPrediction, useLearnedParameters, usePredictions, useVariance } from '../../../hooks/useLearning'
 import { useWhatIf } from '../../../hooks/useWhatIf'
 import { useToast } from '../../../hooks/useToast'
 import { useSessionState } from '../../../hooks/useSessionState'
@@ -108,6 +108,7 @@ export function BoardContent() {
   const { data: workList } = useWorkList(plantId ?? undefined, versionId ?? undefined, weekAnchorIso)
   const { data: learned = [] } = useLearnedParameters()
   const { data: predictions = [] } = usePredictions(plantId ?? undefined)
+  const dismissPred = useDismissPrediction()
   const solve = useSolveSchedule()
   const commit = useCommitSchedule()
   const discard = useDiscardDraft()
@@ -939,7 +940,10 @@ export function BoardContent() {
         action={
           wearSignal && !readOnly
             ? {
-                label: t('whatif:trigger.seeOptions'),
+                // Already pre-adjusted (deferred / auto-committed → running worn): the decision is made, so
+                // the action is the one thing left to resolve it — Service (reset the tool). A fresh forecast
+                // (not yet acted) still reads "See options". Avoids re-presenting service/defer/OT as undecided.
+                label: t(wearPreAdjusted ? 'board.pred.serviceCta' : 'whatif:trigger.seeOptions'),
                 onPress: () => runWearWhatIf(selectedResourceId!),
                 loading: whatIf.isPending,
               }
@@ -986,6 +990,15 @@ export function BoardContent() {
                 // refetch to drop the demand condition) so it doesn't linger over the just-applied plan.
                 setDemandPreview(null)
                 evaluatedDemandSig.current = null
+                // A wear remediation applied = the planner DECIDED about this lane's wear (service / defer /
+                // OT). Snooze the still-queued forecast so it stops re-surfacing as undecided — on the board
+                // AND in the Exception Queue — and re-arms only if the wear gets materially worse (the snooze
+                // contract). Keyed on the wear trigger; queued-only (dismiss rejects an auto-committed one).
+                if (whatIfTrigger?.startsWith('wear-')) {
+                  const rid = whatIfTrigger.slice('wear-'.length)
+                  const pred = predictions.find((p) => p.resourceId === rid && p.param === 'cycle' && p.disposition === 'queued')
+                  if (pred) dismissPred.mutate(pred.id)
+                }
               }}
             />
           </YStack>

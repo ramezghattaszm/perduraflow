@@ -46,6 +46,7 @@
       "wearPill": "Wear",
       "forecastPill": "Wear forecast",
       "preAdjustPill": "Pre-adjusted",
+      "serviceCta": "Service tool",
       "confidence": "Confidence",
       "horizon": "Predicted to cross the wear line in {{horizon}} (~{{time}})",
       "horizonNone": "Predicted to cross within the horizon",
