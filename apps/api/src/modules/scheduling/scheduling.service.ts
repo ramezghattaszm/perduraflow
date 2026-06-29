@@ -936,11 +936,13 @@ export class SchedulingService {
    * fetch the held learned cycle/setup from `learning.read` and return a pure
    * resolver the deterministic sequencer calls. `held` learned-from-actuals values
    * clearing `LEARNED_CONF_USE` are used (A18 bounded); a pre-adopted forecast
-   * (`ml_predicted`) is used regardless of confidence but FORWARD-ONLY — gated by the
-   * op's start vs `forecastFromMs` so it never rewrites already-executed past ops (D44).
-   * Otherwise the std baseline. Public so the what-if engine reuses the identical overlay.
-   * @param forecastFromMs Forecast boundary (epoch ms); ops starting before it drop any
-   *   `ml_predicted` overlay. Omit (what-if/comparison) to apply overlays without a time gate.
+   * (`ml_predicted`) is used regardless of confidence but only where the op is RUNNING AT/AFTER its
+   * crossing (`plannedEnd > crossingAt`, fetched per overlay) — so it never worsens pre-crossing day-one
+   * ops nor rewrites executed past ops (D44; forward-only is subsumed). Otherwise the std baseline. Public
+   * so the what-if engine reuses the identical overlay.
+   * @param forecastFromMs Set on the persisted solve → turns the crossing gate ON (and is the start-of-day
+   *   fallback for a worn overlay with no live crossing). Omit (what-if/comparison) to apply overlays
+   *   without any time gate.
    */
   async buildLearnedOverlay(tenantId: string, items: SequencerItem[], forecastFromMs?: number): Promise<ResolveEffective> {
     // A held overlay is applied when (a) it's a deliberate pre-adopt (`ml_predicted` — the human/system
@@ -953,27 +955,40 @@ export class SchedulingService {
       p.learnedValue != null &&
       (p.source === 'ml_predicted' || (p.confidence ?? 0) >= LEARNED_CONF_USE)
     const learned = new Map<string, { cycle: LearnedParameterDto | null; setup: LearnedParameterDto | null }>()
+    // Per (resource, op, param) crossing instant — only for `ml_predicted` overlays, which gate on it.
+    const crossingByKey = new Map<string, number>()
     const pairs = new Set<string>()
     for (const it of items) for (const rid of it.eligibleResourceIds) pairs.add(`${rid}::${it.routingOperationId}`)
     for (const key of pairs) {
       const [rid, opId] = key.split('::') as [string, string]
-      learned.set(key, {
-        cycle: await this.learning.getLearnedParameter(tenantId, rid, opId, 'cycle'),
-        setup: await this.learning.getLearnedParameter(tenantId, rid, opId, 'setup'),
-      })
+      const cycle = await this.learning.getLearnedParameter(tenantId, rid, opId, 'cycle')
+      const setup = await this.learning.getLearnedParameter(tenantId, rid, opId, 'setup')
+      learned.set(key, { cycle, setup })
+      // A pre-adopted forecast gates on its own crossing → fetch it. (One read per worn overlay only.)
+      for (const [param, p] of [['cycle', cycle], ['setup', setup]] as const) {
+        if (p?.source !== 'ml_predicted') continue
+        const cross = (await this.learning.getPrediction(tenantId, rid, opId, param))?.crossingAt
+        if (cross) crossingByKey.set(`${rid}::${opId}::${param}`, new Date(cross).getTime())
+      }
     }
-    // A pre-adopted forecast (`ml_predicted`) is FORWARD-ONLY (D44): it must not rewrite ops that
-    // already ran. When `forecastFromMs` is set (the persisted solve passes today's start) and the
-    // op starts before it, the forecast is dropped → the op falls back to std (or a measured value).
-    // Measured (`ml_adjusted`, learned from actuals) is retroactively consistent and never gated.
-    const forwardOK = (p: LearnedParameterDto | null, atMs?: number): boolean =>
-      !(p?.source === 'ml_predicted' && forecastFromMs != null && atMs != null && atMs < forecastFromMs)
-    return (routingOperationId, resourceId, stdSetup, stdCycle, atMs): EffectiveTimes => {
+    // Apply a pre-adopted wear forecast (`ml_predicted`) only where the op is RUNNING AT/AFTER its crossing
+    // (`plannedEnd > crossingAt`) — so pre-crossing day-one ops keep std and the straddle op (start <
+    // crossing < end) is worn (D44, and forward-only is subsumed: anything past the crossing is forward).
+    // What-if/comparison (`forecastFromMs` omitted) is ungated. No live crossing → fall back to the
+    // forward-only start-of-day gate. Measured `ml_adjusted` is retroactively consistent and never gated.
+    const applyForecast = (p: LearnedParameterDto | null, key: string, atMs?: number, endMs?: number): boolean => {
+      if (!usable(p)) return false
+      if (p.source !== 'ml_predicted' || forecastFromMs == null) return true
+      const crossing = crossingByKey.get(key)
+      if (crossing != null) return endMs != null && endMs > crossing
+      return !(atMs != null && atMs < forecastFromMs) // fallback: forward-only (no live crossing)
+    }
+    return (routingOperationId, resourceId, stdSetup, stdCycle, atMs, opEndMs): EffectiveTimes => {
       const rec = learned.get(`${resourceId}::${routingOperationId}`)
       const c = rec?.cycle ?? null
       const s = rec?.setup ?? null
-      const applyC = usable(c) && forwardOK(c, atMs)
-      const applyS = usable(s) && forwardOK(s, atMs)
+      const applyC = applyForecast(c, `${resourceId}::${routingOperationId}::cycle`, atMs, opEndMs)
+      const applyS = applyForecast(s, `${resourceId}::${routingOperationId}::setup`, atMs, opEndMs)
       return {
         setupTime: applyS ? s!.learnedValue! : stdSetup,
         cycleTime: applyC ? c!.learnedValue! : stdCycle,

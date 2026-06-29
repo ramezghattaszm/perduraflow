@@ -94,6 +94,10 @@ export type ResolveEffective = (
   /** The op's planned start (epoch ms), resolved at placement. Lets a forward-only forecast
    *  overlay (`ml_predicted`) gate itself by WHEN the op runs (D44 — not retroactive). */
   atMs?: number,
+  /** The op's planned END (epoch ms), std-cycle estimate. A pre-adopted wear forecast (`ml_predicted`)
+   *  applies iff the op is RUNNING AT/AFTER its crossing (`plannedEnd > crossingAt`) — so the straddle
+   *  op (start < crossing < end) is worn while pre-crossing ops stay std. */
+  opEndMs?: number,
 ) => EffectiveTimes
 
 /**
@@ -243,15 +247,22 @@ export function sequence(
   // A resource's operating calendar (working windows / closures / OT). Resources without
   // one fall back to ALWAYS_ON (24/7) so existing callers and tests are unaffected.
   const calFor = (resourceId: string): WorkingCalendar => resourceCalendars?.get(resourceId) ?? ALWAYS_ON
-  const effectiveFor = (item: SequencerItem, resourceId: string, atMs?: number): EffectiveTimes =>
-    resolveEffective?.(item.routingOperationId, resourceId, item.setupTime, item.cycleTime, atMs) ?? {
-      setupTime: item.setupTime,
-      cycleTime: item.cycleTime,
-      setupSource: 'standard',
-      cycleSource: 'standard',
-      setupConfidence: null,
-      cycleConfidence: null,
-    }
+  const effectiveFor = (item: SequencerItem, resourceId: string, atMs?: number): EffectiveTimes => {
+    // The op's planned END, std-cycle estimate — the reference for the wear overlay's "running at/after
+    // the crossing" gate. Std times (no perf/min-batch/calendar) keep it free of the cycle the overlay
+    // itself decides (no circularity); accurate enough vs the multi-hour crossing horizon.
+    const opEndMs = atMs != null ? atMs + (item.setupTime + item.cycleTime * item.qty) * MS_PER_MINUTE : undefined
+    return (
+      resolveEffective?.(item.routingOperationId, resourceId, item.setupTime, item.cycleTime, atMs, opEndMs) ?? {
+        setupTime: item.setupTime,
+        cycleTime: item.cycleTime,
+        setupSource: 'standard',
+        cycleSource: 'standard',
+        setupConfidence: null,
+        cycleConfidence: null,
+      }
+    )
+  }
   if (items.length === 0) {
     const now0 = 0
     return { placements: [], horizonStartMs: now0, horizonEndMs: now0 }

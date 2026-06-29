@@ -488,6 +488,17 @@ export function BoardContent() {
       ),
     [learned]
   )
+  // Crossing instant per (resource, op) for cycle forecasts — mirrors the overlay gate so planStale can
+  // ask "running at/after the crossing?" (plannedEnd > crossingAt), not just "forward of today".
+  const crossingByKey = useMemo(
+    () =>
+      new Map(
+        predictions
+          .filter((p) => p.param === 'cycle' && p.crossingAt)
+          .map((p) => [`${p.resourceId}:${p.routingOperationId}`, new Date(p.crossingAt!).getTime()])
+      ),
+    [predictions]
+  )
   const opById = useMemo(() => new Map((detail?.operations ?? []).map((o) => [o.id, o])), [detail])
 
   // Variance strip chips — all computed; only meaningful chips show, so a clean
@@ -605,12 +616,14 @@ export function BoardContent() {
     (detail?.operations ?? []).some((op) => {
       const l = learnedCycleByKey.get(`${op.resourceId}:${op.routingOperationId}`)
       if (!l || l.status !== 'held' || l.learnedValue == null || op.cycleSource !== 'standard') return false
-      // Mirror the application gate (buildLearnedOverlay): a pre-adopted forecast (`ml_predicted`) is
-      // FORWARD-ONLY (op start ≥ today's UTC start), so a PAST op correctly runs `standard` and is NOT
-      // stale — only a FORWARD op still on `standard` is genuinely unapplied (else the banner could never
-      // clear, false-positiving on past ops after commit/re-solve). Measured `ml_adjusted` isn't gated, so
-      // any `standard` op under it is stale.
-      return l.source !== 'ml_predicted' || new Date(op.plannedStart).getTime() >= today
+      // Mirror the application gate (buildLearnedOverlay): a pre-adopted forecast (`ml_predicted`) applies
+      // only where the op is RUNNING AT/AFTER its crossing (`plannedEnd > crossingAt`). So a pre-crossing
+      // op correctly runs `standard` and is NOT stale — only an op past the crossing still on `standard`
+      // is genuinely unapplied (else the banner false-positives on pre-crossing/past ops forever). No live
+      // crossing → fall back to forward-only (start of day). Measured `ml_adjusted` isn't gated → stale.
+      if (l.source !== 'ml_predicted') return true
+      const crossing = crossingByKey.get(`${op.resourceId}:${op.routingOperationId}`)
+      return crossing != null ? new Date(op.plannedEnd).getTime() > crossing : new Date(op.plannedStart).getTime() >= today
     })
 
   const onSolve = () => {
