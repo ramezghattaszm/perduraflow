@@ -59,21 +59,26 @@ async function buildBaseline(h: Record<string, string>, plantId: string): Promis
 }
 
 /**
- * Execute the committed version's PAST days via the simulator — backdated actuals for every op whose
- * planned end is before today (today/future stay planned). This is the rolling window's warm-start:
- * the actuals are the completed history on the board's past-day nav AND the fuel for learning (the
- * `drift` resource's cycle creeps → a live, advisory wear prediction — not yet adopted) and execution OEE.
+ * Execute the committed version's PAST work via the simulator — backdated actuals for every op whose
+ * planned end is before **now** (so THIS MORNING's ops are executed; this afternoon / future stay planned).
+ * Anchoring the cutoff on `nowMs` (not start-of-day) keeps the warm-start's LAST actual recent — this
+ * morning — so the wear forecast's working-time crossing projects to THIS AFTERNOON (a not-yet-crossed,
+ * near-future forecast at demo time), not days stale. The board reads "this morning executed, this
+ * afternoon upcoming." On a closed day (weekend reset) `nowMs` finds no open ops past Friday, so the last
+ * actual is Friday and the crossing projects to the next working day — degrades sanely, no clamp needed.
+ * The actuals are the completed history AND the fuel for learning (the `drift` lane's cycle creeps → a live
+ * wear prediction) and execution OEE.
  */
 async function simulatePast(
   h: Record<string, string>,
   versionId: string,
-  todayStartMs: number,
+  completedBeforeMs: number,
   drifts: { resourceId: string; magnitude: number; rampOverEvents: number; curve: number }[],
 ): Promise<number> {
   const body = {
     scheduleVersionId: versionId,
     cyclesPerOp: 2,
-    completedBeforeMs: todayStartMs,
+    completedBeforeMs,
     // Seed deterministic execution misses into the historical window so warm-start Schedule
     // Adherence isn't a fake 100% (a thin slice of past orders ran off their planned window).
     injectMisses: true,
@@ -121,7 +126,6 @@ async function main(): Promise<void> {
   // forecast clears the Tier-1 confidence gate → AUTO-COMMITTED (the auto-handled beat). Both in Saltillo.
   const pressA = (await pool.query<{ id: string }>(`SELECT id FROM master_data.resource WHERE name = 'Press Line A' LIMIT 1`)).rows[0]?.id
   const pressB = (await pool.query<{ id: string }>(`SELECT id FROM master_data.resource WHERE name = 'Press Line B' LIMIT 1`)).rows[0]?.id
-  const todayStartMs = Math.floor(nowMs / 86_400_000) * 86_400_000
   try {
     const h = await login()
     // Press Line A's cycle is tuned to climb to JUST BELOW the +5% wear threshold over the past
@@ -131,14 +135,17 @@ async function main(): Promise<void> {
     // the past (actuals = history + variance + the prediction's fuel; the board stays std at reset).
     const drifts = [
       ...(pressA ? [{ resourceId: pressA, magnitude: 0.11, rampOverEvents: 300, curve: 3 }] : []),
-      // Press B: tuned so the projected crossing lands inside the Tier-1 horizon (conf ≥ 0.85 gate) →
-      // auto_committed. Steeper than A (lower ramp / higher magnitude) but still BELOW the band at the
-      // window mean, so the engine forecasts-and-adopts rather than reacting to an already-crossed step.
-      ...(pressB ? [{ resourceId: pressB, magnitude: 0.46, rampOverEvents: 215, curve: 6 }] : []),
+      // Press B: with the now-anchored warm-start, the last actual is THIS MORNING, so the tool sits just
+      // below the band there and a SHORT, high-confidence horizon (~2 h) projects the crossing to THIS
+      // AFTERNOON — auto_committed (conf ~0.90 ≥ 0.85) and not-yet-crossed at a 17:00 demo. The crossing
+      // tracks the reset clock (rolls); a weekend reset falls back to the Friday actual → next working day.
+      // Lighter than A's-counterpart history (mag dropped 0.46→0.27) because the extra morning events ramp
+      // it to the band faster; tuned to stay BELOW the band at the window mean (forecast-and-adopt, not crossed).
+      ...(pressB ? [{ resourceId: pressB, magnitude: 0.27, rampOverEvents: 215, curve: 6 }] : []),
     ]
     for (const p of plants) {
       const v = await buildBaseline(h, p.id)
-      const emitted = await simulatePast(h, v, todayStartMs, drifts)
+      const emitted = await simulatePast(h, v, nowMs, drifts)
       console.log(`  ✓ ${p.name}: warm-start baseline committed + ${emitted} past actuals`)
     }
   } catch (e) {
