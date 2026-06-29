@@ -20,7 +20,7 @@ import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useDemandExceptions, useScheduleResources, useWorkList } from '../../hooks/useScheduling'
-import { useApprovePrediction, useDismissPrediction, usePredictions } from '../../hooks/useLearning'
+import { useApprovePrediction, useDismissPrediction, usePredictions, useRevertPrediction } from '../../hooks/useLearning'
 import { useCanConfigure } from '../../stores/auth.store'
 import { useDiscussOptions, useSeeOptions } from '../../hooks/useAtRiskRemediation'
 import { useSetScreenContext } from '../../stores/screenContext.store'
@@ -60,6 +60,7 @@ export function ExceptionsContent() {
   const { data: demandExceptions = [] } = useDemandExceptions(plantId ?? undefined)
   const approve = useApprovePrediction()
   const dismiss = useDismissPrediction()
+  const revert = useRevertPrediction()
 
   const resName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
@@ -316,6 +317,20 @@ export function ExceptionsContent() {
                     byHuman
                       ? { label: t('approvedBadge'), tone: 'neutral' }
                       : { label: t('autoBadge'), tone: 'active' }
+                  }
+                  actions={
+                    // The A18 escape hatch: overrule an adopted forecast → undo the pre-adopt, back to
+                    // standard. One-shot — it re-proposes only if the wear later gets materially worse.
+                    canConfigure ? (
+                      <AppButton
+                        variant="ghost"
+                        size="$3"
+                        loading={revert.isPending && revert.variables === p.id}
+                        onPress={() => revert.mutate(p.id)}
+                      >
+                        {t('revert')}
+                      </AppButton>
+                    ) : undefined
                   }
                 />
               )

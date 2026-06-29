@@ -112,3 +112,18 @@ export function useDismissPrediction() {
     onSuccess: invalidatePredictions,
   })
 }
+
+/**
+ * Human-revert an ADOPTED prediction (auto-committed or approved) — undo the pre-adopt, restore standard
+ * (A18 escape hatch; ConfigureGuard). Also invalidates scheduling so the board overlay / work-list / stale
+ * banner reflect the restored cycle (the next solve applies it).
+ */
+export function useRevertPrediction() {
+  return useMutation({
+    mutationFn: (id: string) => post<{ ok: boolean }, undefined>(`/learning/predictions/${id}/revert`, undefined),
+    onSuccess: () => {
+      invalidatePredictions()
+      void queryClient.invalidateQueries({ queryKey: ['scheduling'] })
+    },
+  })
+}
