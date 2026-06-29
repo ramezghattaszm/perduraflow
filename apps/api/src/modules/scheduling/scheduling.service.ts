@@ -1146,6 +1146,13 @@ export class SchedulingService {
   }
 
   /** Compute one version's metrics, optionally scoped to a single resource/line. */
+  // INTENTIONAL: versionMetrics stays in SchedulingService — do NOT move it into ActualsRollupService.
+  // It reads actuals via the learning.read contract (not raw tables), so O1/O2 already hold.
+  // It's single-use (not duplicated like the cockpit folds), so there's no DRY gain in moving it,
+  // and it's entangled with latenessChainsFor (a lateness-narration helper, shared by workList +
+  // 2 version-detail methods) — relocating it would drag a non-actuals helper into the rollup
+  // boundary and muddy it. The rollup centralizes the *duplicated windowed folds*; the per-version
+  // fold correctly stays here, reading through the contract. See REMAINING-ITEMS (rollup scope).
   private async versionMetrics(
     tenantId: string,
     versionId: string,
