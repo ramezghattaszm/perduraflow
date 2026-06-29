@@ -51,6 +51,16 @@ export class LearningController {
     return this.read.listPredictionsForPlant(user.tenantId, plantId)
   }
 
+  /** `GET /learning/predictions/set-aside?plantId=` — the dismissed/reverted forecasts (Exception Queue's
+   *  "Set aside" list). Static path, declared before any param route. */
+  @Get('predictions/set-aside')
+  listSetAside(@CurrentUser() user: JwtPayload, @Query('plantId') plantId?: string) {
+    if (!plantId) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'plantId is required', ERROR_CODES.VALIDATION_ERROR)
+    }
+    return this.read.listSetAsidePredictionsForPlant(user.tenantId, plantId)
+  }
+
   /** `POST /learning/predictions/:id/approve` — human-dispose a queued prediction (ConfigureGuard). */
   @Post('predictions/:id/approve')
   @UseGuards(ConfigureGuard)
@@ -73,6 +83,15 @@ export class LearningController {
   @UseGuards(ConfigureGuard)
   async revertPrediction(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     await this.learning.revertPrediction(user.tenantId, id)
+    return { ok: true }
+  }
+
+  /** `POST /learning/predictions/:id/reopen` — manual path back: return a SET-ASIDE forecast (dismissed /
+   *  reverted) to Need you as a queued proposal to reconsider (never a silent re-adopt). ConfigureGuard. */
+  @Post('predictions/:id/reopen')
+  @UseGuards(ConfigureGuard)
+  async reopenPrediction(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.learning.reopenPrediction(user.tenantId, id)
     return { ok: true }
   }
 }

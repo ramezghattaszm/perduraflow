@@ -196,6 +196,23 @@ export class LearningRepository {
       .orderBy(desc(parameterPrediction.createdAt))
   }
 
+  /** Currently SET-ASIDE forecasts — human `dismissed` (snoozed a queued one) or `reverted` (overrode an
+   *  adopted one), not yet superseded. The Exception Queue's "Set aside" list. A re-surfaced one becomes
+   *  superseded → drops out here and reappears in the live read. Ordered most-recently-disposed first. */
+  listSetAsidePredictions(tenantId: string): Promise<ParameterPrediction[]> {
+    return this.db
+      .select()
+      .from(parameterPrediction)
+      .where(
+        and(
+          eq(parameterPrediction.tenantId, tenantId),
+          isNull(parameterPrediction.supersededBy),
+          inArray(parameterPrediction.disposition, ['dismissed', 'reverted']),
+        ),
+      )
+      .orderBy(desc(parameterPrediction.updatedAt))
+  }
+
   /** The current SNOOZED (set-aside, not-superseded) forecast for a key — the snooze anchor. Covers both
    *  a `dismissed` queued proposal and a `reverted` human override of an adopted one: both re-surface only
    *  when materially worse (one-shot), so both anchor the snooze. */
@@ -241,6 +258,7 @@ export class LearningRepository {
       dismissedAtHorizonMinutes: number | null
       horizonMinutes: number
       crossingAt: Date | null
+      updatedAt: Date
     }>,
   ): Promise<void> {
     await this.db

@@ -100,4 +100,15 @@ export class LearningReadService implements LearningReadContract {
       .filter((p) => plantResourceIds.has(p.resourceId))
       .map(toParameterPredictionDto)
   }
+
+  /** Plant-scoped SET-ASIDE forecasts (dismissed / reverted) — the Exception Queue's "Set aside" list.
+   *  Same server-side plant-scoping as {@link listPredictionsForPlant} so a screen never sees another
+   *  plant's rows. */
+  async listSetAsidePredictionsForPlant(tenantId: string, plantId: string): Promise<ParameterPredictionDto[]> {
+    const md = await this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
+    const plantResourceIds = new Set((await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id))
+    return (await this.repo.listSetAsidePredictions(tenantId))
+      .filter((p) => plantResourceIds.has(p.resourceId))
+      .map(toParameterPredictionDto)
+  }
 }

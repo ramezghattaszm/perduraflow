@@ -471,10 +471,36 @@ export class LearningService implements OnModuleInit {
     await this.preAdopt(tenantId, p.resourceId, p.routingOperationId, p.param, std, p.predictedValue, p.confidence)
   }
 
-  /** Human-dismiss a queued prediction (no action taken). */
+  /** Human-dismiss a queued prediction (no action taken). `updatedAt` stamps the set-aside time. */
   async dismissPrediction(tenantId: string, id: string): Promise<void> {
     await this.requireQueued(tenantId, id)
-    await this.repo.updatePrediction(id, { disposition: 'dismissed' })
+    await this.repo.updatePrediction(id, { disposition: 'dismissed', updatedAt: new Date() })
+  }
+
+  /**
+   * Re-open a SET-ASIDE forecast (dismissed or reverted) — the MANUAL path back. Flip it to `queued` so it
+   * returns to "Need you" as a PROPOSAL to reconsider, never a silent re-adopt: the overlay is untouched
+   * (a reverted lane stays on standard until you Approve), and the adopted value + set-aside breadcrumb are
+   * cleared so it reads as a fresh proposal. Approve re-adopts; Dismiss sets it aside again. This is manual
+   * reconsideration; the supersede-on-worsen auto-re-arm is the separate automatic (new-information) path.
+   * @throws PREDICTION_NOT_SET_ASIDE if it isn't currently dismissed/reverted.
+   */
+  async reopenPrediction(tenantId: string, id: string): Promise<void> {
+    const p = await this.requireSetAside(tenantId, id)
+    await this.repo.updatePrediction(id, {
+      disposition: 'queued',
+      appliedLearnedValue: null,
+      dismissedAtConfidence: null,
+      dismissedAtHorizonMinutes: null,
+      updatedAt: new Date(),
+    })
+    await this.events.publish(
+      EVENTS.LEARNING_PREDICTION_QUEUED,
+      { tenantId, resourceId: p.resourceId, routingOperationId: p.routingOperationId, param: p.param, confidence: p.confidence, tier: p.actionTier },
+      tenantId,
+    )
+    await this.events.publish(EVENTS.LEARNING_PREDICTION_UPDATED, { tenantId, predictionId: id }, tenantId)
+    this.logger.log(`prediction re-opened: ${p.resourceId}/${p.routingOperationId} ${p.param} — back to queued for reconsideration (was ${p.disposition})`)
   }
 
   /**
@@ -500,6 +526,7 @@ export class LearningService implements OnModuleInit {
       // Snapshot the overridden state → the snooze re-arm anchor (re-surface only if materially worse).
       dismissedAtConfidence: p.confidence,
       dismissedAtHorizonMinutes: p.horizonMinutes,
+      updatedAt: new Date(), // stamps the set-aside time (the "Set aside" list orders by it)
     })
     await this.events.publish(
       EVENTS.LEARNING_PARAMETER_UPDATED,
@@ -557,6 +584,17 @@ export class LearningService implements OnModuleInit {
     if (!p) throw new AppException(HttpStatus.NOT_FOUND, 'Prediction not found', ERROR_CODES.PREDICTION_NOT_FOUND)
     if (p.disposition !== 'auto_committed' && p.disposition !== 'approved') {
       throw new AppException(HttpStatus.CONFLICT, 'Prediction is not adopted', ERROR_CODES.PREDICTION_NOT_ADOPTED)
+    }
+    return p
+  }
+
+  /** A SET-ASIDE prediction (dismissed or reverted) or the right error — only a set-aside forecast can be
+   *  re-opened (a live one is already in Need you / Handled). */
+  private async requireSetAside(tenantId: string, id: string) {
+    const p = await this.repo.findPredictionById(tenantId, id)
+    if (!p) throw new AppException(HttpStatus.NOT_FOUND, 'Prediction not found', ERROR_CODES.PREDICTION_NOT_FOUND)
+    if (p.disposition !== 'dismissed' && p.disposition !== 'reverted') {
+      throw new AppException(HttpStatus.CONFLICT, 'Prediction is not set aside', ERROR_CODES.PREDICTION_NOT_SET_ASIDE)
     }
     return p
   }
