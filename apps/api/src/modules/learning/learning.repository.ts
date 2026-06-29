@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm'
 import { LEARNING_DB, type LearningDatabase } from './learning.db'
 import {
+  cycleRecord,
   executionActual,
   learnedParameter,
   parameterPrediction,
@@ -12,7 +13,7 @@ import {
   type NewParameterPrediction,
   type ParameterPrediction,
 } from './schema'
-import type { LearningParam, PredictionDisposition, PredictionOutcome } from '@perduraflow/contracts'
+import type { CycleRecord, LearningParam, PredictionDisposition, PredictionOutcome } from '@perduraflow/contracts'
 
 /** Dispositions that count as a *live* forecast (shown / actionable). */
 const LIVE_DISPOSITIONS: PredictionDisposition[] = ['queued', 'auto_committed', 'approved']
@@ -34,6 +35,16 @@ export class LearningRepository {
     if (existing) return null
     const [row] = await this.db.insert(executionActual).values(data).returning()
     return row!
+  }
+
+  /** Persist a Tier-2 op's raw per-piece cycle records under its derived op-summary row (append-only,
+   *  §4.3). Intra-schema; the learner never reads these — they're the audit/raw tail behind the derived
+   *  op actual. No-op for an empty batch. */
+  async appendCycleRecords(tenantId: string, opActualId: string, pieces: CycleRecord[]): Promise<void> {
+    if (pieces.length === 0) return
+    await this.db.insert(cycleRecord).values(
+      pieces.map((p) => ({ tenantId, opActualId, pieceIdx: p.pieceIdx, cycleMs: p.cycleMs, good: p.good, ts: new Date(p.ts) })),
+    )
   }
 
   /** Actual values for one `(resource, op)` in deterministic emission order (windowed learning input). */

@@ -134,6 +134,13 @@
       "when": 1782482625355,
       "tag": "0018_shocking_stellaris",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782696588369,
+      "tag": "0019_nostalgic_makkari",
+      "breakpoints": true
     }
   ]
 }

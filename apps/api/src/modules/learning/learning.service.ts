@@ -69,10 +69,8 @@ export class LearningService implements OnModuleInit {
   async ingest(payload: ActualsEventPayload, tenantId: string | null): Promise<void> {
     const tid = tenantId ?? ''
     const grain: ActualsGrain = (payload as { grain?: ActualsGrain }).grain ?? 'op_summary'
-    const data: ExecutionActualPayload =
-      grain === 'cycle_batch'
-        ? await this.deriveOpFromCycles(tid, cycleBatchActualSchema.parse(payload))
-        : executionActualSchema.parse(payload)
+    const batch = grain === 'cycle_batch' ? cycleBatchActualSchema.parse(payload) : null
+    const data: ExecutionActualPayload = batch ? this.deriveOpFromCycles(batch) : executionActualSchema.parse(payload)
     const row = await this.repo.appendActual({
       tenantId: tid,
       actualEventId: data.actualEventId,
@@ -95,6 +93,10 @@ export class LearningService implements OnModuleInit {
       seq: data.seq,
     })
     if (!row) return // idempotent: already ingested
+    // Tier-2: persist the raw pieces under the (new) op row — a side store the learner never reads
+    // (it reads the derived op grain only, A14). Only after a genuine append, so a dup batch can't
+    // double-write pieces (same idempotency the op row has).
+    if (batch) await this.repo.appendCycleRecords(tid, row.id, batch.pieces)
     await this.relearn(tid, data.resourceId, data.routingOperationId, 'cycle', data.stdCycleTime)
     await this.relearn(tid, data.resourceId, data.routingOperationId, 'setup', data.stdSetupTime)
     // Phase 4: project the observed series forward (predict-and-act-or-propose).
@@ -104,18 +106,40 @@ export class LearningService implements OnModuleInit {
 
   /**
    * Tier-2 → Tier-1 derivation (§4.3, SKIP-51): collapse a `cycle_batch`'s per-piece records into ONE
-   * op-summary record (Σgood/Σscrap, measured cycle, span) and persist the raw pieces to `cycle_records`
-   * — running UPSTREAM of the damped rule so relearn only ever sees op grain (A14). NOT yet enabled:
-   * Part (c) adds the `cycle_records` table + the thin derivation (reusing the "last cycle wins"
-   * grain-collapse precedent from `resolveContinuousActuals`). The grain + this branch are real now so
-   * the per-piece seam attaches without reworking the Tier-1 path.
+   * op-summary record, run UPSTREAM of the damped rule so relearn only ever sees op grain (A14). **Thin**
+   * (the full per-piece statistical impl is a later M): `goodQty`/`scrapQty` = Σ piece flags; **measured
+   * cycle = the LAST piece's cycle** — the `resolveContinuousActuals` "last cycle wins" grain-collapse
+   * precedent (the representative, not an average); span = [earliest, latest] piece `ts`. Pure +
+   * deterministic. The raw pieces are persisted separately ({@link LearningRepository.appendCycleRecords})
+   * after the op row is appended; this returns only the derived op-summary record.
    */
-  private deriveOpFromCycles(_tenantId: string, _batch: CycleBatchActual): Promise<ExecutionActualPayload> {
-    throw new AppException(
-      HttpStatus.NOT_IMPLEMENTED,
-      'Tier-2 (cycle_batch) actuals ingestion is not yet enabled',
-      ERROR_CODES.ACTUALS_GRAIN_UNSUPPORTED,
-    )
+  private deriveOpFromCycles(batch: CycleBatchActual): ExecutionActualPayload {
+    const pieces = batch.pieces
+    const goodQty = pieces.filter((p) => p.good).length
+    const scrapQty = pieces.length - goodQty
+    const lastCycle = [...pieces].sort((a, b) => a.pieceIdx - b.pieceIdx).at(-1)!
+    const tsMs = pieces.map((p) => new Date(p.ts).getTime())
+    return {
+      grain: 'op_summary',
+      actualEventId: batch.actualEventId,
+      scheduleVersionId: batch.scheduleVersionId,
+      scheduledOperationId: batch.scheduledOperationId,
+      resourceId: batch.resourceId,
+      routingOperationId: batch.routingOperationId,
+      partId: batch.partId,
+      actualStart: new Date(Math.min(...tsMs)).toISOString(),
+      actualEnd: new Date(Math.max(...tsMs)).toISOString(),
+      actualSetupTime: batch.actualSetupTime,
+      actualCycleTime: lastCycle.cycleMs / 60_000, // ms → minutes (the op-grain measured cycle unit)
+      stdSetupTime: batch.stdSetupTime,
+      stdCycleTime: batch.stdCycleTime,
+      goodQty,
+      scrapQty,
+      downtimeMinutes: batch.downtimeMinutes,
+      downtimeReason: batch.downtimeReason,
+      source: batch.source,
+      seq: batch.seq,
+    }
   }
 
   /** Re-run the damped rule for one parameter over its full ordered actual series. */
