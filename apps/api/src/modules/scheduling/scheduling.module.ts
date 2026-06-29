@@ -6,6 +6,7 @@ import { ConversationController } from './conversation.controller'
 import { ConversationService } from './conversation.service'
 import { DevController } from './dev.controller'
 import { NarrationService } from './narration.service'
+import { ActualsRollupService } from './actuals-rollup.service'
 import { PlanComparisonService } from './plan-comparison.service'
 import { SchedulingAdminController } from './scheduling.admin.controller'
 import { SchedulingController } from './scheduling.controller'
@@ -30,6 +31,7 @@ import { WorkforceController } from './workforce.controller'
   providers: [
     schedulingDbProvider,
     SchedulingRepository,
+    ActualsRollupService,
     SchedulingService,
     SimulatorService,
     WhatIfService,

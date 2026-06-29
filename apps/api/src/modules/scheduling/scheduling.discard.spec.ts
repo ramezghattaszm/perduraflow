@@ -20,7 +20,7 @@ const version = (status: ScheduleVersionStatus) => ({
 function serviceFor(found: ReturnType<typeof version> | undefined) {
   const updateVersionStatus = vi.fn(async (_t: string, _id: string, patch: Record<string, unknown>) => ({ ...version('draft'), ...patch }))
   const repo = { findVersion: vi.fn(async () => found), updateVersionStatus }
-  const svc = new SchedulingService(repo as never, null as never, null as never, null as never, null as never, null as never)
+  const svc = new SchedulingService(repo as never, null as never, null as never, null as never, null as never, null as never, null as never)
   return { svc, updateVersionStatus }
 }
 
