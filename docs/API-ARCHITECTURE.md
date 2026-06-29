@@ -414,6 +414,14 @@ Use for any infrastructure concern with multiple implementations (storage, email
 payments, push, search, cache). **This is the same coordinator-plus-provider idea used at the
 platform level — keep it consistent.**
 
+> **Provider pattern (infra) vs. config framework (policy) — the two halves of "nothing hardcoded".**
+> The provider pattern swaps *infrastructure* (which implementation runs), selected by env var. Its
+> sibling is the **configuration framework** for *policy/preference* values (which are not physics):
+> tenant → plant → (line/resource where coherent) settings that cascade, reset, version, and audit.
+> Anything swappable behind a contract that *also* has tunable parameters has **both** — a provider half
+> (the binding) and a config half (a setting group). The optimizing engine is the canonical example:
+> `external_solver` binding (provider) + Solver Policy (config). See `docs/CONFIG-FRAMEWORK-DESIGN.md`.
+
 ### Rules
 
 1. Define a `Provider` interface with the minimum contract

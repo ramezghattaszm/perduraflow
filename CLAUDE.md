@@ -71,6 +71,10 @@ These hold for every app. Each points to the authoritative section.
   DTO tiers; `/me` derives id from JWT only; admin routes need both guards; never expose secrets → *API §11*
 - **Pluggable provider pattern** for any swappable infra (storage/email/SMS/…): Service is the only
   export, provider selected by env var → *API §10*
+- **Everything configurable, nothing hardcoded (D42/A7):** any *policy* or *preference* (not physics)
+  resolves through the one config framework — tenant → plant → (line/resource where coherent), with
+  cascade/reset/version/audit; the framework reaches sub-plant and each setting group declares how far
+  down it is coherent (policy-vs-physics boundary) → *`docs/CONFIG-FRAMEWORK-DESIGN.md`*
 - **Zod-validated env at startup**, fail fast → *API §12*
 - **JSDoc on exported surfaces** — intent and contracts (ownership/tenant, `@throws`, side effects),
   not restated types → *API §14*
