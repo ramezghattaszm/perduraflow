@@ -765,11 +765,18 @@ export function BoardContent() {
 
   // ===== Resource / line wear surface (click a lane) — RESOURCE-LEVEL ONLY =====
   const resName = selectedResourceId ? (resourceName.get(selectedResourceId) ?? '') : ''
-  // The line's most relevant cycle forecast (earliest crossing).
+  // The line's most relevant cycle forecast. A lane wears as ONE tool even when several routing ops each
+  // carry a forecast, so prefer the ACTED one (auto-committed / approved) — the gauge, state, and the
+  // Exception Queue's pre-adjusted row then tell ONE story for the lane. Otherwise the most urgent
+  // (earliest-crossing) not-yet-acted op.
   const linePred = selectedResourceId
-    ? predictions
-        .filter((p) => p.resourceId === selectedResourceId && p.param === 'cycle' && p.crossingAt)
-        .sort((a, b) => new Date(a.crossingAt!).getTime() - new Date(b.crossingAt!).getTime())[0]
+    ? (() => {
+        const cyclePreds = predictions.filter((p) => p.resourceId === selectedResourceId && p.param === 'cycle' && p.crossingAt)
+        return (
+          cyclePreds.find((p) => p.disposition === 'auto_committed' || p.disposition === 'approved') ??
+          [...cyclePreds].sort((a, b) => new Date(a.crossingAt!).getTime() - new Date(b.crossingAt!).getTime())[0]
+        )
+      })()
     : undefined
   // A held/predicted cycle materially above std on the line → the D56 wear signal.
   const lineWear = selectedResourceId

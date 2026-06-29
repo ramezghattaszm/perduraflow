@@ -67,12 +67,18 @@ export function ExceptionsContent() {
   const auto = predictions.filter(
     (p) => p.disposition === 'auto_committed' || p.disposition === 'approved'
   )
+  // A lane wears as ONE tool: if a (resource, param) already auto-committed/approved, a second routing
+  // op's still-queued forecast for the SAME wear is not a separate "needs you" — the lane is handled.
+  // Suppress it so the lane appears once (auto-handled), consistent with the board's wear card.
+  const handledWearKeys = new Set(auto.map((p) => `${p.resourceId}:${p.param}`))
   // Demand-side auto-handled: a post-commit demand change the current plan absorbs (zero NEW at-risk).
   // The same bounded/reversible/no-mutation posture as a Tier-1 wear auto-commit, so it joins the
   // Handled bucket. An `at_risk` demand change is NOT shown here — it surfaces as a normal at-risk order.
   const absorbedDemand = demandExceptions.filter((d) => d.status === 'absorbed')
   const autoCount = auto.length + absorbedDemand.length
-  const queued = predictions.filter((p) => p.disposition === 'queued')
+  const queued = predictions.filter(
+    (p) => p.disposition === 'queued' && !handledWearKeys.has(`${p.resourceId}:${p.param}`)
+  )
   // At-risk = the Work List filtered to at-risk (order grain, single source). "Needs you" is FIRM
   // only — a firm late order is a real human exception; forecast (speculative) at-risk is shown
   // separately as advisory, so it doesn't read as a required action or inflate the count.
