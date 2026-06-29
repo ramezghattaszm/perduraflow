@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import type { NarrationMode, WhatIfNarrationDto, WhatIfOption } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
@@ -33,10 +34,12 @@ export class NarrationService {
     const options = result.options as WhatIfOption[]
     const input = inputFor(mode, options, result.recommendedOptionId, optionId)
 
-    // Cache hit: a what-if result is immutable, so a prior `ready` narration at the
-    // current prompt version is reusable — re-opening an option returns instantly
-    // without re-calling the model. Regeneration only happens when the prompt changes.
-    const promptVersion = this.llm.narrationPromptVersion()
+    // Cache hit: a what-if result is immutable, so a prior `ready` narration at the same prompt AND the
+    // same FACTS is reusable — re-opening an option returns instantly. The cache version folds a hash of
+    // the narration input into the prompt fingerprint, so changing how facts are built (e.g. the
+    // comparative pivot) regenerates instead of serving a stale narration under an unchanged prompt.
+    const inputHash = createHash('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 8)
+    const promptVersion = `${this.llm.narrationPromptVersion()}+${inputHash}`
     const cached = await this.repo.findReadyNarration(tenantId, resultId, mode, optionId ?? null, promptVersion)
     // Only reuse a cached narration that actually has prose — a prior empty/blank `ready` (e.g. the
     // model returned no content) must NOT be served as the answer; fall through and regenerate.
@@ -69,7 +72,7 @@ export class NarrationService {
         status: 'ready',
         prose: res.prose,
         model: res.model,
-        promptVersion: res.promptVersion,
+        promptVersion, // prompt fingerprint + facts hash — the key the cache hit checks
         provider: res.provider,
       })
       return {
@@ -79,7 +82,7 @@ export class NarrationService {
         status: 'ready',
         prose: res.prose,
         model: res.model,
-        promptVersion: res.promptVersion,
+        promptVersion,
         createdAt: row.createdAt.toISOString(),
       }
     } catch (err) {

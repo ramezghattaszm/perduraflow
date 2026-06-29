@@ -78,11 +78,17 @@ const mag = (x: number): string => String(Math.round(Math.abs(x) * 10) / 10)
  * factor", a higher-total one is "the worse total … {other} is preferred". Each deciding factor then says
  * whether THIS option is *lower* (better) or *higher* (worse) than the other on it — never a bare ±number.
  */
-function comparativeLine(self: WhatIfOption, others: WhatIfOption[], c: StructuredRationale['comparatives'][number]): string | null {
+function comparativeLine(
+  self: WhatIfOption,
+  others: WhatIfOption[],
+  c: StructuredRationale['comparatives'][number],
+  recommendedId: string | null,
+): string | null {
   const other = others.find((o) => o.id === c.vsOptionId)
   if (!other) return null
   const selfL = label(self.labelKey)
   const otherL = label(other.labelKey)
+  const recTag = other.id === recommendedId ? ' (the recommended option)' : ''
   // The weighted total verdict — dominance when it holds, else the signed total gap (lower score = better).
   const total =
     c.verdict === 'preferred'
@@ -97,19 +103,37 @@ function comparativeLine(self: WhatIfOption, others: WhatIfOption[], c: Structur
   // Each deciding factor with direction (lower weighted contribution = better; higher = worse).
   const bits = c.decidingFactors.map((d) => `${d.delta < 0 ? 'lower' : d.delta > 0 ? 'higher' : 'equal'} ${FACTOR_NAME[d.key] ?? d.key} (by ${mag(d.delta)})`)
   const why = bits.length ? `; on the deciding factors, ${selfL} has ${bits.join(' and ')}` : ''
-  return `Versus ${otherL}, ${total}${why}.`
+  return `Versus ${otherL}${recTag}, ${total}${why}.`
 }
 
-/** The complete fact set for one option: full factor breakdown + constraints + comparatives. */
-function optionFacts(opt: WhatIfOption, others: WhatIfOption[]): string[] {
+/**
+ * The single comparative to NARRATE for an option, pivoted on the recommendation (the structured
+ * `comparatives[]` stays complete and all-pairwise for the by-option query — this only chooses what the
+ * prose talks about). A NON-recommended option is narrated against the recommended one (the decision that
+ * matters), never the other losers; the RECOMMENDED option is narrated against its runner-up (its closest
+ * rival — the marginal "why this over the next-best"). With up to 6 options, all-pairwise would bury the
+ * signal under loser-vs-loser noise. `null` (no recommendation, or no rival) → keep all comparatives.
+ */
+function narratedPivot(opt: WhatIfOption, others: WhatIfOption[], recommendedId: string | null): string | null {
+  if (!recommendedId) return null
+  if (opt.id !== recommendedId) return recommendedId
+  const rivals = others.filter((o) => o.feasible && o.id !== opt.id)
+  if (rivals.length === 0) return null
+  return rivals.reduce((a, b) => (b.score < a.score ? b : a)).id // the runner-up (lowest score among rivals)
+}
+
+/** The complete fact set for one option: full factor breakdown + constraints + the pivoted comparative. */
+function optionFacts(opt: WhatIfOption, others: WhatIfOption[], recommendedId: string | null): string[] {
   const facts: string[] = []
   for (const f of opt.rationale.factors) facts.push(factorLine(f))
   for (const c of opt.rationale.constraints) {
     const line = constraintLine(c.detailKey, c.detailParams)
     if (line) facts.push(line)
   }
+  const pivot = narratedPivot(opt, others, recommendedId)
   for (const c of opt.rationale.comparatives) {
-    const line = comparativeLine(opt, others, c)
+    if (pivot && c.vsOptionId !== pivot) continue // pivot on the recommendation (else keep all — fallback)
+    const line = comparativeLine(opt, others, c, recommendedId)
     if (line) facts.push(line)
   }
   return facts
@@ -120,9 +144,9 @@ function kpiHeadline(opt: WhatIfOption, lead: string): string {
   return `${lead} ${label(opt.labelKey)} — OTIF ${Math.round(opt.kpis.otif * 100)}%, ${opt.kpis.lateOrders} late order(s), cost/unit ${cost}.`
 }
 
-/** Build the narration input for one option's rationale (full breakdown). */
-export function optionNarrationInput(opt: WhatIfOption, others: WhatIfOption[], locale = 'en'): NarrationInput {
-  return { mode: 'option', headline: kpiHeadline(opt, 'Option:'), facts: optionFacts(opt, others), locale }
+/** Build the narration input for one option's rationale (full breakdown; comparative pivoted on the rec). */
+export function optionNarrationInput(opt: WhatIfOption, others: WhatIfOption[], recommendedId: string | null, locale = 'en'): NarrationInput {
+  return { mode: 'option', headline: kpiHeadline(opt, 'Option:'), facts: optionFacts(opt, others, recommendedId), locale }
 }
 
 /**
@@ -133,7 +157,7 @@ export function acrossNarrationInput(options: WhatIfOption[], recommendedId: str
   const feasible = options.filter((o) => o.feasible)
   const rec = feasible.find((o) => o.id === recommendedId) ?? feasible[0]
   if (!rec) return { mode: 'across_options', headline: 'No feasible option.', facts: [], locale }
-  const facts = optionFacts(rec, feasible)
+  const facts = optionFacts(rec, feasible, rec.id)
   for (const o of options.filter((x) => !x.feasible)) facts.push(`${label(o.labelKey)} is not feasible.`)
   return { mode: 'across_options', headline: kpiHeadline(rec, 'Recommended:'), facts, locale }
 }
@@ -142,7 +166,7 @@ export function acrossNarrationInput(options: WhatIfOption[], recommendedId: str
 export function inputFor(mode: NarrationMode, options: WhatIfOption[], recommendedId: string | null, optionId?: string): NarrationInput {
   if (mode === 'option') {
     const opt = options.find((o) => o.id === optionId) ?? options[0]!
-    return optionNarrationInput(opt, options.filter((o) => o.id !== opt.id))
+    return optionNarrationInput(opt, options.filter((o) => o.id !== opt.id), recommendedId)
   }
   return acrossNarrationInput(options, recommendedId)
 }
