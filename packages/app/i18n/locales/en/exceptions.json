@@ -28,6 +28,16 @@
   },
   "autoBadge": "Auto",
   "approvedBadge": "Approved",
+  "setAside": {
+    "title": "Set aside",
+    "caption": "dismissed or reverted — re-alerts only if it worsens, or re-open to reconsider",
+    "dismissedBadge": "Dismissed",
+    "revertedBadge": "Reverted",
+    "dismissedStatement": "You set this aside at {{conf}}% confidence (~{{horizon}} to the forecast crossing).",
+    "revertedStatement": "You overrode this auto-adopt at {{conf}}% — the line is running standard again.",
+    "reArmNote": "Re-alerts on its own only if the wear gets materially worse — or re-open it now to reconsider.",
+    "reopen": "Re-open"
+  },
   "demand": {
     "title": "{{order}} · demand change",
     "absorbedStatement": "Demand {{from}} → {{to}} ({{delta}}) — current plan absorbs it, no orders put at risk · no action needed",

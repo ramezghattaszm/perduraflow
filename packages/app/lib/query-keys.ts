@@ -45,6 +45,8 @@ export const QUERY_KEYS = {
   learning: {
     parameters: () => ['learning', 'parameters'] as const,
     predictions: (plantId: string) => ['learning', 'predictions', plantId] as const,
+    // Nested under 'predictions' so the shared invalidation (prefix ['learning','predictions']) covers it.
+    setAsidePredictions: (plantId: string) => ['learning', 'predictions', 'set-aside', plantId] as const,
   },
   workforce: {
     coverage: (plantId: string) => ['workforce', 'coverage', plantId] as const,

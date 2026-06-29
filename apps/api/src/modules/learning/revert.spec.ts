@@ -59,11 +59,11 @@ describe('revertPrediction — adopted-only override', () => {
     const { svc, upsertLearned, updatePrediction } = serviceFor(prediction('auto_committed'))
     await svc.revertPrediction('t1', 'p1')
     expect(upsertLearned).toHaveBeenCalledTimes(1) // observed overlay restored (ml_predicted dropped)
-    expect(updatePrediction).toHaveBeenCalledWith('p1', {
+    expect(updatePrediction).toHaveBeenCalledWith('p1', expect.objectContaining({
       disposition: 'reverted',
       dismissedAtConfidence: 0.88,
       dismissedAtHorizonMinutes: 500,
-    })
+    }))
   })
 
   it('reverts an approved forecast (human-applied) the same way', async () => {

@@ -20,7 +20,7 @@ import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
 import { useDemandExceptions, useScheduleResources, useWorkList } from '../../hooks/useScheduling'
-import { useApprovePrediction, useDismissPrediction, usePredictions, useRevertPrediction } from '../../hooks/useLearning'
+import { useApprovePrediction, useDismissPrediction, usePredictions, useReopenPrediction, useRevertPrediction, useSetAsidePredictions } from '../../hooks/useLearning'
 import { useCanConfigure } from '../../stores/auth.store'
 import { useDiscussOptions, useSeeOptions } from '../../hooks/useAtRiskRemediation'
 import { useSetScreenContext } from '../../stores/screenContext.store'
@@ -58,9 +58,11 @@ export function ExceptionsContent() {
   const { data: predictions = [] } = usePredictions(plantId ?? undefined)
   const { data: workList } = useWorkList(plantId ?? undefined)
   const { data: demandExceptions = [] } = useDemandExceptions(plantId ?? undefined)
+  const { data: setAside = [] } = useSetAsidePredictions(plantId ?? undefined)
   const approve = useApprovePrediction()
   const dismiss = useDismissPrediction()
   const revert = useRevertPrediction()
+  const reopen = useReopenPrediction()
 
   const resName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
@@ -351,6 +353,56 @@ export function ExceptionsContent() {
           </>
         )}
       </Panel>
+
+      {/* Set aside — forecasts you dismissed (a queued proposal snoozed) or reverted (an adopted forecast
+          overridden). Kept visible for trust/audit. The system re-alerts on its own only if the wear gets
+          materially worse — OR re-open it now to reconsider (back to Need you as a proposal). */}
+      {setAside.length > 0 ? (
+        <Panel
+          title={t('setAside.title')}
+          headerRight={
+            <P size={5} color="$textTertiary">
+              {t('setAside.caption')}
+            </P>
+          }
+          contentPadding="$0"
+          contentGap="$0"
+        >
+          {setAside.map((p, i) => {
+            const wasReverted = p.disposition === 'reverted'
+            return (
+              <ExceptionRow
+                key={p.id}
+                divided={i > 0}
+                title={title(p)}
+                statement={t(wasReverted ? 'setAside.revertedStatement' : 'setAside.dismissedStatement', {
+                  conf: Math.round(p.confidence * 100),
+                  horizon: fmtHorizon(p.horizonMinutes),
+                  crossing: fmtTime(p.crossingAt),
+                })}
+                note={t('setAside.reArmNote')}
+                badge={
+                  wasReverted
+                    ? { label: t('setAside.revertedBadge'), tone: 'neutral' }
+                    : { label: t('setAside.dismissedBadge'), tone: 'inactive' }
+                }
+                actions={
+                  canConfigure ? (
+                    <AppButton
+                      variant="light"
+                      size="$3"
+                      loading={reopen.isPending && reopen.variables === p.id}
+                      onPress={() => reopen.mutate(p.id)}
+                    >
+                      {t('setAside.reopen')}
+                    </AppButton>
+                  ) : undefined
+                }
+              />
+            )
+          })}
+        </Panel>
+      ) : null}
 
       {/* Legend — what the tags mean (the tier names are kept; this explains them). */}
       <YStack

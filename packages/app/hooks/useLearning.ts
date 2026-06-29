@@ -91,6 +91,15 @@ export function usePredictions(plantId: string | undefined) {
   })
 }
 
+/** Set-aside forecasts (dismissed / reverted) for a plant — the Exception Queue's "Set aside" list. */
+export function useSetAsidePredictions(plantId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.learning.setAsidePredictions(plantId ?? ''),
+    queryFn: () => get<ParameterPredictionDto[]>(`/learning/predictions/set-aside?plantId=${plantId}`),
+    enabled: Boolean(plantId),
+  })
+}
+
 const invalidatePredictions = () => {
   // Prefix match — invalidates predictions for every plant (the key now carries plantId).
   void queryClient.invalidateQueries({ queryKey: ['learning', 'predictions'] })
@@ -125,5 +134,13 @@ export function useRevertPrediction() {
       invalidatePredictions()
       void queryClient.invalidateQueries({ queryKey: ['scheduling'] })
     },
+  })
+}
+
+/** Re-open a set-aside forecast (dismissed / reverted) → back to Need-you as a queued proposal. */
+export function useReopenPrediction() {
+  return useMutation({
+    mutationFn: (id: string) => post<{ ok: boolean }, undefined>(`/learning/predictions/${id}/reopen`, undefined),
+    onSuccess: invalidatePredictions, // prefix-invalidates both the live and set-aside reads
   })
 }
