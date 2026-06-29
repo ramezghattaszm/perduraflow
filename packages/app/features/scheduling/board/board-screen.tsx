@@ -604,7 +604,13 @@ export function BoardContent() {
     selectedVersion?.status === 'committed' &&
     (detail?.operations ?? []).some((op) => {
       const l = learnedCycleByKey.get(`${op.resourceId}:${op.routingOperationId}`)
-      return !!l && l.status === 'held' && l.learnedValue != null && op.cycleSource === 'standard'
+      if (!l || l.status !== 'held' || l.learnedValue == null || op.cycleSource !== 'standard') return false
+      // Mirror the application gate (buildLearnedOverlay): a pre-adopted forecast (`ml_predicted`) is
+      // FORWARD-ONLY (op start ≥ today's UTC start), so a PAST op correctly runs `standard` and is NOT
+      // stale — only a FORWARD op still on `standard` is genuinely unapplied (else the banner could never
+      // clear, false-positiving on past ops after commit/re-solve). Measured `ml_adjusted` isn't gated, so
+      // any `standard` op under it is stale.
+      return l.source !== 'ml_predicted' || new Date(op.plannedStart).getTime() >= today
     })
 
   const onSolve = () => {
