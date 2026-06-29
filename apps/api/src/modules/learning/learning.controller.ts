@@ -66,4 +66,13 @@ export class LearningController {
     await this.learning.dismissPrediction(user.tenantId, id)
     return { ok: true }
   }
+
+  /** `POST /learning/predictions/:id/revert` — human override of an ADOPTED forecast: undo the pre-adopt,
+   *  restore the observed overlay, one-shot snooze (A18 escape hatch). ConfigureGuard. */
+  @Post('predictions/:id/revert')
+  @UseGuards(ConfigureGuard)
+  async revertPrediction(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.learning.revertPrediction(user.tenantId, id)
+    return { ok: true }
+  }
 }

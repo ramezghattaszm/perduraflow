@@ -196,7 +196,9 @@ export class LearningRepository {
       .orderBy(desc(parameterPrediction.createdAt))
   }
 
-  /** The current SNOOZED (dismissed, not-superseded) forecast for a key — the snooze anchor. */
+  /** The current SNOOZED (set-aside, not-superseded) forecast for a key — the snooze anchor. Covers both
+   *  a `dismissed` queued proposal and a `reverted` human override of an adopted one: both re-surface only
+   *  when materially worse (one-shot), so both anchor the snooze. */
   findSnoozed(
     tenantId: string,
     resourceId: string,
@@ -210,7 +212,7 @@ export class LearningRepository {
         eq(parameterPrediction.routingOperationId, routingOperationId),
         eq(parameterPrediction.param, param),
         isNull(parameterPrediction.supersededBy),
-        eq(parameterPrediction.disposition, 'dismissed'),
+        inArray(parameterPrediction.disposition, ['dismissed', 'reverted']),
       ),
       orderBy: desc(parameterPrediction.createdAt),
     })

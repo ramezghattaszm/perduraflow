@@ -44,13 +44,16 @@ export type ActionTier = z.infer<typeof actionTierSchema>
 /**
  * Gate disposition (api-spec §13.3): `auto_committed` (Tier-1 ≥ threshold, applied);
  * `queued` (needs a human — below threshold or higher tier); `approved`/`dismissed`
- * (human-disposed); `superseded` (replaced by a settled re-forecast — the chain, not a ticker).
+ * (human-disposed); `reverted` (human OVERRODE an adopted forecast — undid the pre-adopt, A18
+ * escape hatch; re-arms one-shot via the snooze breadcrumb); `superseded` (replaced by a settled
+ * re-forecast — the chain, not a ticker).
  */
 export const predictionDispositionSchema = z.enum([
   'auto_committed',
   'queued',
   'approved',
   'dismissed',
+  'reverted',
   'superseded',
 ])
 export type PredictionDisposition = z.infer<typeof predictionDispositionSchema>

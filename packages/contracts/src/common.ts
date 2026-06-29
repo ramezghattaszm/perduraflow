@@ -78,6 +78,7 @@ export const ERROR_CODES = {
   // parameter prediction + autonomy config (phase 4, api-spec §13.8)
   PREDICTION_NOT_FOUND: 'PREDICTION_NOT_FOUND',
   PREDICTION_NOT_QUEUED: 'PREDICTION_NOT_QUEUED',
+  PREDICTION_NOT_ADOPTED: 'PREDICTION_NOT_ADOPTED',
   TIER3_REQUIRES_HUMAN: 'TIER3_REQUIRES_HUMAN',
   AUTONOMY_CONFIG_INVALID: 'AUTONOMY_CONFIG_INVALID',
   // what-if / baseline / narration (phase 5, api-spec §14.8)

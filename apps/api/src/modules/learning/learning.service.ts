@@ -272,23 +272,7 @@ export class LearningService implements OnModuleInit {
         // Reversibility (proof #3): a pre-emptively-adopted forecast that did NOT materialise is
         // corrected by the subsequent actuals — restore the observed overlay (undo the ml_predicted adopt).
         if (!materialized && live.appliedLearnedValue != null) {
-          const obs = evaluate(series, std, { learnedValue: null, status: 'learning' })
-          await this.repo.upsertLearned({
-            tenantId,
-            resourceId,
-            routingOperationId,
-            param,
-            stdBaseline: std,
-            learnedValue: obs.learnedValue,
-            source: obs.source,
-            confidence: obs.confidence,
-            sampleCount: obs.sampleCount,
-            windowSize: obs.windowSize,
-            windowMean: obs.windowMean,
-            windowStddev: obs.windowStddev,
-            status: obs.status,
-            lastSteppedAt: new Date(),
-          })
+          await this.restoreObserved(tenantId, resourceId, routingOperationId, param, std, series)
           this.logger.log(`prediction corrected: ${resourceId}/${routingOperationId} ${param} reverted to observed (reversible, proof #3)`)
         }
       } else if (snoozed && materialized) {
@@ -493,12 +477,86 @@ export class LearningService implements OnModuleInit {
     await this.repo.updatePrediction(id, { disposition: 'dismissed' })
   }
 
+  /**
+   * Human OVERRIDE of an ADOPTED forecast (auto-committed or approved) — the A18 escape hatch: undo the
+   * pre-adopt and restore the OBSERVED overlay (the same restore the automatic correction uses), then mark
+   * the forecast `reverted`. **One-shot**: the dismissal breadcrumb (the overridden confidence/horizon)
+   * anchors the snooze so the model re-proposes ONLY if the wear later gets materially worse — it never
+   * silently re-auto-commits. **Plan reconciliation is manual**: the restored (standard) cycle is used at
+   * the NEXT solve; a committed plan that already ran the pre-adopt is reconciled when the planner re-solves.
+   * @throws PREDICTION_NOT_ADOPTED if the forecast isn't currently auto-committed/approved.
+   */
+  async revertPrediction(tenantId: string, id: string): Promise<void> {
+    const p = await this.requireAdopted(tenantId, id)
+    const prior = await this.repo.findLearned(tenantId, p.resourceId, p.routingOperationId, p.param)
+    const std = prior?.stdBaseline ?? p.threshold
+    const actuals = await this.repo.actualSeries(tenantId, p.resourceId, p.routingOperationId)
+    const series = actuals
+      .map((a) => (p.param === 'cycle' ? a.actualCycleTime : a.actualSetupTime))
+      .filter((v): v is number => v != null)
+    const learnedValue = await this.restoreObserved(tenantId, p.resourceId, p.routingOperationId, p.param, std, series)
+    await this.repo.updatePrediction(id, {
+      disposition: 'reverted',
+      // Snapshot the overridden state → the snooze re-arm anchor (re-surface only if materially worse).
+      dismissedAtConfidence: p.confidence,
+      dismissedAtHorizonMinutes: p.horizonMinutes,
+    })
+    await this.events.publish(
+      EVENTS.LEARNING_PARAMETER_UPDATED,
+      { tenantId, resourceId: p.resourceId, routingOperationId: p.routingOperationId, param: p.param, learnedValue },
+      tenantId,
+    )
+    this.logger.log(`prediction reverted: ${p.resourceId}/${p.routingOperationId} ${p.param} — human override of adopted forecast (A18)`)
+  }
+
+  /** Drop a held `ml_predicted` pre-adopt and re-learn the overlay from actuals only (the OBSERVED value).
+   *  Shared by the automatic correction (forecast, proof #3) and the manual `revertPrediction` override.
+   *  @returns the restored learned value (for the parameter-updated event). */
+  private async restoreObserved(
+    tenantId: string,
+    resourceId: string,
+    routingOperationId: string,
+    param: LearningParam,
+    std: number,
+    series: number[],
+  ): Promise<number | null> {
+    const obs = evaluate(series, std, { learnedValue: null, status: 'learning' })
+    await this.repo.upsertLearned({
+      tenantId,
+      resourceId,
+      routingOperationId,
+      param,
+      stdBaseline: std,
+      learnedValue: obs.learnedValue,
+      source: obs.source,
+      confidence: obs.confidence,
+      sampleCount: obs.sampleCount,
+      windowSize: obs.windowSize,
+      windowMean: obs.windowMean,
+      windowStddev: obs.windowStddev,
+      status: obs.status,
+      lastSteppedAt: new Date(),
+    })
+    return obs.learnedValue
+  }
+
   /** A queued prediction or the right error (a human can only dispose a queued one). */
   private async requireQueued(tenantId: string, id: string) {
     const p = await this.repo.findPredictionById(tenantId, id)
     if (!p) throw new AppException(HttpStatus.NOT_FOUND, 'Prediction not found', ERROR_CODES.PREDICTION_NOT_FOUND)
     if (p.disposition !== 'queued') {
       throw new AppException(HttpStatus.CONFLICT, 'Prediction is not awaiting approval', ERROR_CODES.PREDICTION_NOT_QUEUED)
+    }
+    return p
+  }
+
+  /** An ADOPTED prediction (auto-committed or approved) or the right error — only an adopted forecast can
+   *  be reverted (the inverse of approve; a queued/dismissed one has nothing to undo). */
+  private async requireAdopted(tenantId: string, id: string) {
+    const p = await this.repo.findPredictionById(tenantId, id)
+    if (!p) throw new AppException(HttpStatus.NOT_FOUND, 'Prediction not found', ERROR_CODES.PREDICTION_NOT_FOUND)
+    if (p.disposition !== 'auto_committed' && p.disposition !== 'approved') {
+      throw new AppException(HttpStatus.CONFLICT, 'Prediction is not adopted', ERROR_CODES.PREDICTION_NOT_ADOPTED)
     }
     return p
   }
