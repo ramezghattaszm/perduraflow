@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { ParameterPredictionDto, WorkListRowDto } from '@perduraflow/contracts'
+import type { DemandExceptionDto, ParameterPredictionDto, WorkListRowDto } from '@perduraflow/contracts'
 import {
   AppButton,
   AppSelect,
@@ -19,7 +19,7 @@ import { useTranslation } from '../../i18n'
 import { latenessSummary } from '../../utils/lateness'
 import { usePlants } from '../../hooks/useOrg'
 import { usePlantSelection } from '../../hooks/usePlantSelection'
-import { useScheduleResources, useWorkList } from '../../hooks/useScheduling'
+import { useDemandExceptions, useScheduleResources, useWorkList } from '../../hooks/useScheduling'
 import { useApprovePrediction, useDismissPrediction, usePredictions } from '../../hooks/useLearning'
 import { useCanConfigure } from '../../stores/auth.store'
 import { useDiscussOptions, useSeeOptions } from '../../hooks/useAtRiskRemediation'
@@ -57,6 +57,7 @@ export function ExceptionsContent() {
   const { data: resources = [] } = useScheduleResources(plantId ?? undefined)
   const { data: predictions = [] } = usePredictions(plantId ?? undefined)
   const { data: workList } = useWorkList(plantId ?? undefined)
+  const { data: demandExceptions = [] } = useDemandExceptions(plantId ?? undefined)
   const approve = useApprovePrediction()
   const dismiss = useDismissPrediction()
 
@@ -66,6 +67,11 @@ export function ExceptionsContent() {
   const auto = predictions.filter(
     (p) => p.disposition === 'auto_committed' || p.disposition === 'approved'
   )
+  // Demand-side auto-handled: a post-commit demand change the current plan absorbs (zero NEW at-risk).
+  // The same bounded/reversible/no-mutation posture as a Tier-1 wear auto-commit, so it joins the
+  // Handled bucket. An `at_risk` demand change is NOT shown here — it surfaces as a normal at-risk order.
+  const absorbedDemand = demandExceptions.filter((d) => d.status === 'absorbed')
+  const autoCount = auto.length + absorbedDemand.length
   const queued = predictions.filter((p) => p.disposition === 'queued')
   // At-risk = the Work List filtered to at-risk (order grain, single source). "Needs you" is FIRM
   // only — a firm late order is a real human exception; forecast (speculative) at-risk is shown
@@ -88,6 +94,7 @@ export function ExceptionsContent() {
 
   const title = (p: ParameterPredictionDto) =>
     `${resName.get(p.resourceId) ?? p.resourceId.slice(-5)} · ${t(`param.${p.param}`)}`
+  const demandTitle = (d: DemandExceptionDto) => t('demand.title', { order: d.orderRef ?? d.demandLineId })
   // A re-surfaced (previously snoozed) prediction leads with the breadcrumb — WHY it's back (it got
   // more certain or imminent, exactly what the snooze promised); otherwise the plain forecast line.
   const statement = (p: ParameterPredictionDto) =>
@@ -153,7 +160,7 @@ export function ExceptionsContent() {
           caption={t('needYouCaption')}
         />
         <KpiTile
-          value={String(auto.length)}
+          value={String(autoCount)}
           label={t('adopted')}
           caption={t('adoptedCaption')}
         />
@@ -276,7 +283,7 @@ export function ExceptionsContent() {
         contentPadding="$0"
         contentGap="$0"
       >
-        {auto.length === 0 ? (
+        {autoCount === 0 ? (
           <YStack padding="$4">
             <P
               size={3}
@@ -286,26 +293,41 @@ export function ExceptionsContent() {
             </P>
           </YStack>
         ) : (
-          auto.map((p, i) => {
-            const byHuman = p.disposition === 'approved'
-            return (
+          <>
+            {auto.map((p, i) => {
+              const byHuman = p.disposition === 'approved'
+              return (
+                <ExceptionRow
+                  key={p.id}
+                  divided={i > 0}
+                  title={title(p)}
+                  statement={t(byHuman ? 'pred.approvedStatement' : 'pred.autoStatement', {
+                    crossing: fmtTime(p.crossingAt),
+                    conf: Math.round(p.confidence * 100),
+                    horizon: fmtHorizon(p.horizonMinutes),
+                  })}
+                  badge={
+                    byHuman
+                      ? { label: t('approvedBadge'), tone: 'neutral' }
+                      : { label: t('autoBadge'), tone: 'active' }
+                  }
+                />
+              )
+            })}
+            {absorbedDemand.map((d, i) => (
               <ExceptionRow
-                key={p.id}
-                divided={i > 0}
-                title={title(p)}
-                statement={t(byHuman ? 'pred.approvedStatement' : 'pred.autoStatement', {
-                  crossing: fmtTime(p.crossingAt),
-                  conf: Math.round(p.confidence * 100),
-                  horizon: fmtHorizon(p.horizonMinutes),
+                key={`demand:${d.demandLineId}`}
+                divided={auto.length > 0 || i > 0}
+                title={demandTitle(d)}
+                statement={t('demand.absorbedStatement', {
+                  from: d.from,
+                  to: d.to,
+                  delta: d.delta > 0 ? `+${d.delta}` : String(d.delta),
                 })}
-                badge={
-                  byHuman
-                    ? { label: t('approvedBadge'), tone: 'neutral' }
-                    : { label: t('autoBadge'), tone: 'active' }
-                }
+                badge={{ label: t('demand.badge'), tone: 'active' }}
               />
-            )
-          })
+            ))}
+          </>
         )}
       </Panel>
 

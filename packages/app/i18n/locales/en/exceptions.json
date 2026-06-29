@@ -27,6 +27,11 @@
   },
   "autoBadge": "Auto",
   "approvedBadge": "Approved",
+  "demand": {
+    "title": "{{order}} · demand change",
+    "absorbedStatement": "Demand {{from}} → {{to}} ({{delta}}) — current plan absorbs it, no orders put at risk · no action needed",
+    "badge": "Auto"
+  },
   "param": { "cycle": "cycle", "setup": "setup" },
   "tier": { "t1": "Tier 1", "t2": "Tier 2", "t3": "Tier 3" },
   "legend": {

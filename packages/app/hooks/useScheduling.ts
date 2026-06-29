@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
+  DemandExceptionDto,
   DemandInputDto,
   MaterialAvailabilityDto,
   MaterialConditionDto,
@@ -82,6 +83,20 @@ export function useWorkList(plantId: string | undefined, versionId?: string, wee
       get<WorkListResponseDto>(
         `/scheduling/work-list?plantId=${plantId}${versionId ? `&versionId=${versionId}` : ''}${week ? `&week=${week}` : ''}`,
       ),
+    enabled: Boolean(plantId),
+    refetchOnMount: 'always',
+  })
+}
+
+/**
+ * Post-commit demand changes classified absorbed vs at-risk (same what-if the board previews). The
+ * Exception Queue reads the `absorbed` ones into its auto-handled bucket — the demand-side complement
+ * of a Tier-1 wear auto-commit. `refetchOnMount: 'always'` so it reflects a just-made demand change.
+ */
+export function useDemandExceptions(plantId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.demandExceptions(plantId ?? ''),
+    queryFn: () => get<DemandExceptionDto[]>(`/scheduling/demand-exceptions?plantId=${plantId}`),
     enabled: Boolean(plantId),
     refetchOnMount: 'always',
   })
