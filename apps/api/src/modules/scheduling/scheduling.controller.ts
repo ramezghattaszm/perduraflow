@@ -135,6 +135,16 @@ export class SchedulingController {
     return this.whatIf.get(user.tenantId, id)
   }
 
+  /**
+   * `GET /scheduling/demand-exceptions?plantId=` — post-commit demand changes classified absorbed vs
+   * at-risk by the same what-if the board previews. The Exception Queue reads the `absorbed` ones into
+   * its auto-handled bucket (the demand-side complement of a Tier-1 wear auto-commit). Compute-on-read.
+   */
+  @Get('demand-exceptions')
+  demandExceptions(@CurrentUser() user: JwtPayload, @Query('plantId') plantId: string) {
+    return this.whatIf.demandExceptions(user.tenantId, plantId)
+  }
+
   /** `POST /scheduling/what-if/:id/narrate` — render the rationale into prose (A19; async/non-blocking). */
   @Post('what-if/:id/narrate')
   narrate(

@@ -3,6 +3,7 @@ import { HttpStatus, Injectable } from '@nestjs/common'
 import {
   type Change,
   type ChangeSet,
+  type DemandExceptionDto,
   type LearningReadContract,
   type ObjectiveWeights,
   type OptionComparative,
@@ -953,6 +954,62 @@ export class WhatIfService {
     // `infeasibleFirmOps`; this re-labels non-options `feasible:false` and emits `unremediable`.
     const { options: shown, recommendedOptionId, unremediable } = applySelectability(options, changeSet)
     return { id, plantId, baseVersionId, changeSet, baseKpis, options: shown, recommendedOptionId, unremediable, determinismKey, createdAt: createdAt.toISOString(), requestedChanges }
+  }
+
+  /**
+   * Classify the plant's post-commit demand changes (live `requiredQty` ≠ committed `plannedQty`) by the
+   * SAME what-if the board previews — `GET /scheduling/demand-exceptions`. An `absorbed` change (the plan
+   * covers it with zero at-risk orders) is the demand-side AUTO-HANDLED beat: low-consequence, reversible,
+   * no plan mutation, so the Exception Queue shows it under "auto-handled" rather than asking the planner
+   * to act. An `at_risk` change is left to the planner (its blast radius is a plan decision — A18 keeps
+   * that human). Compute-on-read (no persistence/event): the signal is the qty diff, re-derivable any time.
+   * @returns one row per changed demand line; `[]` when nothing changed or no committed plan exists.
+   */
+  async demandExceptions(tenantId: string, plantId: string): Promise<DemandExceptionDto[]> {
+    const committed = await this.repo.findCommittedVersion(tenantId, plantId)
+    if (!committed) return []
+    const detail = await this.scheduling.versionDetail(tenantId, committed.id)
+    const plannedByLine = new Map<string, number>()
+    for (const op of detail.operations) if (!plannedByLine.has(op.demandLineId)) plannedByLine.set(op.demandLineId, op.plannedQty)
+    const demand = await this.scheduling.listDemand(tenantId, plantId)
+    const conditions = demand
+      .map((d) => ({ demandLineId: d.demandLineId, orderRef: d.releaseReference, from: plannedByLine.get(d.demandLineId), to: d.requiredQty, dueDateIso: d.requiredDate }))
+      .filter((c): c is { demandLineId: string; orderRef: string | null; from: number; to: number; dueDateIso: string } => c.from != null && c.from !== c.to)
+    if (conditions.length === 0) return []
+
+    // Baseline at-risk (committed plan, NO change) so we count only the lateness the change INTRODUCES —
+    // a what-if option's `atRiskOrders` is the resulting plan's ABSOLUTE set, which carries orders already
+    // at-risk before the change (here D-1679/D-1680). "Absorbed" must mean no NEW lateness, not zero total.
+    const baseAtRisk = new Set(
+      (await this.scheduling.workList(tenantId, plantId, committed.id)).rows.filter((r) => r.status === 'at_risk').map((r) => r.demandLineId),
+    )
+    // One evaluation of the whole batch, read off the SAME recommended option the board's banner shows.
+    const result = await this.evaluate(
+      tenantId,
+      plantId,
+      { origin: { type: 'demand' }, changes: conditions.map((c) => ({ kind: 'demand_qty' as const, demandLineId: c.demandLineId, to: c.to })) },
+      undefined,
+      null,
+    )
+    const opt = result.options.find((o) => o.id === result.recommendedOptionId) ?? result.options.find((o) => o.feasible) ?? result.options[0]
+    // New at-risk = the option's at-risk minus what was already at-risk → the change's true blast radius.
+    // Auto-handle is BATCH-level: a change can leave the changed line itself on-time yet DISPLACE others
+    // (a +900 bump that pushes 6 neighbours late). "Absorbed → auto-handled" therefore requires zero NEW
+    // at-risk ANYWHERE — if the change introduces any lateness, it stays the planner's call (A18), not
+    // auto-handled. (Per-line attribution across a multi-line batch isn't reliable, so all rows share the
+    // batch verdict; the demo drives one change at a time, where this is exact.)
+    const newAtRiskCount = (opt?.atRiskOrders ?? []).filter((o) => !baseAtRisk.has(o.demandLineId)).length
+    const status = newAtRiskCount === 0 ? ('absorbed' as const) : ('at_risk' as const)
+    return conditions.map((c) => ({
+      demandLineId: c.demandLineId,
+      orderRef: c.orderRef,
+      from: c.from,
+      to: c.to,
+      delta: c.to - c.from,
+      status,
+      atRiskCount: newAtRiskCount,
+      dueDateIso: c.dueDateIso,
+    }))
   }
 }
 

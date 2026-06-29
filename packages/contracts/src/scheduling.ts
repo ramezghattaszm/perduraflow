@@ -811,6 +811,28 @@ export interface WhatIfAtRiskOrder {
 }
 
 /**
+ * A post-commit demand change (live `requiredQty` ≠ the committed plan's `plannedQty`) classified by
+ * the same what-if the board previews — `GET /scheduling/demand-exceptions`. The autonomy complement of
+ * a wear auto-commit: an `absorbed` change is low-consequence and reversible (the current plan covers it
+ * with NO at-risk orders and NO plan mutation), so it surfaces in the Exception Queue's AUTO-HANDLED
+ * bucket ("no action needed") rather than asking the planner to choose an option. An `at_risk` change is
+ * NOT auto-handled — its blast radius is the planner's call (a plan/allocation decision stays human; A18).
+ * - `from`/`to` — committed planned qty → live required qty; `delta` = `to − from`.
+ * - `status` — `absorbed` (this line caused no at-risk order) vs `at_risk` (it sits in the blast radius).
+ * - `atRiskCount` — orders the whole demand-change batch puts at risk (0 ⇒ every change absorbed).
+ */
+export interface DemandExceptionDto {
+  demandLineId: string
+  orderRef: string | null
+  from: number
+  to: number
+  delta: number
+  status: 'absorbed' | 'at_risk'
+  atRiskCount: number
+  dueDateIso: string
+}
+
+/**
  * One ranked what-if option. Carries its costed KPIs, a feasibility verdict
  * (feasibility-honest — an infeasible option says why, never silently mangled),
  * a score, and the structured rationale.
