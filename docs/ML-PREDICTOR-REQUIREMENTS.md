@@ -10,6 +10,9 @@ posture (A14–A19) and `docs/api-spec.md` §13 for the surrounding contracts.
 > optimizer"). The model below **drops into the same seam**; this doc says what it must satisfy
 > to be a safe, in-contract replacement — not how to train it.
 
+**Tracked in** `docs/REMAINING-ITEMS.md` → *ML engine — production build TODO* → "Real predictive
+model" (this doc is its requirements spec).
+
 ---
 
 ## 1. The seam it plugs into (do not widen without cause)
