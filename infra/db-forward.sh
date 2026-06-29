@@ -10,7 +10,7 @@ cd "$(dirname "$0")"; source ./aws-env.sh
 require_auth
 id="$(instance_id)"
 [ -n "$id" ] && [ "$id" != "None" ] || { echo "No instance tagged Name=$PERDURA_TAG_NAME found." >&2; exit 1; }
-echo "Forwarding instance 127.0.0.1:5432 → localhost:5433  (Ctrl-C to stop)…"
+echo "Forwarding instance 127.0.0.1:5432 → localhost:5433  (Ctrl-C to stop)..."
 exec aws ssm start-session --target "$id" \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
   --parameters '{"host":["127.0.0.1"],"portNumber":["5432"],"localPortNumber":["5433"]}'
