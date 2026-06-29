@@ -1,0 +1,16 @@
+# Perdura demo — Caddy reverse proxy + automatic HTTPS (Let's Encrypt via HTTP-01).
+# Routes by Host to the internal compose services. Requires the two A records
+# (perdura, perduraapi → the instance Elastic IP) to resolve before cert issuance.
+#
+# The ACME account email — used by Let's Encrypt for expiry notices.
+{
+	email admin@thezmgroup.com
+}
+
+perdura.thezmgroup.com {
+	reverse_proxy web:3011
+}
+
+perduraapi.thezmgroup.com {
+	reverse_proxy api:3010
+}

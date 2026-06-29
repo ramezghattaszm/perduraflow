@@ -10,6 +10,7 @@ import { BindingResolver } from './modules/binding/binding.resolver'
 import { ConfigModule as AppConfigModule } from './modules/config/config.module'
 import { EmailModule } from './modules/email/email.module'
 import { EventBusModule } from './modules/eventbus/eventbus.module'
+import { HealthModule } from './modules/health/health.module'
 import { LearningModule } from './modules/learning/learning.module'
 import { MasterDataModule } from './modules/master-data/master-data.module'
 import { LlmModule } from './modules/llm/llm.module'
@@ -50,6 +51,7 @@ const BINDING_COUNTERPARTS: Provider = {
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PoolModule,
     EventBusModule,
+    HealthModule,
     BindingModule,
     EmailModule,
     NotifierModule,

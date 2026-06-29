@@ -347,6 +347,112 @@ and the four-collision demand spine (incl. GM `GP-1142`). Post-reset confirmatio
 
 ---
 
+## Demo server (AWS)
+
+A low-cost, **single-instance** deployment for live demos. Everything lives in [`infra/`](infra/)
+and is driven from your Mac — **no SSH** (access is via AWS SSM Session Manager).
+
+### What it is
+
+One **EC2 `t4g.small`** (Graviton/arm64, Amazon Linux 2023) running the whole stack in
+**docker-compose**:
+
+| Container | Role | Public? |
+| --------- | ---- | ------- |
+| `caddy`   | Reverse proxy + **automatic HTTPS** (Let's Encrypt), routes by host | 80/443 |
+| `web`     | Next.js (`next start`, :3011) | via Caddy → `https://perdura.thezmgroup.com` |
+| `api`     | NestJS (bun, :3010) | via Caddy → `https://perduraapi.thezmgroup.com` |
+| `db`      | Postgres 16 (named volume, host-loopback only) | no |
+
+Images are built on the Mac (native arm64), pushed to **ECR**, and pulled by the instance. There is
+**no RDS / ALB / ACM** — Caddy terminates TLS, Postgres runs in a container. Stop the instance
+between demos and it costs only EBS + Elastic IP (~$5/mo); ~$18/mo if left running 24/7.
+
+> Runtime note: the images are **bun-based** (the API runs under bun, matching dev). DB migrate and
+> reseed run the dev commands as-is inside the `api` container.
+
+### Prerequisites (one-time, on the Mac)
+
+- **AWS CLI v2** signed into the `zmgroup` SSO profile: `aws sso login --profile zmgroup`
+  (all scripts pin `--profile zmgroup` + `us-east-1` via [`infra/aws-env.sh`](infra/aws-env.sh) — they
+  never touch the default account).
+- **Session Manager plugin** (for `connect.sh` / `db-forward.sh`):
+  https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+- **Docker Desktop** running (for building images).
+
+### First-time deploy (from `infra/`)
+
+```bash
+aws sso login --profile zmgroup        # 1. authenticate (browser)
+
+cp .env.example .env                    # 2. create the instance env, then edit it:
+#    - generate fresh JWT secrets:  openssl rand -base64 48
+#    - set POSTGRES_PASSWORD + matching DATABASE_URL
+#    - set GROQ_API_KEY (from dev apps/api/.env)
+chmod 600 .env
+
+./provision.sh                          # 3. ECR repos, S3 deploy bucket, IAM role, SG (80/443),
+                                        #    EC2 (t4g.small), Elastic IP → writes infra/.deploy-state
+./dns.sh                                # 4. Route 53 A records: perdura + perduraapi → Elastic IP
+./build-and-push.sh                     # 5. build + push api & web images (arm64) to ECR
+./deploy-files.sh                       # 6. push compose/Caddyfile/.env/scripts to /opt/perdura
+
+./run.sh "docker compose --env-file .env up -d db && ./migrate.sh"   # 7. start db + migrate
+./run.sh "docker compose --env-file .env up -d"                       # 8. start api + web + caddy
+./run.sh "./reseed.sh"                                                # 9. seed the demo data
+```
+
+Then verify: `curl https://perduraapi.thezmgroup.com/api/v1/health` → `{"status":"ok"}`, and open
+`https://perdura.thezmgroup.com` (login `admin@perduraflow.test` / `Password123`).
+
+### Day-to-day
+
+```bash
+./start.sh         # power the instance ON before a demo (containers auto-start)
+./stop.sh          # power OFF after a demo — the main cost lever
+./connect.sh       # interactive shell on the box (SSM)
+./run.sh "<cmd>"   # run one command on the box and print output, e.g.:
+./run.sh "docker compose --env-file .env ps"
+./run.sh "docker compose --env-file .env logs --tail=100 api"
+./run.sh "./reseed.sh"                       # wipe + rebuild the demo data
+./db-forward.sh    # tunnel the instance Postgres to localhost:5433 for inspection
+```
+
+### Redeploy a code fix
+
+```bash
+./build-and-push.sh                                   # rebuild + push both images
+#   (or `./build-and-push.sh api` / `./build-and-push.sh web` for just one)
+./run.sh "docker compose --env-file .env pull && docker compose --env-file .env up -d"
+```
+
+If you changed the compose file, Caddyfile, `.env`, or the db scripts, re-run `./deploy-files.sh`
+first to sync them to the box.
+
+### Script reference (`infra/`)
+
+| Script | What it does |
+| ------ | ------------ |
+| `aws-env.sh` | Sourced by the others: pins `--profile zmgroup` / `us-east-1`, resolves the instance by tag `Name=perdura-demo`, checks auth. |
+| `provision.sh` | Idempotent: creates ECR repos, the private S3 deploy bucket, the IAM instance role (SSM + ECR read + S3 read), the security group (80/443 only), the EC2 instance, and the Elastic IP. Writes `infra/.deploy-state`. |
+| `dns.sh` | UPSERTs the `perdura` + `perduraapi` A records in the `thezmgroup.com` Route 53 zone → the Elastic IP. |
+| `build-and-push.sh` | Builds the api + web images for `linux/arm64` and pushes to ECR. Optional arg `api` or `web` to build just one; `IMAGE_TAG`/`NEXT_PUBLIC_API_URL` overridable. |
+| `deploy-files.sh` | Bundles `docker-compose.yml`, `Caddyfile`, the real `.env`, and the db scripts, ships them via the private S3 bucket to `/opt/perdura`, then deletes the S3 copy. |
+| `run.sh "<cmd>"` | Runs one shell command on the instance from `/opt/perdura` via SSM and prints stdout/stderr. The main remote-control tool. |
+| `connect.sh` | Opens an interactive SSM shell on the instance (no SSH). |
+| `start.sh` / `stop.sh` | Power the instance on / off (cost control). |
+| `migrate.sh` | (on instance) Runs Drizzle migrations in a one-off `api` container. |
+| `reseed.sh` | (on instance) Wipes + rebuilds the demo data inside the running `api` container (runs `reset.ts` under bun). |
+| `db-forward.sh` | SSM port-forward of the instance Postgres to `localhost:5433`. |
+| `user-data.sh` | EC2 cloud-init (installs Docker + compose plugin, creates `/opt/perdura`). Used by `provision.sh`. |
+
+> `infra/.env` and `infra/.deploy-state` are gitignored — secrets and instance IDs stay local.
+> `infra/.env.example` documents every variable.
+
+The deploy design and AWS-specific gotchas are detailed in [`docs/DEPLOY-HANDOFF.md`](docs/DEPLOY-HANDOFF.md).
+
+---
+
 ## How the template works
 
 - **Placeholders** — `scripts/init-app.ts` sets the app name, slug, and bundle id throughout the

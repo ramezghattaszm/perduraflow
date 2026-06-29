@@ -1,0 +1,73 @@
+# Perdura demo stack — single host (EC2 t4g.small). Postgres + API + web + Caddy.
+# Caddy terminates TLS (auto Let's Encrypt) and routes by Host. Only 80/443 are public;
+# api/web/db are reachable only on the internal compose network.
+#
+# Usage on the instance (driven from the Mac via infra/run.sh):
+#   docker compose --env-file .env pull
+#   docker compose --env-file .env up -d db        # then wait healthy, run ./migrate.sh
+#   docker compose --env-file .env up -d            # api + web + caddy
+#   ./reseed.sh                                      # demo data (API must be up)
+#
+# ${ECR_REGISTRY} and ${IMAGE_TAG} come from .env (e.g. <acct>.dkr.ecr.us-east-1.amazonaws.com, latest).
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-perdura}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-perdura}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Host-loopback only (never on the public interface; SG never opens 5432).
+    # Enables infra/db-forward.sh to SSM-tunnel Postgres to the Mac.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-perdura} -d ${POSTGRES_DB:-perdura}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    image: ${ECR_REGISTRY}/perdura-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3010"
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:3010/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  web:
+    image: ${ECR_REGISTRY}/perdura-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - api
+    expose:
+      - "3011"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

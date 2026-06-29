@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3011",
+    "generate:css": "bun scripts/generate-tamagui-css.ts",
+    "prebuild": "bun run generate:css",
     "build": "next build",
     "start": "next start --port 3011",
     "serve": "NODE_ENV=production next start --port 8151",

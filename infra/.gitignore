@@ -1,0 +1,4 @@
+# Real secrets + provisioning state — never commit. (.env.example IS committed.)
+.env
+.deploy-state
+*.pem

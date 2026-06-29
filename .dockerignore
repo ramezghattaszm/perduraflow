@@ -1,0 +1,18 @@
+# Build context hygiene — installs/builds happen inside the image, secrets never enter it.
+**/node_modules
+**/.next
+**/dist
+**/.expo
+**/.turbo
+.git
+.github
+
+# Never bake secrets into an image layer
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local cruft
+**/*.log
+.DS_Store
+docs
