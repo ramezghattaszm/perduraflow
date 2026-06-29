@@ -87,6 +87,7 @@
     "demandDetailImpact_one": "Order quantity {{from}} → {{to}} — {{count}} order at risk. Review impact.",
     "demandDetailImpact_other": "Order quantity {{from}} → {{to}} — {{count}} orders at risk. Review impact.",
     "demandDetailNoImpact": "Order quantity {{from}} → {{to}} — no added delivery risk under the best option. Review impact.",
+    "demandAbsorbed": "{{line}} demand {{from}} → {{to}} — absorbed; the current plan covers it. No action needed.",
     "outOfWeek_one": "+{{count}} at-risk order outside this week",
     "outOfWeek_other": "+{{count}} at-risk orders outside this week",
     "outOfWeekJump": "Jump to it",

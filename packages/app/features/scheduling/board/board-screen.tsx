@@ -453,7 +453,11 @@ export function BoardContent() {
       demandPreview.options.find((o) => o.feasible) ??
       null
     : null
-  const previewAtRiskOrders = previewOption?.atRiskOrders ?? []
+  // The change's NEW blast radius: at-risk orders in the hypothetical plan that were NOT already at-risk
+  // in the committed baseline. Pre-existing lateness isn't THIS change's consequence — counting it would
+  // make an absorbed change read as "impact" and disagree with the Exception Queue's absorbed verdict
+  // (which subtracts the same baseline). Absorbed ⇔ this set is empty ⇔ no action needed.
+  const previewAtRiskOrders = (previewOption?.atRiskOrders ?? []).filter((o) => !atRiskOrderIds.has(o.demandLineId))
   const previewAtRiskCount = previewAtRiskOrders.length
   // The CHANGED orders themselves (the cause) — kept distinct from their blast radius in the overlay.
   const demandChangeIds = new Set(demandConditions.map((c) => c.demandLineId))
@@ -1201,13 +1205,33 @@ export function BoardContent() {
               })}
               {demandConditions.map((c) => {
                 const open = whatIfOpenFor(`demand-${c.demandLineId}`)
+                // ABSORBED (the auto-evaluate landed with no NEW at-risk): the current plan covers the
+                // change with no added lateness — auto-handled, nothing to choose. Show a settled success
+                // banner (NO options CTA), consistent with the Exception Queue's "absorbed · no action
+                // needed". Only a change that introduces NEW at-risk gets the warning card + options.
+                if (demandPreview != null && previewAtRiskCount === 0) {
+                  return (
+                    <XStack
+                      key={`demand-${c.demandLineId}`}
+                      gap="$2"
+                      alignItems="center"
+                      backgroundColor="$successSoft"
+                      borderRadius="$4"
+                      paddingHorizontal="$3"
+                      paddingVertical="$2.5"
+                    >
+                      <CircleCheck size={15} color="$success" />
+                      <P size={4} color="$success">
+                        {t('whatif:condition.demandAbsorbed', { line: c.demandLineId, from: c.from, to: c.to })}
+                      </P>
+                    </XStack>
+                  )
+                }
                 // Impact-result copy (Addition B): once the auto-evaluate has landed, the banner reports the
                 // outcome ("N orders at risk") instead of a "re-evaluate" prompt — the evaluation already ran.
-                // N reads the SAME preview set the board highlights (never the committed plan, which is 0).
+                // N reads the SAME preview set the board highlights (the change's NEW at-risk, not pre-existing).
                 const detail = demandPreview
-                  ? previewAtRiskCount > 0
-                    ? t('whatif:condition.demandDetailImpact', { from: c.from, to: c.to, count: previewAtRiskCount })
-                    : t('whatif:condition.demandDetailNoImpact', { from: c.from, to: c.to })
+                  ? t('whatif:condition.demandDetailImpact', { from: c.from, to: c.to, count: previewAtRiskCount })
                   : t('whatif:condition.demandDetailEvaluating', { from: c.from, to: c.to })
                 return (
                   <ConditionCard
