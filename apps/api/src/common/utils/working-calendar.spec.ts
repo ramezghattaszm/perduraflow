@@ -5,6 +5,7 @@ import {
   newOvertimeState,
   nextWorkingSegment,
   placeJob,
+  projectWorkingTime,
   workingMinutesInRange,
   type WorkingCalendar,
 } from './working-calendar'
@@ -177,5 +178,30 @@ describe('workingMinutesInRange — utilization denominator (D-util)', () => {
   it('empty/inverted range = 0', () => {
     expect(workingMinutesInRange(twoShift(), MON, MON)).toBe(0)
     expect(workingMinutesInRange(twoShift(), MON + DAY, MON)).toBe(0)
+  })
+})
+
+describe('projectWorkingTime (wear crossing in working time — skip closures)', () => {
+  const MON_FRI = twoShift({ workingDays: [1, 2, 3, 4, 5] }) // Sat + Sun closed
+  const FRI = MON + 4 * DAY
+  const THU = MON + 3 * DAY
+
+  it('skips the weekend: a Friday-evening forecast lands Monday', () => {
+    // Fri 20:00 + 4 working-hours: 2h left Fri (→22:00), skip Sat+Sun, +2h Mon morning (06:00→08:00).
+    expect(projectWorkingTime(MON_FRI, at(FRI, 20), 4 * HOUR)).toBe(at(NEXT_MON, 8))
+  })
+
+  it('skips a holiday the horizon spans (the July-10 case)', () => {
+    const withHoliday = twoShift({ holidays: ['2024-01-03'] }) // WED closed
+    // Tue 20:00 + 4h: 2h Tue (→22:00), skip Wed (holiday), +2h Thu (06:00→08:00).
+    expect(projectWorkingTime(withHoliday, at(TUE, 20), 4 * HOUR)).toBe(at(THU, 8))
+  })
+
+  it('advances within one open window when the horizon fits (no closure crossed)', () => {
+    expect(projectWorkingTime(twoShift(), at(MON, 8), 2 * HOUR)).toBe(at(MON, 10))
+  })
+
+  it('snaps a zero horizon to the next working instant (from a closed day)', () => {
+    expect(projectWorkingTime(twoShift(), at(SUN, 12), 0)).toBe(at(NEXT_MON, 6)) // Sun closed → Mon 06:00
   })
 })

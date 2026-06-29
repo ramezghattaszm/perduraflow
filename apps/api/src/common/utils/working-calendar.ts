@@ -20,6 +20,8 @@
  * an explicit what-if policy.
  */
 
+import type { CalendarDto } from '@perduraflow/contracts'
+
 const MS_PER_MINUTE = 60_000
 const MS_PER_DAY = 86_400_000
 const MINUTES_PER_DAY = 1440
@@ -123,6 +125,35 @@ export function buildWorkingCalendar(input: {
     otCapMinutes: input.otCapMinutes ?? 0,
     otCeilingMinutes: input.otCeilingMinutes ?? 0,
   }
+}
+
+/** `unknown` → `number[]` (or undefined → default Mon–Sat); a kernel `CalendarDto`'s jsonb fields. */
+const asNumberArray = (v: unknown): number[] | undefined =>
+  Array.isArray(v) && v.every((n) => typeof n === 'number') && v.length > 0 ? (v as number[]) : undefined
+/** `unknown` → `string[]` (holiday `YYYY-MM-DD` list). */
+const asStringArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : [])
+/** `unknown` → shift patterns with `HH:MM` `start`/`end` strings. */
+const asShiftPatterns = (v: unknown): Array<{ start: string; end: string }> =>
+  Array.isArray(v) ? v.filter((p): p is { start: string; end: string } => !!p && typeof p.start === 'string' && typeof p.end === 'string') : []
+
+/**
+ * Build a {@link WorkingCalendar} from a kernel {@link CalendarDto} (its jsonb shift/holiday/working-day
+ * fields, coerced). The SINGLE coercion the scheduler (which then layers per-resource downtime + OT) and
+ * the learning crossing-projection both use — one calendar, no second copy. `extra` carries the
+ * scheduler-only additions; learning passes none (recurring closures are all a wear forecast needs).
+ */
+export function workingCalendarFromCalendarDto(
+  dto: CalendarDto,
+  extra?: { closedIntervals?: Array<[number, number]>; splittable?: boolean; otCeilingMinutes?: number },
+): WorkingCalendar {
+  return buildWorkingCalendar({
+    workingDays: asNumberArray(dto.workingDays),
+    shiftPatterns: asShiftPatterns(dto.shiftPatterns),
+    holidays: asStringArray(dto.holidays),
+    closedIntervals: extra?.closedIntervals,
+    splittable: extra?.splittable,
+    otCeilingMinutes: extra?.otCeilingMinutes,
+  })
 }
 
 /** Is `dayStartMs` (a UTC midnight) a working day for this calendar (weekday + not holiday)? */
@@ -233,6 +264,33 @@ export function workingMinutesInRange(cal: WorkingCalendar, startMs: number, end
     }
   }
   return total
+}
+
+/**
+ * Project `workingMs` of **working** time forward from `fromMs`: advance only across open shift windows,
+ * skipping closed time (nights, closed weekdays, holidays, closed intervals). Returns the clock instant
+ * when that much working time has elapsed — the inverse of {@link workingMinutesInRange}. Used to land a
+ * wear crossing in WORKING time (a tool only wears while it runs): a Friday-evening forecast + a few
+ * working-hours skips Sat/Sun to Monday; a horizon spanning a holiday skips that day too. `workingMs <= 0`
+ * snaps to the next working instant; an all-closed calendar falls back to clock time (no infinite scan).
+ */
+export function projectWorkingTime(cal: WorkingCalendar, fromMs: number, workingMs: number): number {
+  if (workingMs <= 0) {
+    const seg = nextWorkingSegment(cal, fromMs)
+    return seg ? Math.max(seg[0], fromMs) : fromMs
+  }
+  let from = fromMs
+  let remaining = workingMs
+  for (let scanned = 0; scanned < MAX_SCAN_DAYS; scanned++) {
+    const seg = nextWorkingSegment(cal, from)
+    if (!seg) break
+    const cur = Math.max(seg[0], from)
+    const avail = seg[1] - cur
+    if (avail >= remaining) return cur + remaining
+    remaining -= avail
+    from = seg[1]
+  }
+  return from + remaining // no open window within the scan horizon → clock fallback
 }
 
 /** A placed job: wall-clock start/end (closed gaps may sit between for split jobs) + OT used. */

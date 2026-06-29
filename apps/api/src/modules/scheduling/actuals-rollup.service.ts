@@ -11,7 +11,7 @@ import { BindingResolver } from '../binding/binding.resolver'
 import { LEARNING_READ } from '../learning/learning-read.service'
 import { CONFIG_READ } from '../config/config-read.service'
 import { SchedulingRepository } from './scheduling.repository'
-import { startOfDayUtc } from './working-calendar'
+import { startOfDayUtc } from '../../common/utils/working-calendar'
 
 /**
  * ActualsRollupService — the **one home** for the continuous (windowed, cross-version) actuals→KPI folds

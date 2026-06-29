@@ -11,12 +11,18 @@ import {
   type DriftDetectedPayload,
   type ExecutionActualPayload,
   type LearningParam,
+  type MasterDataReadContract,
+  type OrgReadContract,
   type PredictionDisposition,
+  MASTERDATA_READ_CONTRACT,
 } from '@perduraflow/contracts'
 import { EVENTS } from '../../events'
+import { projectWorkingTime, workingCalendarFromCalendarDto, type WorkingCalendar } from '../../common/utils/working-calendar'
+import { BindingResolver } from '../binding/binding.resolver'
 import { EventBus } from '../eventbus/event-bus'
 import type { EventEnvelope } from '../eventbus/event-bus.types'
 import { CONFIG_READ } from '../config/config-read.service'
+import { ORG_READ } from '../org/org-read.service'
 import { evaluate, RULE, snoozeDecision, type PriorState } from './learning.rule'
 import { predict, PREDICT, type PredictionResult } from './learning.predictor'
 import { LearningRepository } from './learning.repository'
@@ -50,7 +56,24 @@ export class LearningService implements OnModuleInit {
     private readonly repo: LearningRepository,
     private readonly events: EventBus,
     @Inject(CONFIG_READ) private readonly config: ConfigReadContract,
+    private readonly bindings: BindingResolver,
+    @Inject(ORG_READ) private readonly org: OrgReadContract,
   ) {}
+
+  /** Per-resource working calendar, memoized (resourceIds are unique per seed → no stale-after-reseed).
+   *  Built from the SAME kernel calendar the scheduler honors, so the wear crossing projects through one
+   *  calendar. `null` when the resource/calendar can't be resolved → caller falls back to clock time. */
+  private readonly calendarCache = new Map<string, WorkingCalendar | null>()
+  private async resolveResourceCalendar(tenantId: string, resourceId: string): Promise<WorkingCalendar | null> {
+    const hit = this.calendarCache.get(resourceId)
+    if (hit !== undefined) return hit
+    const md = await this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
+    const calendarId = (await md.getResource(tenantId, resourceId))?.calendarId
+    const calDto = calendarId ? await this.org.getCalendar(tenantId, calendarId) : null
+    const cal = calDto ? workingCalendarFromCalendarDto(calDto) : null
+    this.calendarCache.set(resourceId, cal)
+    return cal
+  }
 
   /** Wire the closed loop: consume actuals off the bus (A4 / D5) — at either grain (§4.3). */
   onModuleInit(): void {
@@ -294,7 +317,15 @@ export class LearningService implements OnModuleInit {
     }
 
     const lastActual = actuals[actuals.length - 1]!
-    const crossingAt = new Date(lastActual.actualEnd.getTime() + result.horizonMinutes * 60_000)
+    // Project the horizon in WORKING time (a tool only wears while running) — advance `horizonMinutes`
+    // across OPEN shift windows on the resource's calendar, skipping closures (weekends, holidays). So a
+    // Friday-evening forecast lands Monday, not in the dead weekend. `horizonMinutes` (→ confidence) is
+    // unchanged; only WHEN it lands moves. No calendar → clock fallback.
+    const cal = await this.resolveResourceCalendar(tenantId, resourceId)
+    const crossingMs = cal
+      ? projectWorkingTime(cal, lastActual.actualEnd.getTime(), result.horizonMinutes * 60_000)
+      : lastActual.actualEnd.getTime() + result.horizonMinutes * 60_000
+    const crossingAt = new Date(crossingMs)
     const disposition = gateDisposition(result.actionTier, result.confidence, cfg.tier1AutoThreshold)
 
     // SNOOZED (no live): re-surface ONLY when materially worse than the dismissal snapshot (D-snooze).

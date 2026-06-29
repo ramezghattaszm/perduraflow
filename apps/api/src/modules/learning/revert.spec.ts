@@ -40,7 +40,7 @@ function serviceFor(found: ReturnType<typeof prediction> | undefined) {
     updatePrediction,
   }
   const events = { publish: vi.fn(async () => undefined) }
-  const svc = new LearningService(repo as never, events as never, null as never)
+  const svc = new LearningService(repo as never, events as never, null as never, null as never, null as never)
   return { svc, upsertLearned, updatePrediction }
 }
 

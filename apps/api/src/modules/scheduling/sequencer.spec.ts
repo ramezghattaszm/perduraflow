@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sequence, type SequencerItem } from './sequencer'
-import { buildWorkingCalendar } from './working-calendar'
+import { buildWorkingCalendar } from '../../common/utils/working-calendar'
 
 const HOUR = 3_600_000
 const DAY = 86_400_000

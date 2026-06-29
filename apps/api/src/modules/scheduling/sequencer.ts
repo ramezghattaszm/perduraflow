@@ -14,7 +14,7 @@
  * tie-break keeps it deterministic.
  */
 
-import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type WorkingCalendar } from './working-calendar'
+import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type WorkingCalendar } from '../../common/utils/working-calendar'
 
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
 export const CHANGEOVER_BONUS_HOURS = 24

@@ -53,7 +53,7 @@ import type { DemandInput, ResourceOperatorAssignment, ScheduledOperation } from
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
-import { buildWorkingCalendar, startOfDayUtc, workingMinutesInRange, type WorkingCalendar } from './working-calendar'
+import { startOfDayUtc, workingCalendarFromCalendarDto, workingMinutesInRange, type WorkingCalendar } from '../../common/utils/working-calendar'
 
 /** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
 export interface BaseContext {
@@ -95,20 +95,6 @@ export interface BaseContext {
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, standard: 2 }
 
 // --- calendar JSON coercion (CalendarDto fields are untyped jsonb) -----------
-/** `unknown` → `number[]`, or undefined so {@link buildWorkingCalendar} applies its default. */
-function asNumberArray(v: unknown): number[] | undefined {
-  return Array.isArray(v) && v.every((n) => typeof n === 'number') && v.length > 0 ? (v as number[]) : undefined
-}
-/** `unknown` → `string[]` (e.g. holiday `YYYY-MM-DD` list). */
-function asStringArray(v: unknown): string[] {
-  return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
-}
-/** `unknown` → shift patterns with `HH:MM` `start`/`end` strings. */
-function asShiftPatterns(v: unknown): Array<{ start: string; end: string }> {
-  if (!Array.isArray(v)) return []
-  return v.filter((p): p is { start: string; end: string } => !!p && typeof p.start === 'string' && typeof p.end === 'string')
-}
-
 /**
  * Derive the per-resource downtime maps from active downtime windows. Returns BOTH the
  * `closed` `[startMs,endMs)` intervals (baked into each resource's calendar — this is what
@@ -913,17 +899,11 @@ export class SchedulingService {
       const cfg = cfgByType.get(r.resourceType)
       out.set(
         r.id,
-        buildWorkingCalendar({
-          workingDays: asNumberArray(calDto.workingDays),
-          shiftPatterns: asShiftPatterns(calDto.shiftPatterns),
-          holidays: asStringArray(calDto.holidays),
-          // Time-boxed closures (maintenance / line-down) come from per-resource resource_downtime
-          // via `extraClosedByResource` (Step 3 wires the read); merged + deduped by buildWorkingCalendar.
+        // Shared coercion (one calendar). `closedIntervals`: per-resource resource_downtime (maintenance /
+        // line-down). OT ceiling is policy-only (a normal solve spends none — never auto-spent).
+        workingCalendarFromCalendarDto(calDto, {
           closedIntervals: [...(extraClosedByResource?.get(r.id) ?? [])],
           splittable: cfg?.splittable ?? false,
-          // A normal solve spends NO overtime; the resource's OT cap is only the ceiling the
-          // what-if overtime option may opt into (decision: OT is policy-only, never auto-spent).
-          otCapMinutes: 0,
           otCeilingMinutes: r.otCapMinutes ?? cfg?.otCapMinutes ?? 0,
         }),
       )
