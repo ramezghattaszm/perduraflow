@@ -1,9 +1,13 @@
 import { HttpStatus, Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import {
+  cycleBatchActualSchema,
   executionActualSchema,
   type ActionTier,
+  type ActualsEventPayload,
+  type ActualsGrain,
   type ConfigReadContract,
+  type CycleBatchActual,
   type DriftDetectedPayload,
   type ExecutionActualPayload,
   type LearningParam,
@@ -48,17 +52,27 @@ export class LearningService implements OnModuleInit {
     @Inject(CONFIG_READ) private readonly config: ConfigReadContract,
   ) {}
 
-  /** Wire the closed loop: consume actuals off the bus (A4 / D5). */
+  /** Wire the closed loop: consume actuals off the bus (A4 / D5) — at either grain (§4.3). */
   onModuleInit(): void {
     this.events.subscribe(EVENTS.EXECUTION_ACTUAL_RECORDED, (env: EventEnvelope) =>
-      this.ingest(env.payload as ExecutionActualPayload, env.tenantId),
+      this.ingest(env.payload as ActualsEventPayload, env.tenantId),
     )
   }
 
-  /** Append one actual (idempotent) and re-learn its parameters. */
-  async ingest(payload: ExecutionActualPayload, tenantId: string | null): Promise<void> {
-    const data = executionActualSchema.parse(payload)
+  /**
+   * Append one actual (idempotent) and re-learn its parameters. **Grain-aware** (§4.3, SKIP-51): the
+   * actuals event arrives at `op_summary` (Tier-1, the default) or `cycle_batch` (Tier-2). The grain is
+   * normalized to ONE op-summary record FIRST — `cycle_batch` collapses its pieces — so the damped rule
+   * below runs on **op grain only** (A14: relearn/forecast never see per-piece grain; derivation is
+   * upstream of the learning trigger). The `op_summary` path is byte-identical to before.
+   */
+  async ingest(payload: ActualsEventPayload, tenantId: string | null): Promise<void> {
     const tid = tenantId ?? ''
+    const grain: ActualsGrain = (payload as { grain?: ActualsGrain }).grain ?? 'op_summary'
+    const data: ExecutionActualPayload =
+      grain === 'cycle_batch'
+        ? await this.deriveOpFromCycles(tid, cycleBatchActualSchema.parse(payload))
+        : executionActualSchema.parse(payload)
     const row = await this.repo.appendActual({
       tenantId: tid,
       actualEventId: data.actualEventId,
@@ -86,6 +100,22 @@ export class LearningService implements OnModuleInit {
     // Phase 4: project the observed series forward (predict-and-act-or-propose).
     await this.forecast(tid, data.resourceId, data.routingOperationId, 'cycle', data.stdCycleTime)
     await this.forecast(tid, data.resourceId, data.routingOperationId, 'setup', data.stdSetupTime)
+  }
+
+  /**
+   * Tier-2 → Tier-1 derivation (§4.3, SKIP-51): collapse a `cycle_batch`'s per-piece records into ONE
+   * op-summary record (Σgood/Σscrap, measured cycle, span) and persist the raw pieces to `cycle_records`
+   * — running UPSTREAM of the damped rule so relearn only ever sees op grain (A14). NOT yet enabled:
+   * Part (c) adds the `cycle_records` table + the thin derivation (reusing the "last cycle wins"
+   * grain-collapse precedent from `resolveContinuousActuals`). The grain + this branch are real now so
+   * the per-piece seam attaches without reworking the Tier-1 path.
+   */
+  private deriveOpFromCycles(_tenantId: string, _batch: CycleBatchActual): Promise<ExecutionActualPayload> {
+    throw new AppException(
+      HttpStatus.NOT_IMPLEMENTED,
+      'Tier-2 (cycle_batch) actuals ingestion is not yet enabled',
+      ERROR_CODES.ACTUALS_GRAIN_UNSUPPORTED,
+    )
   }
 
   /** Re-run the damped rule for one parameter over its full ordered actual series. */

@@ -93,6 +93,8 @@ export const ERROR_CODES = {
   // conversation (phase 6, api-spec §15.8)
   CONVERSATION_NOT_FOUND: 'CONVERSATION_NOT_FOUND',
   CONVERSATION_TURN_FAILED: 'CONVERSATION_TURN_FAILED',
+  // actuals ingestion grain (§4.3) — a grain on the actuals event the subscriber can't yet handle
+  ACTUALS_GRAIN_UNSUPPORTED: 'ACTUALS_GRAIN_UNSUPPORTED',
 } as const
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]

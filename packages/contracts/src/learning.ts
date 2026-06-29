@@ -192,12 +192,28 @@ export interface ExecutionActualDto {
 // --- 4.3 execution actual (the cross-module ingestion payload) ----------------
 
 /**
- * Execution actual (§4.3) — the simulator (SKIP-51, in `scheduling`) emits this on
- * the EventBus; `learning` consumes + appends it. The cross-module surface for the
- * closed loop; a real MES connector emits the same shape later (cleanly swappable).
+ * Actuals **grain** (§4.3) — an **open enum** (A12: more grains may come; consumers must-ignore
+ * unknown values). `op_summary` (Tier-1) = one record per completed op (today's shape; the implicit
+ * default — every existing producer). `cycle_batch` (Tier-2) = per-piece/per-stroke cycle records for
+ * ONE op. The grain rides the SAME `execution.actual.recorded` event (SKIP-51 — swap the simulator for
+ * an MES connector emitting either grain; never a parallel write interface). The learning subscriber
+ * collapses `cycle_batch` to op grain BEFORE the damped rule runs (A14: relearn never sees per-piece).
+ */
+export const actualsGrainSchema = z.enum(['op_summary', 'cycle_batch'])
+export type ActualsGrain = z.infer<typeof actualsGrainSchema>
+
+/**
+ * Execution actual (§4.3) — the simulator (SKIP-51, in `scheduling`) emits this on the EventBus;
+ * `learning` consumes + appends it. The cross-module surface for the closed loop; a real MES connector
+ * emits the same shape later (cleanly swappable). This is the **`op_summary` (Tier-1)** grain.
+ *
+ * `grain` is **additive/minor** (A12, by convention — no registry/Avro ceremony, SKIP-21): an OPTIONAL
+ * open-enum tag defaulting to `op_summary`, so every pre-grain producer payload validates unchanged.
  */
 export const executionActualSchema = z
   .object({
+    /** Tier-1 grain tag — optional; absent ⇒ `op_summary` (the implicit default). */
+    grain: z.literal('op_summary').optional(),
     actualEventId: z.string().min(1),
     scheduleVersionId: z.string().min(1),
     scheduledOperationId: z.string().min(1),
@@ -222,6 +238,49 @@ export const executionActualSchema = z
   })
   .strict()
 export type ExecutionActualPayload = z.infer<typeof executionActualSchema>
+
+/** One per-piece/per-stroke cycle record (Tier-2). `good=false` ⇒ the piece scrapped. */
+export const cycleRecordSchema = z
+  .object({
+    pieceIdx: z.number().int().nonnegative(),
+    cycleMs: z.number().nonnegative(),
+    good: z.boolean(),
+    ts: z.string(), // ISO
+  })
+  .strict()
+export type CycleRecord = z.infer<typeof cycleRecordSchema>
+
+/**
+ * Tier-2 **`cycle_batch`** actuals event (§4.3, SKIP-51) — per-piece records for ONE op, riding the
+ * SAME `execution.actual.recorded` event behind `grain: 'cycle_batch'`. Identity = the op's binding
+ * fields; the op-grain aggregates (good/scrap/cycle/span) are **DERIVED** by the learning subscriber
+ * from `pieces`, not supplied. Nothing emits this yet — the union member is real so a per-piece
+ * connector attaches without reworking the Tier-1 path; the table + derivation land in Part (c).
+ */
+export const cycleBatchActualSchema = z
+  .object({
+    grain: z.literal('cycle_batch'),
+    actualEventId: z.string().min(1),
+    scheduleVersionId: z.string().min(1),
+    scheduledOperationId: z.string().min(1),
+    resourceId: z.string().min(1),
+    routingOperationId: z.string().min(1),
+    partId: z.string().min(1),
+    stdSetupTime: z.number().nonnegative(),
+    stdCycleTime: z.number().nonnegative(),
+    actualSetupTime: z.number().nonnegative().nullable().default(null),
+    downtimeMinutes: z.number().nonnegative().default(0),
+    downtimeReason: z.string().nullable().default(null),
+    source: z.enum(['simulator', 'manual']).default('simulator'),
+    seq: z.number().int().nonnegative(),
+    pieces: z.array(cycleRecordSchema).min(1),
+  })
+  .strict()
+export type CycleBatchActual = z.infer<typeof cycleBatchActualSchema>
+
+/** The `execution.actual.recorded` event payload at either grain (the subscriber branches on `grain`,
+ *  absent ⇒ `op_summary`). A type union only — runtime routing is by the `grain` tag, not a parse. */
+export type ActualsEventPayload = ExecutionActualPayload | CycleBatchActual
 
 /** EventBus payload for `learning.drift.detected` (D56 tool-wear flag → notifications). */
 export interface DriftDetectedPayload {
