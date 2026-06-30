@@ -6,6 +6,7 @@ import {
   type CoverageAxisDto,
   type CoverageCell,
   type ConfigReadContract,
+  type KpiDashboardDto,
   type ObjectiveWeights,
   type CoverageProposalDto,
   type ExecutionActualDto,
@@ -1138,6 +1139,12 @@ export class SchedulingService {
    */
   computePlantOnTime(tenantId: string, plantId: string): Promise<{ plant: number | null; byResource: Map<string, number | null> }> {
     return this.rollup.computePlantOnTime(tenantId, plantId)
+  }
+
+  /** The 902 performance dashboard (tiles + trends + threshold status) for a plant — delegates to the
+   *  {@link ActualsRollupService}; the public seam the controller's `GET /scheduling/dashboard` reads. */
+  kpiDashboard(tenantId: string, plantId: string): Promise<KpiDashboardDto> {
+    return this.rollup.computeKpiDashboard(tenantId, plantId)
   }
 
   /** Compute one version's metrics, optionally scoped to a single resource/line. */

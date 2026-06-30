@@ -85,6 +85,16 @@ export class SchedulingController {
   }
 
   /**
+   * `GET /scheduling/dashboard?plantId=` — the 902 performance dashboard: current-value KPI tiles
+   * (on-time, throughput, OEE, scrap, adherence) each with cascade-resolved threshold status, plus
+   * trends for the actuals KPIs. Measure definitions + bands come from the KPI / Metric Policy.
+   */
+  @Get('dashboard')
+  kpiDashboard(@CurrentUser() user: JwtPayload, @Query('plantId') plantId: string) {
+    return this.scheduling.kpiDashboard(user.tenantId, plantId)
+  }
+
+  /**
    * `GET /scheduling/scorecard?plantId=&versionId=` — View 2 metrics for a specific
    * version (its own actuals). `versionId` optional → defaults to latest committed.
    */

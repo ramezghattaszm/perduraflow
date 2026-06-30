@@ -3,6 +3,9 @@ import {
   MASTERDATA_READ_CONTRACT,
   type ConfigReadContract,
   type ExecutionActualDto,
+  type KpiDashboardDto,
+  type KpiThresholdKey,
+  type KpiTileDto,
   type LearningReadContract,
   type MasterDataReadContract,
   type OeeDto,
@@ -12,7 +15,7 @@ import { LEARNING_READ } from '../learning/learning-read.service'
 import { CONFIG_READ } from '../config/config-read.service'
 import { SchedulingRepository } from './scheduling.repository'
 import { startOfDayUtc } from '../../common/utils/working-calendar'
-import { bucketStartUtc, bucketStartsInRange, isOrderLate, type OnTimeDefinition, type TrendBucket } from './kpi-measures'
+import { bucketStartUtc, bucketStartsInRange, isOrderLate, kpiStatus, type OnTimeDefinition, type TrendBucket } from './kpi-measures'
 
 const MS_PER_DAY = 86_400_000
 /** Mirrors `ADHERENCE_TOLERANCE_MIN` in the per-version fold (SchedulingService) — an op counts
@@ -27,12 +30,24 @@ export interface KpiTrendPoint {
   y: number | null
 }
 
-/** Windowed KPI trends for a plant — the actuals-derived series the 902 dashboard charts. OEE is
- *  deliberately ABSENT (current-value tile only: it reads the locked seeded snapshot, no honest trend). */
+/** Window-aggregate current value per actuals-derived KPI — the dashboard tile's headline number,
+ *  folded from the SAME authoritative actuals as the trend (so tile and trend agree). `null` on empty. */
+export interface KpiCurrentValues {
+  onTime: number | null
+  throughput: number | null
+  scrap: number | null
+  adherence: number | null
+}
+
+/** Windowed KPI trends + window-aggregate current values for a plant — the actuals-derived KPIs the 902
+ *  dashboard charts. OEE is deliberately ABSENT (current-value tile only: it reads the locked seeded
+ *  snapshot, no honest trend; the dashboard adds it separately via computeHistoricalOee). */
 export interface KpiTrends {
   bucket: TrendBucket
   windowStartMs: number
   windowEndMs: number
+  /** Window-aggregate current values (the tile headline) for the four actuals KPIs. */
+  current: KpiCurrentValues
   /** Σ good ÷ Σ planned per bucket (attainment). */
   throughput: KpiTrendPoint[]
   /** Σ scrap ÷ (Σ good + Σ scrap) per bucket (scrap rate). */
@@ -296,9 +311,10 @@ export class ActualsRollupService {
     const starts = bucketStartsInRange(windowStartMs, windowEndMs, bucket)
     const nullSeries = (): KpiTrendPoint[] => starts.map((x) => ({ x, y: null }))
 
+    const nullCurrent: KpiCurrentValues = { onTime: null, throughput: null, scrap: null, adherence: null }
     const { authoritative } = await this.resolveAuthoritativeActuals(tenantId, plantId, windowStartMs, windowEndMs)
     if (authoritative.length === 0) {
-      return { bucket, windowStartMs, windowEndMs, throughput: nullSeries(), scrap: nullSeries(), onTime: nullSeries(), adherence: nullSeries() }
+      return { bucket, windowStartMs, windowEndMs, current: nullCurrent, throughput: nullSeries(), scrap: nullSeries(), onTime: nullSeries(), adherence: nullSeries() }
     }
 
     const opById = new Map((await this.repo.findOpsByIds(authoritative.map((a) => a.scheduledOperationId))).map((o) => [o.id, o]))
@@ -333,10 +349,32 @@ export class ActualsRollupService {
       if (!isOrderLate(delivery, dueByLine.get(line) ?? null, onTimeDef)) o.onTime += 1
     }
 
+    // Window aggregates = the per-bucket accumulators summed (a ratio of sums, NOT a mean of bucket
+    // ratios) → the dashboard tile headline, consistent with each KPI's trend by construction.
+    const W = { good: 0, planned: 0, scrap: 0, adhereOnTime: 0, adhereTotal: 0, otOnTime: 0, otTotal: 0 }
+    for (const a of byBucket.values()) {
+      W.good += a.good
+      W.planned += a.planned
+      W.scrap += a.scrap
+      W.adhereOnTime += a.adhereOnTime
+      W.adhereTotal += a.adhereTotal
+    }
+    for (const o of otByBucket.values()) {
+      W.otOnTime += o.onTime
+      W.otTotal += o.total
+    }
+    const current: KpiCurrentValues = {
+      onTime: W.otTotal > 0 ? W.otOnTime / W.otTotal : null,
+      throughput: W.planned > 0 ? W.good / W.planned : null,
+      scrap: W.good + W.scrap > 0 ? W.scrap / (W.good + W.scrap) : null,
+      adherence: W.adhereTotal > 0 ? W.adhereOnTime / W.adhereTotal : null,
+    }
+
     return {
       bucket,
       windowStartMs,
       windowEndMs,
+      current,
       throughput: starts.map((x) => {
         const a = byBucket.get(x)
         return { x, y: a && a.planned > 0 ? a.good / a.planned : null }
@@ -355,5 +393,36 @@ export class ActualsRollupService {
         return { x, y: o && o.total > 0 ? o.onTime / o.total : null }
       }),
     }
+  }
+
+  /**
+   * Assemble the **902 performance dashboard** for a plant — current-value tiles (each with its
+   * cascade-resolved threshold status) + trends. Five v1 KPIs, all from the rollup: on-time /
+   * throughput / scrap / adherence (current + trend, from {@link computeKpiTrends}) and OEE
+   * (current-value-only, A·P·Q from {@link computeHistoricalOee} — the locked seeded snapshot, no
+   * trend). Band status comes from the KPI / Metric Policy (so both the measure and the bands are
+   * configurable). Cost + churn are version-sequence KPIs (not actuals-windowed) → a later add.
+   */
+  async computeKpiDashboard(tenantId: string, plantId: string): Promise<KpiDashboardDto> {
+    const [trends, oee, policy] = await Promise.all([
+      this.computeKpiTrends(tenantId, plantId),
+      this.computeHistoricalOee(tenantId, plantId),
+      this.config.resolveKpiPolicy(tenantId, plantId),
+    ])
+    const band = (key: KpiThresholdKey) => policy.thresholds[key] ?? null
+    const tiles: KpiTileDto[] = [
+      { key: 'onTime', value: trends.current.onTime, status: kpiStatus(trends.current.onTime, band('onTime')), trend: trends.onTime },
+      { key: 'throughput', value: trends.current.throughput, status: kpiStatus(trends.current.throughput, band('throughput')), trend: trends.throughput },
+      {
+        key: 'oee',
+        value: oee.plant?.oee ?? null,
+        status: kpiStatus(oee.plant?.oee ?? null, band('oee')),
+        trend: null,
+        oee: oee.plant ? { availability: oee.plant.availability, performance: oee.plant.performance, quality: oee.plant.quality } : null,
+      },
+      { key: 'scrap', value: trends.current.scrap, status: kpiStatus(trends.current.scrap, band('scrap')), trend: trends.scrap },
+      { key: 'adherence', value: trends.current.adherence, status: kpiStatus(trends.current.adherence, band('adherence')), trend: trends.adherence },
+    ]
+    return { plantId, windowStartMs: trends.windowStartMs, windowEndMs: trends.windowEndMs, bucket: trends.bucket, tiles }
   }
 }

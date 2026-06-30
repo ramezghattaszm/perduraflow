@@ -4,6 +4,7 @@ import {
   bucketStartsInRange,
   DEFAULT_ON_TIME_DEFINITION,
   isOrderLate,
+  kpiStatus,
 } from './kpi-measures'
 
 const DAY = 86_400_000
@@ -58,5 +59,25 @@ describe('bucketStartsInRange', () => {
   })
   it('lists weekly bucket starts aligned to Monday', () => {
     expect(bucketStartsInRange(WED, MON + 9 * DAY, 'week')).toEqual([MON, MON + 7 * DAY])
+  })
+})
+
+describe('kpiStatus', () => {
+  const higher = { direction: 'higher' as const, green: 0.95, amber: 0.9 }
+  const lower = { direction: 'lower' as const, green: 0.02, amber: 0.05 }
+  it('higher-better: green/amber/red by band', () => {
+    expect(kpiStatus(0.97, higher)).toBe('green')
+    expect(kpiStatus(0.92, higher)).toBe('amber')
+    expect(kpiStatus(0.8, higher)).toBe('red')
+    expect(kpiStatus(0.95, higher)).toBe('green') // exactly green edge
+  })
+  it('lower-better: green/amber/red by band (inverted)', () => {
+    expect(kpiStatus(0.01, lower)).toBe('green')
+    expect(kpiStatus(0.04, lower)).toBe('amber')
+    expect(kpiStatus(0.09, lower)).toBe('red')
+  })
+  it('null value or null band → none (no judgement)', () => {
+    expect(kpiStatus(null, higher)).toBe('none')
+    expect(kpiStatus(0.9, null)).toBe('none')
   })
 })

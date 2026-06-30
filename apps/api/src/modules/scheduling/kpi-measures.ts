@@ -39,6 +39,29 @@ export function isOrderLate(
   return deliveryMs > dueMs + def.toleranceMinutes * MS_PER_MINUTE
 }
 
+/** A KPI's status against its threshold band, or `none` (no value / no configured band). */
+export type KpiStatus = 'green' | 'amber' | 'red' | 'none'
+
+/**
+ * A value's status against a threshold band. Higher-better: ≥green → green, ≥amber → amber, else red.
+ * Lower-better: ≤green → green, ≤amber → amber, else red. A `null` value or `null` band → `none` (the
+ * honest "no judgement" state — e.g. an empty window, or a metric with no configured band like cost).
+ */
+export function kpiStatus(
+  value: number | null,
+  band: { direction: 'higher' | 'lower'; green: number; amber: number } | null,
+): KpiStatus {
+  if (value == null || band == null) return 'none'
+  if (band.direction === 'higher') {
+    if (value >= band.green) return 'green'
+    if (value >= band.amber) return 'amber'
+    return 'red'
+  }
+  if (value <= band.green) return 'green'
+  if (value <= band.amber) return 'amber'
+  return 'red'
+}
+
 /** Trend bucket granularity. */
 export type TrendBucket = 'day' | 'week'
 
