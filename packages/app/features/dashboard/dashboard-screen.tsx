@@ -124,6 +124,21 @@ export function DashboardScreen() {
   )
 }
 
+/**
+ * A whole-percent y-domain around the data: snap the data range outward to whole percents and enforce
+ * a ≥4-point span (clamped to [0, 1]) — so the axis ticks land on distinct whole percents instead of
+ * collapsing (a near-constant rate like ~97% otherwise yields sub-percent ticks that all read "97%").
+ */
+function percentDomain(ys: number[]): [number, number] {
+  let lo = Math.floor(Math.min(...ys) * 100) / 100
+  let hi = Math.ceil(Math.max(...ys) * 100) / 100
+  if (hi - lo < 0.04) {
+    hi = Math.min(1, lo + 0.04)
+    lo = Math.max(0, hi - 0.04)
+  }
+  return [lo, hi]
+}
+
 /** A KPI trend line — drops null buckets (gaps) so the line connects executed periods only. */
 function KpiTrend({ points }: { points: KpiTileDto['trend'] }) {
   const { t } = useTranslation('admin')
@@ -137,5 +152,14 @@ function KpiTrend({ points }: { points: KpiTileDto['trend'] }) {
       </YStack>
     )
   }
-  return <LineChart data={data} height={160} formatY={(v) => `${Math.round(v * 100)}%`} formatX={shortDate} dots={false} />
+  return (
+    <LineChart
+      data={data}
+      yDomain={percentDomain(data.map((d) => d.y))}
+      height={160}
+      formatY={(v) => `${Math.round(v * 100)}%`}
+      formatX={shortDate}
+      dots={false}
+    />
+  )
 }

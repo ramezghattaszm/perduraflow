@@ -64,8 +64,10 @@ export function niceDomain(min: number, max: number, count = 5): [number, number
 export function niceTicks(min: number, max: number, count = 5): number[] {
   if (min === max) return [min]
   const step = niceStep((max - min) / Math.max(1, count))
-  const start = Math.floor(min / step) * step
-  const end = Math.ceil(max / step) * step
+  // Epsilon-guard the boundary rounding: `min/step` can land at e.g. 1.9999998 (float), so a bare
+  // floor would emit a stray tick a whole step below the domain. Nudge before floor/ceil.
+  const start = Math.floor(min / step + 1e-9) * step
+  const end = Math.ceil(max / step - 1e-9) * step
   const ticks: number[] = []
   // Round to the step's decimal precision so floating accumulation doesn't leak into labels.
   const decimals = Math.max(0, -Math.floor(Math.log10(step)))

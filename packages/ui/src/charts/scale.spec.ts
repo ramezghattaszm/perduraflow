@@ -58,6 +58,11 @@ describe('niceTicks', () => {
   it('returns a single tick for a flat range', () => {
     expect(niceTicks(42, 42)).toEqual([42])
   })
+  it('does not emit a stray tick below the domain from float dust (0.02..0.06)', () => {
+    // Math.floor(0.02 / 0.01) is 1 (float), which would wrongly seed a 0.01 tick — the epsilon guard
+    // keeps the axis inside its domain.
+    expect(niceTicks(0.02, 0.06, 4)).toEqual([0.02, 0.03, 0.04, 0.05, 0.06])
+  })
 })
 
 describe('toPolylinePoints', () => {

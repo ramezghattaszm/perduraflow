@@ -80,8 +80,17 @@ export function ChartFrame({ xDomain, yDomain, xTicks, yTickCount = 4, formatX, 
   const innerH = Math.max(height - M_TOP - M_BOTTOM, 0)
   const xScale = linearScale(xDomain, [M_LEFT, M_LEFT + innerW])
   const yScale = linearScale(yDomain, [M_TOP + innerH, M_TOP]) // inverted: domain-max at the top
-  const yTicks = niceTicks(yDomain[0], yDomain[1], yTickCount)
   const fmtY = formatY ?? ((v: number) => `${Math.round(v)}`)
+  // Dedupe ticks whose FORMATTED label collapses to the same string — a narrow domain can yield
+  // sub-resolution steps (e.g. 0.968/0.969/0.970 all format to "97%"); render each label once.
+  const yTicks: number[] = []
+  const seenYLabels = new Set<string>()
+  for (const t of niceTicks(yDomain[0], yDomain[1], yTickCount)) {
+    const label = fmtY(t)
+    if (seenYLabels.has(label)) continue
+    seenYLabels.add(label)
+    yTicks.push(t)
+  }
   const plot: PlotContext = { xScale, yScale, innerW, innerH }
 
   return (
