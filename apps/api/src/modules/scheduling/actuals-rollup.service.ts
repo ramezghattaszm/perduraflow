@@ -12,6 +12,43 @@ import { LEARNING_READ } from '../learning/learning-read.service'
 import { CONFIG_READ } from '../config/config-read.service'
 import { SchedulingRepository } from './scheduling.repository'
 import { startOfDayUtc } from '../../common/utils/working-calendar'
+import {
+  bucketStartUtc,
+  bucketStartsInRange,
+  DEFAULT_ON_TIME_DEFINITION,
+  isOrderLate,
+  type OnTimeDefinition,
+  type TrendBucket,
+} from './kpi-measures'
+
+const MS_PER_DAY = 86_400_000
+/** Mirrors `ADHERENCE_TOLERANCE_MIN` in the per-version fold (SchedulingService) — an op counts
+ *  "on plan" if its actual start is within this many minutes of plan. Kept equal so the trend and the
+ *  scorecard's adherence agree on the tolerance. */
+const ADHERENCE_TOLERANCE_MIN = 15
+
+/** One point on a KPI trend — `x` is the bucket-start instant (epoch ms), `y` the metric (or `null`
+ *  for a period with no executed work). */
+export interface KpiTrendPoint {
+  x: number
+  y: number | null
+}
+
+/** Windowed KPI trends for a plant — the actuals-derived series the 902 dashboard charts. OEE is
+ *  deliberately ABSENT (current-value tile only: it reads the locked seeded snapshot, no honest trend). */
+export interface KpiTrends {
+  bucket: TrendBucket
+  windowStartMs: number
+  windowEndMs: number
+  /** Σ good ÷ Σ planned per bucket (attainment). */
+  throughput: KpiTrendPoint[]
+  /** Σ scrap ÷ (Σ good + Σ scrap) per bucket (scrap rate). */
+  scrap: KpiTrendPoint[]
+  /** Orders delivered on-time ÷ orders delivered, bucketed by delivery period (uses {@link isOrderLate}). */
+  onTime: KpiTrendPoint[]
+  /** Ops started within tolerance of plan ÷ executed ops, bucketed by execution period. */
+  adherence: KpiTrendPoint[]
+}
 
 /**
  * ActualsRollupService — the **one home** for the continuous (windowed, cross-version) actuals→KPI folds
@@ -53,15 +90,29 @@ export class ActualsRollupService {
     tenantId: string,
     plantId: string,
   ): Promise<{ authoritative: ExecutionActualDto[]; resourceIds: string[]; windowStartMs: number; windowEndMs: number }> {
-    const MS_PER_DAY = 86_400_000
     const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
     const windowEndMs = startOfDayUtc(Date.now())
     const windowStartMs = windowEndMs - reportingWindowDays * MS_PER_DAY
+    const { authoritative, resourceIds } = await this.resolveAuthoritativeActuals(tenantId, plantId, windowStartMs, windowEndMs)
+    return { authoritative, resourceIds, windowStartMs, windowEndMs }
+  }
 
+  /**
+   * Fetch → de-version → dedupe the **authoritative** executed actuals for a plant over an ARBITRARY
+   * window. Extracted from {@link resolveContinuousActuals} (identical logic) so the trend folds reuse
+   * the exact same authority rule over the trend window — one definition of "which actuals count",
+   * never two. The current-value folds call it with the reporting window; trends with the trend window.
+   */
+  private async resolveAuthoritativeActuals(
+    tenantId: string,
+    plantId: string,
+    windowStartMs: number,
+    windowEndMs: number,
+  ): Promise<{ authoritative: ExecutionActualDto[]; resourceIds: string[] }> {
     const md = await this.resolveMasterData(tenantId)
     const resourceIds = (await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id)
     const actuals = await this.learning.listActualsForResourcesInWindow(tenantId, resourceIds, windowStartMs, windowEndMs)
-    if (actuals.length === 0) return { authoritative: [], resourceIds, windowStartMs, windowEndMs }
+    if (actuals.length === 0) return { authoritative: [], resourceIds }
 
     // Authority: latest-committed executing version per (resource, routingOp, day).
     const versions = await this.repo.findVersionsByIds(tenantId, [...new Set(actuals.map((a) => a.scheduleVersionId))])
@@ -81,7 +132,7 @@ export class ActualsRollupService {
     for (const a of actuals) {
       if (bestVersionByGroup.get(groupKey(a)) === a.scheduleVersionId) repByOp.set(a.scheduledOperationId, a)
     }
-    return { authoritative: [...repByOp.values()], resourceIds, windowStartMs, windowEndMs }
+    return { authoritative: [...repByOp.values()], resourceIds }
   }
 
   /**
@@ -155,10 +206,11 @@ export class ActualsRollupService {
       touched.add(a.resourceId)
     }
     if (deliveryByLine.size === 0) return { plant: null, byResource: new Map() }
+    // The late-test goes through the shared `isOrderLate` measure (the Part-3 configurable seam). With
+    // the default definition this is exactly `due != null && delivery > due` — byte-identical to before.
     const lateByLine = new Map<string, boolean>()
     for (const [line, delivery] of deliveryByLine) {
-      const due = dueByLine.get(line)
-      lateByLine.set(line, due != null && delivery > due) // no due on record → not judged late
+      lateByLine.set(line, isOrderLate(delivery, dueByLine.get(line) ?? null))
     }
     const plant = deliveryByLine.size > 0 ? [...lateByLine.values()].filter((late) => !late).length / deliveryByLine.size : null
     const onTimeByRes = new Map<string, number>()
@@ -190,7 +242,6 @@ export class ActualsRollupService {
     tenantId: string,
     plantId: string,
   ): Promise<{ plant: OeeDto | null; byResource: Map<string, OeeDto | null> }> {
-    const MS_PER_DAY = 86_400_000
     const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
     const windowEndMs = startOfDayUtc(Date.now())
     const windowStartMs = windowEndMs - reportingWindowDays * MS_PER_DAY
@@ -218,5 +269,95 @@ export class ActualsRollupService {
       byResource.set(rid, agg(rows.filter((r) => r.resourceId === rid)))
     }
     return { plant, byResource }
+  }
+
+  /**
+   * Windowed KPI **trends** for the 902 dashboard — **additive** (never touches the current-value folds,
+   * so parity holds) and built on the SAME {@link resolveAuthoritativeActuals} authority over a trailing
+   * trend window. Per-KPI source (see the 902 build doc, Part 2 — "identify and report, don't assume"):
+   *  - **throughput, scrap, adherence** — pure actuals, bucketed by the op's EXECUTION period.
+   *  - **on-time** — ORDER-grain, bucketed by DELIVERY period, judged by the same {@link isOrderLate}
+   *    measure as the current-value tile (so the tile and its trend can't diverge). NOTE: this is the
+   *    delivery-bucketed continuous on-time, NOT the per-version OTIF sequence — chosen so trend and tile
+   *    share one definition; reported as a deliberate source choice.
+   *  - **OEE** — ABSENT: the locked seeded snapshot is a single period; a per-period trend would either
+   *    move the locked value or fabricate a line. Current-value tile only.
+   *  - **churn, cost** — version-sequence metrics (not actuals-windowed); not in this actuals trend.
+   * Empty buckets surface as `{ y: null }` (an honest gap, never a fabricated 0). `onTimeDef` is the
+   * resolved On-Time definition (Part 4 passes the cascade value; the default reproduces current behavior).
+   */
+  async computeKpiTrends(
+    tenantId: string,
+    plantId: string,
+    opts?: { bucket?: TrendBucket; trendDays?: number; onTimeDef?: OnTimeDefinition },
+  ): Promise<KpiTrends> {
+    const bucket = opts?.bucket ?? 'day'
+    const onTimeDef = opts?.onTimeDef ?? DEFAULT_ON_TIME_DEFINITION
+    const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
+    const trendDays = opts?.trendDays ?? reportingWindowDays
+    const windowEndMs = startOfDayUtc(Date.now())
+    const windowStartMs = windowEndMs - trendDays * MS_PER_DAY
+    const starts = bucketStartsInRange(windowStartMs, windowEndMs, bucket)
+    const nullSeries = (): KpiTrendPoint[] => starts.map((x) => ({ x, y: null }))
+
+    const { authoritative } = await this.resolveAuthoritativeActuals(tenantId, plantId, windowStartMs, windowEndMs)
+    if (authoritative.length === 0) {
+      return { bucket, windowStartMs, windowEndMs, throughput: nullSeries(), scrap: nullSeries(), onTime: nullSeries(), adherence: nullSeries() }
+    }
+
+    const opById = new Map((await this.repo.findOpsByIds(authoritative.map((a) => a.scheduledOperationId))).map((o) => [o.id, o]))
+    const dueByLine = new Map((await this.repo.listDemand(tenantId, plantId)).map((d) => [d.demandLineId, d.requiredDate.getTime()]))
+
+    // Execution-period accumulators (throughput / scrap / adherence) + per-order delivery for on-time.
+    type Acc = { good: number; planned: number; scrap: number; adhereOnTime: number; adhereTotal: number }
+    const byBucket = new Map<number, Acc>()
+    const acc = (b: number): Acc => {
+      let a = byBucket.get(b)
+      if (!a) byBucket.set(b, (a = { good: 0, planned: 0, scrap: 0, adhereOnTime: 0, adhereTotal: 0 }))
+      return a
+    }
+    const deliveryByLine = new Map<string, number>()
+    for (const a of authoritative) {
+      const op = opById.get(a.scheduledOperationId)
+      if (!op) continue
+      const acm = acc(bucketStartUtc(new Date(a.actualStart).getTime(), bucket))
+      acm.good += a.goodQty
+      acm.scrap += a.scrapQty
+      acm.planned += op.plannedQty
+      acm.adhereTotal += 1
+      if (Math.abs(new Date(a.actualStart).getTime() - op.plannedStart.getTime()) <= ADHERENCE_TOLERANCE_MIN * 60_000) acm.adhereOnTime += 1
+      if (op.demandLineId) deliveryByLine.set(op.demandLineId, Math.max(deliveryByLine.get(op.demandLineId) ?? 0, new Date(a.actualEnd).getTime()))
+    }
+    const otByBucket = new Map<number, { onTime: number; total: number }>()
+    for (const [line, delivery] of deliveryByLine) {
+      const b = bucketStartUtc(delivery, bucket)
+      let o = otByBucket.get(b)
+      if (!o) otByBucket.set(b, (o = { onTime: 0, total: 0 }))
+      o.total += 1
+      if (!isOrderLate(delivery, dueByLine.get(line) ?? null, onTimeDef)) o.onTime += 1
+    }
+
+    return {
+      bucket,
+      windowStartMs,
+      windowEndMs,
+      throughput: starts.map((x) => {
+        const a = byBucket.get(x)
+        return { x, y: a && a.planned > 0 ? a.good / a.planned : null }
+      }),
+      scrap: starts.map((x) => {
+        const a = byBucket.get(x)
+        const denom = a ? a.good + a.scrap : 0
+        return { x, y: a && denom > 0 ? a.scrap / denom : null }
+      }),
+      adherence: starts.map((x) => {
+        const a = byBucket.get(x)
+        return { x, y: a && a.adhereTotal > 0 ? a.adhereOnTime / a.adhereTotal : null }
+      }),
+      onTime: starts.map((x) => {
+        const o = otByBucket.get(x)
+        return { x, y: o && o.total > 0 ? o.onTime / o.total : null }
+      }),
+    }
   }
 }
