@@ -12,14 +12,7 @@ import { LEARNING_READ } from '../learning/learning-read.service'
 import { CONFIG_READ } from '../config/config-read.service'
 import { SchedulingRepository } from './scheduling.repository'
 import { startOfDayUtc } from '../../common/utils/working-calendar'
-import {
-  bucketStartUtc,
-  bucketStartsInRange,
-  DEFAULT_ON_TIME_DEFINITION,
-  isOrderLate,
-  type OnTimeDefinition,
-  type TrendBucket,
-} from './kpi-measures'
+import { bucketStartUtc, bucketStartsInRange, isOrderLate, type OnTimeDefinition, type TrendBucket } from './kpi-measures'
 
 const MS_PER_DAY = 86_400_000
 /** Mirrors `ADHERENCE_TOLERANCE_MIN` in the per-version fold (SchedulingService) — an op counts
@@ -206,11 +199,13 @@ export class ActualsRollupService {
       touched.add(a.resourceId)
     }
     if (deliveryByLine.size === 0) return { plant: null, byResource: new Map() }
-    // The late-test goes through the shared `isOrderLate` measure (the Part-3 configurable seam). With
-    // the default definition this is exactly `due != null && delivery > due` — byte-identical to before.
+    // The late-test goes through the shared `isOrderLate` measure with the resolved On-Time DEFINITION
+    // (KPI/Metric Policy — the configurable measure). Default tolerance 0 ⇒ exactly `delivery > due`
+    // (byte-identical to before); a tenant/plant tolerance override changes On-Time here AND in the trend.
+    const onTimeDef = (await this.config.resolveKpiPolicy(tenantId, plantId)).onTime
     const lateByLine = new Map<string, boolean>()
     for (const [line, delivery] of deliveryByLine) {
-      lateByLine.set(line, isOrderLate(delivery, dueByLine.get(line) ?? null))
+      lateByLine.set(line, isOrderLate(delivery, dueByLine.get(line) ?? null, onTimeDef))
     }
     const plant = deliveryByLine.size > 0 ? [...lateByLine.values()].filter((late) => !late).length / deliveryByLine.size : null
     const onTimeByRes = new Map<string, number>()
@@ -292,7 +287,8 @@ export class ActualsRollupService {
     opts?: { bucket?: TrendBucket; trendDays?: number; onTimeDef?: OnTimeDefinition },
   ): Promise<KpiTrends> {
     const bucket = opts?.bucket ?? 'day'
-    const onTimeDef = opts?.onTimeDef ?? DEFAULT_ON_TIME_DEFINITION
+    // Same resolved On-Time definition as the current-value tile, so the trend can't diverge from it.
+    const onTimeDef = opts?.onTimeDef ?? (await this.config.resolveKpiPolicy(tenantId, plantId)).onTime
     const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
     const trendDays = opts?.trendDays ?? reportingWindowDays
     const windowEndMs = startOfDayUtc(Date.now())

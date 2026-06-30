@@ -3,6 +3,11 @@ import {
   type AutonomyPolicy,
   CONFIG_READ_CONTRACT,
   type ConfigReadContract,
+  type KpiPolicy,
+  type KpiThreshold,
+  type KpiThresholdKey,
+  KPI_THRESHOLD_METRICS,
+  kpiBandFieldKeys,
   OBJECTIVE_DEFAULT_VERSION,
   type ObjectiveWeights,
   type ReportingPolicy,
@@ -66,5 +71,21 @@ export class ConfigReadService implements ConfigReadContract {
       snoozeUrgencyMinutes: Number(values['snoozeUrgencyMinutes']),
       boundedAuto: Boolean(values['boundedAuto']),
     }
+  }
+
+  /**
+   * Resolved KPI / Metric Policy (plant → tenant → global). Reshapes the flat cascade into the
+   * structured policy the dashboard + the actuals folds read: the configurable **On-Time measure**
+   * (tolerance) and the per-KPI **threshold bands** (with their fixed direction). Default tolerance 0
+   * reproduces the current On-Time behavior — parity holds until a tenant/plant overrides.
+   */
+  async resolveKpiPolicy(tenantId: string, plantId?: string): Promise<KpiPolicy> {
+    const { values } = await this.config.resolve('kpi', tenantId, plantId)
+    const thresholds = {} as Record<KpiThresholdKey, KpiThreshold>
+    for (const m of KPI_THRESHOLD_METRICS) {
+      const k = kpiBandFieldKeys(m.key)
+      thresholds[m.key] = { direction: m.direction, green: Number(values[k.green]), amber: Number(values[k.amber]) }
+    }
+    return { onTime: { toleranceMinutes: Number(values['onTimeToleranceMinutes']) }, thresholds }
   }
 }
