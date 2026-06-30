@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   DemandExceptionDto,
   DemandInputDto,
+  KpiDashboardDto,
   MaterialAvailabilityDto,
   MaterialConditionDto,
   ResourceDto,
@@ -97,6 +98,19 @@ export function useDemandExceptions(plantId: string | undefined) {
   return useQuery({
     queryKey: QUERY_KEYS.scheduling.demandExceptions(plantId ?? ''),
     queryFn: () => get<DemandExceptionDto[]>(`/scheduling/demand-exceptions?plantId=${plantId}`),
+    enabled: Boolean(plantId),
+    refetchOnMount: 'always',
+  })
+}
+
+/**
+ * The 902 performance dashboard for a plant — current-value KPI tiles (with cascade-resolved
+ * threshold status) + trends, over the reporting window. Enabled once a plant is chosen.
+ */
+export function useKpiDashboard(plantId: string | undefined) {
+  return useQuery({
+    queryKey: QUERY_KEYS.scheduling.kpiDashboard(plantId ?? ''),
+    queryFn: () => get<KpiDashboardDto>(`/scheduling/dashboard?plantId=${plantId}`),
     enabled: Boolean(plantId),
     refetchOnMount: 'always',
   })

@@ -36,6 +36,7 @@ export const QUERY_KEYS = {
     workList: (plantId: string, versionId: string, week = '') =>
       ['scheduling', 'work-list', plantId, versionId, week] as const,
     demandExceptions: (plantId: string) => ['scheduling', 'demand-exceptions', plantId] as const,
+    kpiDashboard: (plantId: string) => ['scheduling', 'dashboard', plantId] as const,
     whatIf: (id: string) => ['scheduling', 'whatif', id] as const,
     narration: (resultId: string, mode: string, optionId: string) => ['scheduling', 'narration', resultId, mode, optionId] as const,
     baseline: (plantId: string, source: string, resourceId: string) => ['scheduling', 'baseline', plantId, source, resourceId] as const,
