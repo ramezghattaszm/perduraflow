@@ -2,12 +2,14 @@ import type {
   CertificationDto,
   OperatorDto,
   PartDto,
+  PartVersionDto,
   ResourceDowntimeDto,
   ResourceDto,
   ResourceGroupDto,
   ResourceTypeConfigDto,
   RoutingDto,
   RoutingOperationDto,
+  RoutingVersionDto,
 } from '@perduraflow/contracts'
 import type {
   Certification,
@@ -32,6 +34,14 @@ export const toPartDto = (p: Part): PartDto => ({
   gauge: p.gauge,
   colour: p.colour,
   status: p.status,
+})
+
+/** Map a part row to its versioned DTO (Layer 0 `1.4`) — adds revision + effectivity window (ISO). */
+export const toPartVersionDto = (p: Part): PartVersionDto => ({
+  ...toPartDto(p),
+  revision: p.revision,
+  effectiveFrom: p.effectiveFrom.toISOString(),
+  effectiveTo: p.effectiveTo ? p.effectiveTo.toISOString() : null,
 })
 
 /** Map a resource row to its DTO. */
@@ -101,6 +111,15 @@ export const toRoutingDto = (r: Routing, operations: RoutingOperation[]): Routin
   isPrimary: r.isPrimary,
   status: r.status,
   operations: operations.map(toRoutingOperationDto),
+})
+
+/** Map a routing row (+ ops) to its versioned DTO (Layer 0 `1.4`) — adds part_no + effectivity window. */
+export const toRoutingVersionDto = (r: Routing, operations: RoutingOperation[]): RoutingVersionDto => ({
+  ...toRoutingDto(r, operations),
+  partNo: r.partNo,
+  revision: r.revision,
+  effectiveFrom: r.effectiveFrom.toISOString(),
+  effectiveTo: r.effectiveTo ? r.effectiveTo.toISOString() : null,
 })
 
 /** Map a certification row to its DTO. */

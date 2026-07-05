@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, or } from 'drizzle-orm'
 import { MASTERDATA_DB, type MasterDataDatabase } from './master-data.db'
 import {
   certification,
@@ -43,12 +43,6 @@ import {
 export class MasterDataRepository {
   constructor(@Inject(MASTERDATA_DB) private readonly db: MasterDataDatabase) {}
 
-  // --- audit (append-only, Layer 0 §6) ---------------------------------------
-  /** Append master-data audit rows (one per change event). Append-only — never updated/deleted. */
-  async appendAudit(rows: NewMasterDataAudit[]): Promise<void> {
-    if (rows.length > 0) await this.db.insert(masterDataAudit).values(rows)
-  }
-
   // --- part ------------------------------------------------------------------
   listParts(tenantId: string): Promise<Part[]> {
     return this.db.select().from(part).where(eq(part.tenantId, tenantId)).orderBy(asc(part.partNo))
@@ -83,6 +77,64 @@ export class MasterDataRepository {
       .where(and(eq(part.tenantId, tenantId), eq(part.id, id)))
       .returning()
     return row
+  }
+
+  // --- part: Layer 0 versioned reads + transactional revise ------------------
+  /**
+   * The part version effective at `asOf` for a business key — half-open `[effective_from,
+   * effective_to)`: `effective_from <= asOf AND (effective_to IS NULL OR effective_to > asOf)`,
+   * matching the GiST exclusion constraint's `tstzrange`. At most one row by construction.
+   */
+  findPartAsOf(tenantId: string, partNo: string, asOf: Date): Promise<Part | undefined> {
+    return this.db.query.part.findFirst({
+      where: and(
+        eq(part.tenantId, tenantId),
+        eq(part.partNo, partNo),
+        lte(part.effectiveFrom, asOf),
+        or(isNull(part.effectiveTo), gt(part.effectiveTo, asOf)),
+      ),
+    })
+  }
+
+  /** The current OPEN part version (`effective_to IS NULL`) for a business key, or undefined. */
+  findOpenPart(tenantId: string, partNo: string): Promise<Part | undefined> {
+    return this.db.query.part.findFirst({
+      where: and(eq(part.tenantId, tenantId), eq(part.partNo, partNo), isNull(part.effectiveTo)),
+    })
+  }
+
+  /** Full revision history for a `part_no`, oldest first. */
+  listPartVersions(tenantId: string, partNo: string): Promise<Part[]> {
+    return this.db
+      .select()
+      .from(part)
+      .where(and(eq(part.tenantId, tenantId), eq(part.partNo, partNo)))
+      .orderBy(asc(part.effectiveFrom))
+  }
+
+  /**
+   * Transactionally supersede a part: close the prior open version's window at `effectiveFrom`,
+   * insert the new open version, append audit rows — all atomic (any failure rolls back all three).
+   * The prior close is guarded on `effective_to IS NULL` (concurrency-safe).
+   */
+  async revisePartTx(input: {
+    tenantId: string
+    priorId: string
+    effectiveFrom: Date
+    newVersion: NewPart
+    auditRows: NewMasterDataAudit[]
+  }): Promise<Part> {
+    return this.db.transaction(async (tx) => {
+      const closed = await tx
+        .update(part)
+        .set({ effectiveTo: input.effectiveFrom, updatedAt: new Date() })
+        .where(and(eq(part.tenantId, input.tenantId), eq(part.id, input.priorId), isNull(part.effectiveTo)))
+        .returning()
+      if (closed.length === 0) throw new Error('revisePartTx: prior version is not open')
+      const [newRow] = await tx.insert(part).values(input.newVersion).returning()
+      if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
+      return newRow!
+    })
   }
 
   // --- resource --------------------------------------------------------------
@@ -120,6 +172,45 @@ export class MasterDataRepository {
       .where(and(eq(resource.tenantId, tenantId), eq(resource.id, id)))
       .returning()
     return row
+  }
+
+  /** Create a resource + its audit row atomically (Pattern B — §6). */
+  async createResourceWithAudit(
+    data: NewResource,
+    makeAudit: (row: Resource) => NewMasterDataAudit,
+  ): Promise<Resource> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx.insert(resource).values(data).returning()
+      await tx.insert(masterDataAudit).values(makeAudit(row!))
+      return row!
+    })
+  }
+
+  /**
+   * Update a resource + write its audit row atomically (Pattern B — §6). Reads the prior row and
+   * builds the audit inside the transaction; `buildAudit` returning null (no tracked field changed)
+   * skips the audit write. Any failure — including a throw from `buildAudit` — rolls back the update.
+   */
+  async updateResourceWithAudit(
+    tenantId: string,
+    id: string,
+    patch: Partial<NewResource>,
+    buildAudit: (before: Resource, after: Resource) => NewMasterDataAudit | null,
+  ): Promise<Resource | undefined> {
+    return this.db.transaction(async (tx) => {
+      const before = await tx.query.resource.findFirst({
+        where: and(eq(resource.tenantId, tenantId), eq(resource.id, id)),
+      })
+      if (!before) return undefined
+      const [after] = await tx
+        .update(resource)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(and(eq(resource.tenantId, tenantId), eq(resource.id, id)))
+        .returning()
+      const audit = buildAudit(before, after!)
+      if (audit) await tx.insert(masterDataAudit).values(audit)
+      return after
+    })
   }
 
   // --- resource downtime (line-down / maintenance closures) ------------------
@@ -220,6 +311,73 @@ export class MasterDataRepository {
     return row
   }
 
+  /** Create a resource group (+ members) + its audit row atomically (Pattern B — §6). */
+  async createResourceGroupWithAudit(
+    data: NewResourceGroup,
+    memberResourceIds: string[],
+    makeAudit: (row: ResourceGroup) => NewMasterDataAudit,
+  ): Promise<ResourceGroup> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx.insert(resourceGroup).values(data).returning()
+      if (memberResourceIds.length > 0) {
+        await tx
+          .insert(resourceGroupMember)
+          .values(memberResourceIds.map((resourceId) => ({ tenantId: row!.tenantId, resourceGroupId: row!.id, resourceId })))
+      }
+      await tx.insert(masterDataAudit).values(makeAudit(row!))
+      return row!
+    })
+  }
+
+  /**
+   * Update a resource group (header + optional member replace) + its audit row atomically (Pattern B).
+   * Reads prior header + members inside the tx; `buildAudit` returning null skips the audit write. Any
+   * failure rolls back the whole change. Returns the updated row + resolved member ids, or undefined.
+   */
+  async updateResourceGroupWithAudit(
+    tenantId: string,
+    id: string,
+    patch: Partial<NewResourceGroup>,
+    memberResourceIds: string[] | undefined,
+    buildAudit: (
+      before: ResourceGroup,
+      after: ResourceGroup,
+      oldMembers: string[],
+      newMembers: string[],
+    ) => NewMasterDataAudit | null,
+  ): Promise<{ row: ResourceGroup; members: string[] } | undefined> {
+    return this.db.transaction(async (tx) => {
+      const before = await tx.query.resourceGroup.findFirst({
+        where: and(eq(resourceGroup.tenantId, tenantId), eq(resourceGroup.id, id)),
+      })
+      if (!before) return undefined
+      const oldMembers = (
+        await tx
+          .select({ resourceId: resourceGroupMember.resourceId })
+          .from(resourceGroupMember)
+          .where(eq(resourceGroupMember.resourceGroupId, id))
+      ).map((r) => r.resourceId)
+      const [after] = await tx
+        .update(resourceGroup)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(and(eq(resourceGroup.tenantId, tenantId), eq(resourceGroup.id, id)))
+        .returning()
+      let newMembers = oldMembers
+      if (memberResourceIds) {
+        await tx.delete(resourceGroupMember).where(eq(resourceGroupMember.resourceGroupId, id))
+        if (memberResourceIds.length > 0) {
+          await tx
+            .insert(resourceGroupMember)
+            .values(memberResourceIds.map((resourceId) => ({ tenantId, resourceGroupId: id, resourceId })))
+        }
+        newMembers = memberResourceIds
+      }
+      const audit = buildAudit(before, after!, oldMembers, newMembers)
+      if (audit) await tx.insert(masterDataAudit).values(audit)
+      return { row: after!, members: newMembers }
+    })
+  }
+
   private async replaceGroupMembers(tenantId: string, groupId: string, resourceIds: string[]): Promise<void> {
     await this.db.delete(resourceGroupMember).where(eq(resourceGroupMember.resourceGroupId, groupId))
     if (resourceIds.length === 0) return
@@ -276,6 +434,73 @@ export class MasterDataRepository {
       .returning()
     if (row && operations) await this.replaceOperations(tenantId, id, operations)
     return row
+  }
+
+  // --- routing: Layer 0 versioned reads + transactional revise ---------------
+  private routingKey(tenantId: string, partNo: string, opts: { name?: string; primaryOnly?: boolean }) {
+    return and(
+      eq(routing.tenantId, tenantId),
+      eq(routing.partNo, partNo),
+      ...(opts.name ? [eq(routing.name, opts.name)] : []),
+      ...(opts.primaryOnly ? [eq(routing.isPrimary, true)] : []),
+    )
+  }
+
+  /**
+   * The routing version effective at `asOf` for a `part_no` (optionally by `name` / primary-only) —
+   * half-open `[effective_from, effective_to)`, matching the exclusion constraint's `tstzrange`.
+   */
+  findRoutingAsOf(
+    tenantId: string,
+    partNo: string,
+    opts: { name?: string; primaryOnly?: boolean; asOf: Date },
+  ): Promise<Routing | undefined> {
+    return this.db.query.routing.findFirst({
+      where: and(
+        this.routingKey(tenantId, partNo, opts),
+        lte(routing.effectiveFrom, opts.asOf),
+        or(isNull(routing.effectiveTo), gt(routing.effectiveTo, opts.asOf)),
+      ),
+    })
+  }
+
+  /** The current OPEN routing version for a `part_no` (optionally by `name` / primary), or undefined. */
+  findOpenRouting(
+    tenantId: string,
+    partNo: string,
+    opts: { name?: string; primaryOnly?: boolean } = {},
+  ): Promise<Routing | undefined> {
+    return this.db.query.routing.findFirst({
+      where: and(this.routingKey(tenantId, partNo, opts), isNull(routing.effectiveTo)),
+    })
+  }
+
+  /**
+   * Transactionally supersede a routing: close the prior open version, insert the new open version with
+   * its operation rows copied on (routingId rebound to the new version), append audit — all atomic.
+   */
+  async reviseRoutingTx(input: {
+    tenantId: string
+    priorId: string
+    effectiveFrom: Date
+    newVersion: NewRouting
+    operations: Omit<NewRoutingOperation, 'routingId'>[]
+    auditRows: NewMasterDataAudit[]
+  }): Promise<Routing> {
+    return this.db.transaction(async (tx) => {
+      const closed = await tx
+        .update(routing)
+        .set({ effectiveTo: input.effectiveFrom, updatedAt: new Date() })
+        .where(and(eq(routing.tenantId, input.tenantId), eq(routing.id, input.priorId), isNull(routing.effectiveTo)))
+        .returning()
+      if (closed.length === 0) throw new Error('reviseRoutingTx: prior version is not open')
+      const [newRow] = await tx.insert(routing).values(input.newVersion).returning()
+      if (input.operations.length > 0) {
+        await tx.insert(routingOperation).values(input.operations.map((op) => ({ ...op, routingId: newRow!.id })))
+      }
+      if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
+      return newRow!
+    })
   }
 
   private async replaceOperations(

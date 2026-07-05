@@ -41,6 +41,7 @@ import {
   type MasterDataAuditAction,
   type MasterDataAuditChange,
   type MasterDataEntityType,
+  type NewMasterDataAudit,
 } from './schema'
 
 /** Actor sentinel for changes with no JWT user (seed / system paths) — never null (§6). */
@@ -132,16 +133,17 @@ export class MasterDataService {
   async createResource(tenantId: string, dto: CreateResourceRequest, actor: string = SYSTEM_ACTOR): Promise<ResourceDto> {
     await this.assertPlant(tenantId, dto.plantId)
     await this.assertCalendar(tenantId, dto.calendarId)
-    const row = await this.repo.createResource({ ...dto, tenantId })
-    await this.writeAudit({
-      tenantId,
-      entityType: 'resource',
-      businessKey: row.id,
-      versionId: row.id,
-      action: 'create',
-      actor,
-      changedFields: this.snapshot(row, RESOURCE_AUDIT_COLS),
-    })
+    const row = await this.repo.createResourceWithAudit({ ...dto, tenantId }, (r) =>
+      this.auditRow({
+        tenantId,
+        entityType: 'resource',
+        businessKey: r.id,
+        versionId: r.id,
+        action: 'create',
+        actor,
+        changedFields: this.snapshot(r, RESOURCE_AUDIT_COLS),
+      }),
+    )
     await this.events.publish(EVENTS.RESOURCE_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
     return toResourceDto(row)
   }
@@ -156,22 +158,20 @@ export class MasterDataService {
   async updateResource(tenantId: string, id: string, dto: UpdateResourceRequest, actor: string = SYSTEM_ACTOR): Promise<ResourceDto> {
     if (dto.plantId) await this.assertPlant(tenantId, dto.plantId)
     if (dto.calendarId) await this.assertCalendar(tenantId, dto.calendarId)
-    const before = await this.repo.findResource(tenantId, id)
-    if (!before) throw new AppException(HttpStatus.NOT_FOUND, 'Resource not found', ERROR_CODES.RESOURCE_NOT_FOUND)
-    const row = await this.repo.updateResource(tenantId, id, dto)
-    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Resource not found', ERROR_CODES.RESOURCE_NOT_FOUND)
-    const changedFields = this.diff(before, row, RESOURCE_AUDIT_COLS)
-    if (Object.keys(changedFields).length > 0) {
-      await this.writeAudit({
+    const row = await this.repo.updateResourceWithAudit(tenantId, id, dto, (before, after) => {
+      const changedFields = this.diff(before, after, RESOURCE_AUDIT_COLS)
+      if (Object.keys(changedFields).length === 0) return null
+      return this.auditRow({
         tenantId,
         entityType: 'resource',
-        businessKey: row.id,
-        versionId: row.id,
+        businessKey: after.id,
+        versionId: after.id,
         action: changedFields['status']?.new === 'inactive' ? 'deactivate' : 'update',
         actor,
         changedFields,
       })
-    }
+    })
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Resource not found', ERROR_CODES.RESOURCE_NOT_FOUND)
     return toResourceDto(row)
   }
 
@@ -255,17 +255,18 @@ export class MasterDataService {
     await this.assertPlant(tenantId, dto.plantId)
     await this.assertResourcesExist(tenantId, dto.memberResourceIds)
     const { memberResourceIds, ...fields } = dto
-    const row = await this.repo.createResourceGroup({ ...fields, tenantId }, memberResourceIds)
-    const changedFields = this.snapshot(row, RESOURCE_GROUP_AUDIT_COLS)
-    changedFields['memberResourceIds'] = { new: memberResourceIds }
-    await this.writeAudit({
-      tenantId,
-      entityType: 'resource_group',
-      businessKey: row.id,
-      versionId: row.id,
-      action: 'create',
-      actor,
-      changedFields,
+    const row = await this.repo.createResourceGroupWithAudit({ ...fields, tenantId }, memberResourceIds, (r) => {
+      const changedFields = this.snapshot(r, RESOURCE_GROUP_AUDIT_COLS)
+      changedFields['memberResourceIds'] = { new: memberResourceIds }
+      return this.auditRow({
+        tenantId,
+        entityType: 'resource_group',
+        businessKey: r.id,
+        versionId: r.id,
+        action: 'create',
+        actor,
+        changedFields,
+      })
     })
     await this.events.publish(EVENTS.RESOURCE_GROUP_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
     return toResourceGroupDto(row, memberResourceIds)
@@ -284,33 +285,33 @@ export class MasterDataService {
   ): Promise<ResourceGroupDto> {
     if (dto.plantId) await this.assertPlant(tenantId, dto.plantId)
     if (dto.memberResourceIds) await this.assertResourcesExist(tenantId, dto.memberResourceIds)
-    const before = await this.repo.findResourceGroup(tenantId, id)
-    if (!before) {
-      throw new AppException(HttpStatus.NOT_FOUND, 'Resource group not found', ERROR_CODES.RESOURCE_GROUP_NOT_FOUND)
-    }
-    const oldMembers = dto.memberResourceIds ? await this.repo.memberResourceIds(id) : undefined
     const { memberResourceIds, ...fields } = dto
-    const row = await this.repo.updateResourceGroup(tenantId, id, fields, memberResourceIds)
-    if (!row) {
+    const result = await this.repo.updateResourceGroupWithAudit(
+      tenantId,
+      id,
+      fields,
+      memberResourceIds,
+      (before, after, oldMembers, newMembers) => {
+        const changedFields = this.diff(before, after, RESOURCE_GROUP_AUDIT_COLS)
+        if (memberResourceIds && !this.sameMembers(oldMembers, newMembers)) {
+          changedFields['memberResourceIds'] = { old: oldMembers, new: newMembers }
+        }
+        if (Object.keys(changedFields).length === 0) return null
+        return this.auditRow({
+          tenantId,
+          entityType: 'resource_group',
+          businessKey: after.id,
+          versionId: after.id,
+          action: changedFields['isActive']?.new === false ? 'deactivate' : 'update',
+          actor,
+          changedFields,
+        })
+      },
+    )
+    if (!result) {
       throw new AppException(HttpStatus.NOT_FOUND, 'Resource group not found', ERROR_CODES.RESOURCE_GROUP_NOT_FOUND)
     }
-    const newMembers = await this.repo.memberResourceIds(id)
-    const changedFields = this.diff(before, row, RESOURCE_GROUP_AUDIT_COLS)
-    if (memberResourceIds && oldMembers && !this.sameMembers(oldMembers, memberResourceIds)) {
-      changedFields['memberResourceIds'] = { old: oldMembers, new: memberResourceIds }
-    }
-    if (Object.keys(changedFields).length > 0) {
-      await this.writeAudit({
-        tenantId,
-        entityType: 'resource_group',
-        businessKey: row.id,
-        versionId: row.id,
-        action: changedFields['isActive']?.new === false ? 'deactivate' : 'update',
-        actor,
-        changedFields,
-      })
-    }
-    return toResourceGroupDto(row, newMembers)
+    return toResourceGroupDto(result.row, result.members)
   }
 
   // --- routing + operations --------------------------------------------------
@@ -450,11 +451,12 @@ export class MasterDataService {
 
   // --- audit (Pattern B — §6) ------------------------------------------------
   /**
-   * Appends one master-data audit row. Append-only; `effectiveFrom`/`sourceRef`
-   * are Pattern-A (revise) concerns and stay null here. Actor is the JWT user id
-   * or the `'system'` sentinel — never null.
+   * Builds one master-data audit row (not persisted here — handed to the repository's atomic
+   * `*WithAudit` tx methods so the change and its audit commit or roll back together). `effectiveFrom`
+   * /`sourceRef` are Pattern-A (revise) concerns and stay null. Actor is the JWT user id or the
+   * `'system'` sentinel — never null.
    */
-  private async writeAudit(params: {
+  private auditRow(params: {
     tenantId: string
     entityType: MasterDataEntityType
     businessKey: string
@@ -462,20 +464,18 @@ export class MasterDataService {
     action: MasterDataAuditAction
     actor: string
     changedFields: Record<string, MasterDataAuditChange>
-  }): Promise<void> {
-    await this.repo.appendAudit([
-      {
-        tenantId: params.tenantId,
-        entityType: params.entityType,
-        businessKey: params.businessKey,
-        versionId: params.versionId,
-        action: params.action,
-        actor: params.actor,
-        sourceRef: null,
-        effectiveFrom: null,
-        changedFields: params.changedFields,
-      },
-    ])
+  }): NewMasterDataAudit {
+    return {
+      tenantId: params.tenantId,
+      entityType: params.entityType,
+      businessKey: params.businessKey,
+      versionId: params.versionId,
+      action: params.action,
+      actor: params.actor,
+      sourceRef: null,
+      effectiveFrom: null,
+      changedFields: params.changedFields,
+    }
   }
 
   /** Full snapshot of the tracked columns for a `create` audit (`{ new }`, no prior). */

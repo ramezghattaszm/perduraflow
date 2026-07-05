@@ -6,11 +6,15 @@ import {
   type MasterDataRefValidation,
   type OperatorDto,
   type PartDto,
+  type PartVersionDto,
   type ResourceDowntimeDto,
   type ResourceDto,
   type ResourceGroupDto,
   type ResourceTypeConfigDto,
+  type ReviseRoutingRequest,
+  type RevisePartRequest,
   type RoutingDto,
+  type RoutingVersionDto,
 } from '@perduraflow/contracts'
 import {
   toCertificationDto,
@@ -23,23 +27,57 @@ import {
   toRoutingDto,
 } from './master-data.mapper'
 import { MasterDataRepository } from './master-data.repository'
+import { MasterDataResolver } from './master-data.resolver'
 
-/** DI token for the published `masterdata.read 1.0` interface. */
+/** DI token for the published `masterdata.read` interface (currently `1.4`). */
 export const MASTERDATA_READ = Symbol('MASTERDATA_READ')
 
 /**
- * In-process implementation of the published `masterdata.read 1.0` contract
- * (api-spec §10.3). This is the surface phase-2 scheduling will bind to — it
- * depends on `MasterDataReadContract` + DTOs from `@perduraflow/contracts`, never
- * on these tables. **No binding resolver is built this phase** (O7): the module
- * only publishes the contract; its first consumer arrives in phase 2. No
- * transport here (O6).
+ * In-process implementation of the published `masterdata.read` contract (api-spec §10.3;
+ * `1.4` — Layer 0). This is the surface scheduling binds to — it depends on
+ * `MasterDataReadContract` + DTOs from `@perduraflow/contracts`, never on these tables.
+ * Consumed through the per-tenant **binding resolver** (`binding/binding.resolver.ts`, O7),
+ * registered as the `platform_module` counterpart at the composition root. No transport here (O6).
+ * The `resolve*`/`revise*` (`1.4`) methods delegate to {@link MasterDataResolver}.
  */
 @Injectable()
 export class MasterDataReadService implements MasterDataReadContract {
   readonly contract = MASTERDATA_READ_CONTRACT
 
-  constructor(private readonly repo: MasterDataRepository) {}
+  constructor(
+    private readonly repo: MasterDataRepository,
+    private readonly resolver: MasterDataResolver,
+  ) {}
+
+  // --- Layer 0 resolve-as-of + revise (1.4) — delegate to the resolver -------
+  /** Resolves the part version effective at `asOf` (default now) by business key, or null. */
+  resolvePart(tenantId: string, partNo: string, asOf?: string): Promise<PartVersionDto | null> {
+    return this.resolver.resolvePart(tenantId, partNo, asOf)
+  }
+
+  /** Full revision history for a `partNo`, oldest first. */
+  resolvePartVersions(tenantId: string, partNo: string): Promise<PartVersionDto[]> {
+    return this.resolver.resolvePartVersions(tenantId, partNo)
+  }
+
+  /** Resolves the routing version effective at `asOf` (default now) for a `partNo`, with operations. */
+  resolveRouting(
+    tenantId: string,
+    partNo: string,
+    opts?: { name?: string; primaryOnly?: boolean; asOf?: string },
+  ): Promise<RoutingVersionDto | null> {
+    return this.resolver.resolveRouting(tenantId, partNo, opts)
+  }
+
+  /** Creates a new part revision transactionally (close prior → open new → audit). */
+  revisePart(tenantId: string, partNo: string, input: RevisePartRequest, actor: string): Promise<PartVersionDto> {
+    return this.resolver.revisePart(tenantId, partNo, input, actor)
+  }
+
+  /** Creates a new routing revision transactionally (copies op rows onto the new version). */
+  reviseRouting(tenantId: string, partNo: string, input: ReviseRoutingRequest, actor: string): Promise<RoutingVersionDto> {
+    return this.resolver.reviseRouting(tenantId, partNo, input, actor)
+  }
 
   /** Lists the tenant's parts. */
   async listParts(tenantId: string): Promise<PartDto[]> {

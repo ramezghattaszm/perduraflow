@@ -6,14 +6,17 @@ import { z } from 'zod'
  * phase-2 scheduling will bind to, plus the admin CRUD request schemas the
  * master-data screens use. Carries an `id + version` from day one (SKIP-21).
  *
- * **No binding resolver** is built this phase (O7) — `masterdata.read` is only
- * *published*; its first consumer (scheduling) arrives in phase 2. Master Data
- * *consumes* the kernel `org.read 1.1` for plant/calendar validation (O4), never
- * org's tables.
+ * The per-tenant **binding resolver IS built** (`binding/binding.resolver.ts`, O7);
+ * scheduling consumes this contract through `bindings.resolve(MASTERDATA_READ_CONTRACT)`,
+ * and the read impl is registered as the `platform_module` counterpart at the composition
+ * root. Master Data *consumes* the kernel `org.read 1.1` for plant/calendar validation (O4),
+ * never org's tables.
  *
- * Minimal slice (SKIP-02): current-version only (no revision/effectivity SKIP-44),
- * no BOM (SKIP-45), single base UoM no conversion, no tooling/asset domain, the
- * changeover matrix + sequencing rules stay scheduling-owned (SKIP-48).
+ * Slice: single base UoM no conversion (SKIP-02), no BOM (SKIP-45), no tooling/asset domain,
+ * the changeover matrix + sequencing rules stay scheduling-owned (SKIP-48). **Layer 0 adds
+ * effectivity + revision (Pattern A) for `part`/`routing`** — resolve-by-`part_no` as-of a date
+ * (`resolvePart`/`resolveRouting`) and transactional `revise*`; id-based reads are deprecated
+ * (D-L0-4), retained for A12 must-ignore until a future MAJOR.
  */
 // `1.2` (phase 3, additive MINOR — api-spec §12.9): adds Tier-B **cost rates** to
 // `ResourceDto` (`runCostPerHour`, `setupCost`, `overheadPerUnit`) — Master-Data-
@@ -24,7 +27,12 @@ import { z } from 'zod'
 // per-resource time-boxed closures (line-down / maintenance) the calendar-aware
 // sequencer subtracts from capacity. Every prior consumer keeps compiling; bindings
 // pin major `1` so this floats in (A12).
-export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.3' } as const
+// `1.4` (Layer 0, additive MINOR): adds effectivity + revision (Pattern A) for part/routing —
+// `resolvePart`/`resolveRouting`/`resolvePartVersions` (resolve-by-part_no as-of a date) +
+// transactional `revisePart`/`reviseRouting`, and `PartVersionDto`/`RoutingVersionDto`. The
+// id-based `getPart`/`getRouting`/`getPrimaryRoutingForPart` are deprecated but retained
+// (D-L0-4, A12 must-ignore). `org.read` untouched (still 1.1).
+export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.4' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -160,6 +168,30 @@ export interface RoutingDto {
   operations: RoutingOperationDto[]
 }
 
+/**
+ * A resolved **part version** (Layer 0 Pattern A, `1.4`). `PartDto` fields for the resolved
+ * revision plus its effectivity window. `id` is the per-version row id; the durable identity
+ * is `partNo`. `effectiveFrom`/`effectiveTo` are ISO datetimes; `effectiveTo === null` = the
+ * open/current version. Window is half-open `[effectiveFrom, effectiveTo)`.
+ */
+export interface PartVersionDto extends PartDto {
+  revision: string
+  effectiveFrom: string
+  effectiveTo: string | null
+}
+
+/**
+ * A resolved **routing version** (Layer 0 Pattern A, `1.4`) with its operations. Carries the
+ * denormalized `partNo` (the resolve-by business key) alongside the version window. `effectiveTo
+ * === null` = open/current. Window is half-open `[effectiveFrom, effectiveTo)`.
+ */
+export interface RoutingVersionDto extends RoutingDto {
+  partNo: string
+  revision: string
+  effectiveFrom: string
+  effectiveTo: string | null
+}
+
 export interface CertificationDto {
   id: string
   /** Unique-within-tenant taxonomy code (MD15). */
@@ -214,7 +246,23 @@ export interface MasterDataRefValidation {
 export interface MasterDataReadContract {
   readonly contract: typeof MASTERDATA_READ_CONTRACT
   listParts(tenantId: string): Promise<PartDto[]>
+  /**
+   * @deprecated (Layer 0, D-L0-4) Resolve by business key + as-of instead: `resolvePart(tenantId,
+   * partNo, asOf)`. A part `id` is a per-version row id; holding one pins a single revision. Retained
+   * for A12 must-ignore; removed in a future MAJOR once all consumers migrate (Commit 6).
+   */
   getPart(tenantId: string, id: string): Promise<PartDto | null>
+  /** Resolves the part version effective at `asOf` (default now) by business key `partNo`, or null (`1.4`). */
+  resolvePart(tenantId: string, partNo: string, asOf?: string): Promise<PartVersionDto | null>
+  /** The full revision history for a `partNo`, ordered by `effectiveFrom` (oldest first) (`1.4`). */
+  resolvePartVersions(tenantId: string, partNo: string): Promise<PartVersionDto[]>
+  /**
+   * Creates a new part revision transactionally (`1.4`): closes the current open version's window at
+   * `effectiveFrom`, inserts a new open version (`supersedes_id` = prior), and writes audit — all atomic.
+   * Native-SoR only; caller must hold `configure`/master-data-admin. `actor` is the JWT user id (or the
+   * `'system'` sentinel) recorded on the audit trail.
+   */
+  revisePart(tenantId: string, partNo: string, input: RevisePartRequest, actor: string): Promise<PartVersionDto>
   validatePartIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
   getResource(tenantId: string, id: string): Promise<ResourceDto | null>
   /** All resources in the tenant (added in `1.1` — board rows / group-member detail). */
@@ -222,9 +270,31 @@ export interface MasterDataReadContract {
   validateResourceIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
   getResourceGroup(tenantId: string, id: string): Promise<ResourceGroupDto | null>
   validateResourceGroupIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
+  /**
+   * @deprecated (Layer 0, D-L0-4) Resolve by business key + as-of instead: `resolveRouting(tenantId,
+   * partNo, { name, asOf })`. A routing `id` is a per-version row id. Retained for A12 must-ignore.
+   */
   getRouting(tenantId: string, id: string): Promise<RoutingDto | null>
-  /** The active primary routing (with operations) for a part, or null (added in `1.1`). */
+  /**
+   * @deprecated (Layer 0, D-L0-4) Use `resolveRouting(tenantId, partNo, { primaryOnly: true, asOf })`.
+   * Resolving by a part *version id* pins a revision; the resolve-as-of path follows the business key.
+   */
   getPrimaryRoutingForPart(tenantId: string, partId: string): Promise<RoutingDto | null>
+  /**
+   * Resolves the routing version effective at `asOf` (default now) for a `partNo` (`1.4`), with its
+   * operations. `name` selects a specific routing; `primaryOnly` restricts to the primary. Null if none.
+   */
+  resolveRouting(
+    tenantId: string,
+    partNo: string,
+    opts?: { name?: string; primaryOnly?: boolean; asOf?: string },
+  ): Promise<RoutingVersionDto | null>
+  /**
+   * Creates a new routing revision transactionally (`1.4`): closes the prior open version, inserts a new
+   * open version (`supersedes_id` = prior) with its operation rows copied on, and writes audit — all atomic.
+   * Native-SoR only; caller must hold `configure`/master-data-admin. `actor` is recorded on the audit trail.
+   */
+  reviseRouting(tenantId: string, partNo: string, input: ReviseRoutingRequest, actor: string): Promise<RoutingVersionDto>
   listCertifications(tenantId: string): Promise<CertificationDto[]>
   getOperator(tenantId: string, id: string): Promise<OperatorDto | null>
   /** All operators (with held cert ids) — workforce coverage view (added in `1.2`). */
@@ -340,6 +410,57 @@ export const updateRoutingSchema = createRoutingSchema
   .extend({ status: masterDataStatusSchema.optional() })
   .strict()
 export type UpdateRoutingRequest = z.infer<typeof updateRoutingSchema>
+
+// --- revise (Layer 0 Pattern A — new version, prior window closed, atomic) ---------
+
+/** Attributes carried onto a new PART revision. `part_no` is the fixed identity and is not settable here. */
+export const partRevisionChangesSchema = z
+  .object({
+    description: z.string().max(400).nullable(),
+    partType: partTypeSchema,
+    uom: z.string().min(1).max(16),
+    material: z.string().max(120).nullable(),
+    gauge: z.string().max(120).nullable(),
+    colour: z.string().max(120).nullable(),
+    status: masterDataStatusSchema,
+  })
+  .partial()
+
+export const revisePartSchema = z
+  .object({
+    /** Engineering revision label for the new version (e.g. 'B'); must differ from the current open one. */
+    revision: z.string().min(1).max(40),
+    /** ISO datetime the new version becomes effective; must be strictly after the current open version's. */
+    effectiveFrom: z.string().datetime(),
+    /** ECN/ECR reference recorded on the audit trail. */
+    ecnRef: z.string().max(120).nullable().default(null),
+    /** Attribute changes for the new version; omitted fields inherit the prior version's values. */
+    changes: partRevisionChangesSchema.default({}),
+  })
+  .strict()
+export type RevisePartRequest = z.infer<typeof revisePartSchema>
+
+/** Attributes carried onto a new ROUTING revision; when `operations` is supplied it replaces the op set. */
+export const routingRevisionChangesSchema = z
+  .object({
+    name: z.string().min(1).max(160),
+    isPrimary: z.boolean(),
+    status: masterDataStatusSchema,
+    operations: z.array(routingOperationInputSchema),
+  })
+  .partial()
+
+export const reviseRoutingSchema = z
+  .object({
+    revision: z.string().min(1).max(40),
+    effectiveFrom: z.string().datetime(),
+    ecnRef: z.string().max(120).nullable().default(null),
+    /** Selects which routing (by name) to revise; defaults to the part's primary routing. */
+    name: z.string().min(1).max(160).optional(),
+    changes: routingRevisionChangesSchema.default({}),
+  })
+  .strict()
+export type ReviseRoutingRequest = z.infer<typeof reviseRoutingSchema>
 
 export const createCertificationSchema = z
   .object({
