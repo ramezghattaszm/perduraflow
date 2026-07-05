@@ -3,7 +3,8 @@
 | | |
 |---|---|
 | **Companion (authority)** | `docs/master-data/MASTER-DATA-LAYER-0-SCOPE.md` — read it first; rationale lives there, not duplicated here |
-| **Decisions** | D-L0-1…5 **all LOCKED** (see scope §10) |
+| **Decisions** | D-L0-1…7 **all LOCKED + BUILT** (see scope §10 for outcomes) |
+| **Build status** | Commits 1–6b **built + verified** (audit → part/routing versioning → exclusion constraints → resolver/revise + contract 1.4 → identity migration → write-discipline). Commit 7 = re-seed + reset-flow wiring + full §9 DoD close-out. |
 | **Discipline** | Commit-per-part; git lifecycle explicit; **stop-and-report at each checkpoint**; change nothing outside this brief |
 | **Boundary rules that still hold** | O1–O8, §2.4 schema rules. **No cross-schema FK. No cross-module schema import.** master-data consumes `org.read` only via contract. |
 

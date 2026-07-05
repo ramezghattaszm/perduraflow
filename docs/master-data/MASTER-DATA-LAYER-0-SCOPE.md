@@ -182,14 +182,16 @@ Layer 0 = **retention-capable**, not retention-*enforcing*: nothing hard-deletes
 
 ---
 
-## 10. Decisions to confirm before build
+## 10. Decisions (D-L0-1…7) — all LOCKED + BUILT
 
-| ID | Decision | Recommendation |
+> The first five were signed off before build; D-L0-6/7 emerged during the build and were confirmed with RG. All are now built (Layer 0 Commits 1–6b). Commit shas below are the authoritative evidence.
+
+| ID | Decision | Outcome (built) |
 |---|---|---|
-| **D-L0-1** | resource/resource_group: Pattern B (audit, stable id) vs Pattern A (versioned) | **Pattern B** — half the blast radius; promotable later without rework |
-| **D-L0-2** | Non-overlap: DB `btree_gist` exclusion vs app-level only | **DB-enforced** — IATF-load-bearing invariant |
-| **D-L0-3** | Audit home: inside master-data (owned per O2) | **LOCKED — inside master-data**; clean module ownership, not staging for a kernel bus (no bus planned) |
-| **D-L0-4** | Old id-based part ops: deprecate-not-remove vs clean-remove (2.0) now | **Deprecate** — A12-clean; consumers already migrated, so no rework |
-| **D-L0-5** | Backfill revision label for existing rows | **`'A'`**, `effective_from = created_at`, `effective_to = NULL` |
-
-*Sign off (or redirect) these five + D-L0 scope, and I'll write the Claude Code build brief for `0020` + the resolve service + audit + consumer migration.*
+| **D-L0-1** | resource/resource_group: Pattern B (audit, stable id) vs Pattern A (versioned) | **Pattern B** — mutable-with-audit, stable `id`, no version columns, no consumer churn. Built C1 (`master_data_audit` + Pattern-B create/update/deactivate audit). |
+| **D-L0-2** | Non-overlap: DB `btree_gist` exclusion vs app-level only | **DB-enforced** — `part_effectivity_no_overlap` / `routing_effectivity_no_overlap` GiST EXCLUDE (custom SQL). Built C4; negative test proves overlapping-window insert rejected (incl. closed windows the partial index can't see). |
+| **D-L0-3** | Audit home: inside master-data (owned per O2) | **Inside master-data** — `master_data.master_data_audit`, append-only, no kernel bus. Built C1. |
+| **D-L0-4** | Old id-based part ops: deprecate-not-remove vs clean-remove (2.0) now | **Deprecate** — `getPart`/`getRouting`/`getPrimaryRoutingForPart` kept on `masterdata.read` (JSDoc `@deprecated`, A12 must-ignore), **zero live callers** after C6/C6b; hard removal is a future 2.0 MAJOR. |
+| **D-L0-5** | Backfill revision label for existing rows | **`'A'`**, `effective_from = created_at`, `effective_to = NULL`, `supersedes_id = NULL`. Built C2 (part) / C3 (routing); 100% backfill coverage verified. |
+| **D-L0-6** | Historical part-version-id snapshots: migrate to `part_no` vs freeze | **FREEZE** — `scheduled_operation.part_id` + `execution_actual.part_id` stay version-pinned (frozen snapshots of what was planned/ran), allowlisted alongside `supersedes_id`. Migrating them would break reconstructability. Forward refs (`demand_input`, `material_requirement`/`availability`, `routing`) migrated to business key. Built C6. |
+| **D-L0-7** | Pattern-A edits: redirect through `revise*` (never in-place); explicit `revision`/`effectiveFrom` | **Redirect built** — admin `updatePart`/`updateRouting` route through `revise*` (new effectivity-dated version, prior window closed, audited); no-op edits write nothing. **UI hedge taken**: service auto-derives `revision`/`effectiveFrom` when the admin form omits them (explicit-input form is a REMAINING-ITEMS follow-up). Built C6b. |
