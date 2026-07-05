@@ -60,6 +60,11 @@ export class MasterDataReadService implements MasterDataReadContract {
     return this.resolver.resolvePartVersions(tenantId, partNo)
   }
 
+  /** Reads one EXACT part version by row id (a frozen-snapshot read). Non-deprecated. */
+  getPartVersion(tenantId: string, versionId: string): Promise<PartVersionDto | null> {
+    return this.resolver.getPartVersion(tenantId, versionId)
+  }
+
   /** Resolves the routing version effective at `asOf` (default now) for a `partNo`, with operations. */
   resolveRouting(
     tenantId: string,

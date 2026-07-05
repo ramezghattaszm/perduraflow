@@ -127,11 +127,16 @@ export class SimulatorService {
     }
 
     // Resolve the D7 std baselines per op (carried on the actual so the learner is self-contained).
+    // Exact-version-coherent (Layer 0 §6): the op's `part_id` is the FROZEN part version it ran against —
+    // read it exactly (getPartVersion, non-deprecated), then its routing AS OF the version's recorded
+    // build anchor (master_data_asof) — the routing that was actually scheduled, not the current live one.
+    const stdAsOf = (version.masterDataAsof ?? new Date()).toISOString()
     const stdCache = new Map<string, RoutingOperationDto | undefined>()
     const stdFor = async (partId: string, routingOperationId: string): Promise<RoutingOperationDto | undefined> => {
       const key = `${partId}:${routingOperationId}`
       if (stdCache.has(key)) return stdCache.get(key)
-      const routing = await md.getPrimaryRoutingForPart(tenantId, partId)
+      const part = await md.getPartVersion(tenantId, partId)
+      const routing = part ? await md.resolveRouting(tenantId, part.partNo, { primaryOnly: true, asOf: stdAsOf }) : null
       const op = routing?.operations.find((o) => o.id === routingOperationId)
       stdCache.set(key, op)
       return op

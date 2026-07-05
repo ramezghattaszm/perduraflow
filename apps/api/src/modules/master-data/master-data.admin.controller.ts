@@ -63,7 +63,7 @@ export class MasterDataAdminController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updatePartSchema)) dto: UpdatePartRequest,
   ) {
-    return this.md.updatePart(user.tenantId, id, dto)
+    return this.md.updatePart(user.tenantId, id, dto, user.sub)
   }
 
   // --- resource --------------------------------------------------------------
@@ -145,7 +145,7 @@ export class MasterDataAdminController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateRoutingSchema)) dto: UpdateRoutingRequest,
   ) {
-    return this.md.updateRouting(user.tenantId, id, dto)
+    return this.md.updateRouting(user.tenantId, id, dto, user.sub)
   }
 
   // --- certification ---------------------------------------------------------

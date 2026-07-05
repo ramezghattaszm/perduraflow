@@ -254,6 +254,13 @@ export interface MasterDataReadContract {
   getPart(tenantId: string, id: string): Promise<PartDto | null>
   /** Resolves the part version effective at `asOf` (default now) by business key `partNo`, or null (`1.4`). */
   resolvePart(tenantId: string, partNo: string, asOf?: string): Promise<PartVersionDto | null>
+  /**
+   * Reads ONE EXACT part version by its row id (`1.4`, non-deprecated). Legitimate for FROZEN SNAPSHOTS —
+   * a `scheduled_operation.part_id` / `execution_actual.part_id` records the precise version scheduled/ran,
+   * and reconstructing it means reading that exact version, not resolving the current one. (Contrast the
+   * deprecated `getPart` live-lookup, which pins a version where a business-key resolve was meant.)
+   */
+  getPartVersion(tenantId: string, versionId: string): Promise<PartVersionDto | null>
   /** The full revision history for a `partNo`, ordered by `effectiveFrom` (oldest first) (`1.4`). */
   resolvePartVersions(tenantId: string, partNo: string): Promise<PartVersionDto[]>
   /**
@@ -325,7 +332,14 @@ export const createPartSchema = z
 export type CreatePartRequest = z.infer<typeof createPartSchema>
 export const updatePartSchema = createPartSchema
   .partial()
-  .extend({ status: masterDataStatusSchema.optional() })
+  .extend({
+    status: masterDataStatusSchema.optional(),
+    // Layer 0 (D-L0-7): a Pattern-A edit is a REVISE — it creates a new effectivity-dated version, never
+    // an in-place update. `revision`/`effectiveFrom` are optional (UI hedge): the service auto-derives
+    // them (next revision label, effective now) when the admin form omits them.
+    revision: z.string().min(1).max(40).optional(),
+    effectiveFrom: z.string().datetime().optional(),
+  })
   .strict()
 export type UpdatePartRequest = z.infer<typeof updatePartSchema>
 
@@ -407,7 +421,12 @@ export type CreateRoutingRequest = z.infer<typeof createRoutingSchema>
 /** Update replaces the operation set wholesale when `operations` is supplied (editor save). */
 export const updateRoutingSchema = createRoutingSchema
   .partial()
-  .extend({ status: masterDataStatusSchema.optional() })
+  .extend({
+    status: masterDataStatusSchema.optional(),
+    // Layer 0 (D-L0-7): a routing edit is a REVISE (new version). Optional revise inputs (UI hedge).
+    revision: z.string().min(1).max(40).optional(),
+    effectiveFrom: z.string().datetime().optional(),
+  })
   .strict()
 export type UpdateRoutingRequest = z.infer<typeof updateRoutingSchema>
 

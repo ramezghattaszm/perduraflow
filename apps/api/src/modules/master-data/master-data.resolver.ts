@@ -54,6 +54,12 @@ export class MasterDataResolver {
     return (await this.repo.listPartVersions(tenantId, partNo)).map(toPartVersionDto)
   }
 
+  /** Reads one EXACT part version by row id (a frozen-snapshot read: `scheduled_operation.part_id`), or null. Non-deprecated. */
+  async getPartVersion(tenantId: string, versionId: string): Promise<PartVersionDto | null> {
+    const row = await this.repo.findPart(tenantId, versionId)
+    return row ? toPartVersionDto(row) : null
+  }
+
   /** The routing version effective at `asOf` (default now) for `partNo` (with operations), or null. */
   async resolveRouting(
     tenantId: string,

@@ -8,6 +8,8 @@ import {
   type CreateResourceGroupRequest,
   type CreateResourceRequest,
   type CreateRoutingRequest,
+  type RevisePartRequest,
+  type ReviseRoutingRequest,
   type OperatorDto,
   type OrgReadContract,
   type PartDto,
@@ -37,11 +39,15 @@ import {
   toRoutingDto,
 } from './master-data.mapper'
 import { MasterDataRepository } from './master-data.repository'
+import { MasterDataResolver } from './master-data.resolver'
 import {
   type MasterDataAuditAction,
   type MasterDataAuditChange,
   type MasterDataEntityType,
   type NewMasterDataAudit,
+  type Part,
+  type Routing,
+  type RoutingOperation,
 } from './schema'
 
 /** Actor sentinel for changes with no JWT user (seed / system paths) — never null (§6). */
@@ -80,6 +86,7 @@ export class MasterDataService {
     private readonly repo: MasterDataRepository,
     @Inject(ORG_READ) private readonly org: OrgReadContract,
     private readonly events: EventBus,
+    private readonly resolver: MasterDataResolver,
   ) {}
 
   // --- part ------------------------------------------------------------------
@@ -102,20 +109,25 @@ export class MasterDataService {
   }
 
   /**
-   * Updates a part in the tenant.
+   * Edits a part — Pattern A (D-L0-7): **never an in-place UPDATE**. An attribute change is a REVISE,
+   * creating a new effectivity-dated version off the current OPEN version (prior window closed, audited).
+   * A no-op edit (nothing actually changes) writes nothing and returns the open version unchanged.
+   * `revision`/`effectiveFrom` are auto-derived (next label, effective now) when the caller omits them
+   * (UI hedge — the explicit-input admin form is a REMAINING-ITEMS follow-up). `part_no` is the durable
+   * identity and is not editable here.
    * @throws AppException PART_NOT_FOUND - no such part in the tenant
-   * @throws AppException DUPLICATE_PART_NO - the new `part_no` collides
+   * @throws AppException INVALID_REVISION_EFFECTIVE_FROM - explicit `effectiveFrom` not after the open version's
    */
-  async updatePart(tenantId: string, id: string, dto: UpdatePartRequest): Promise<PartDto> {
-    if (dto.partNo) {
-      const existing = await this.repo.findPartByNo(tenantId, dto.partNo)
-      if (existing && existing.id !== id) {
-        throw new AppException(HttpStatus.CONFLICT, 'Part number already exists', ERROR_CODES.DUPLICATE_PART_NO)
-      }
-    }
-    const row = await this.repo.updatePart(tenantId, id, dto)
-    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
-    return toPartDto(row)
+  async updatePart(tenantId: string, id: string, dto: UpdatePartRequest, actor: string = SYSTEM_ACTOR): Promise<PartDto> {
+    const target = await this.repo.findPart(tenantId, id)
+    if (!target) throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
+    const open = await this.repo.findOpenPart(tenantId, target.partNo)
+    if (!open) throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
+    const changes = this.partEditChanges(dto, open)
+    if (Object.keys(changes).length === 0) return toPartDto(open) // no-op → write nothing
+    const revision = dto.revision ?? this.nextRevision(open.revision)
+    const effectiveFrom = dto.effectiveFrom ?? new Date().toISOString()
+    return this.resolver.revisePart(tenantId, open.partNo, { revision, effectiveFrom, ecnRef: null, changes }, actor)
   }
 
   // --- resource --------------------------------------------------------------
@@ -347,19 +359,29 @@ export class MasterDataService {
   }
 
   /**
-   * Updates a routing header and (when supplied) replaces its operation set.
+   * Edits a routing — Pattern A (D-L0-7): **never an in-place UPDATE**. A header/operation change is a
+   * REVISE off the current OPEN version of this routing (prior window closed, op rows copied onto the new
+   * version, audited). A no-op edit writes nothing. `revision`/`effectiveFrom` auto-derive when omitted
+   * (UI hedge). `part_no` is the identity and not editable here.
    * @throws AppException ROUTING_NOT_FOUND - no such routing in the tenant
-   * @throws AppException PART_NOT_FOUND / INVALID_RESOURCE_GROUP_REFERENCE
+   * @throws AppException INVALID_RESOURCE_GROUP_REFERENCE - an op's group did not resolve
+   * @throws AppException INVALID_REVISION_EFFECTIVE_FROM - explicit `effectiveFrom` not after the open version's
    */
-  async updateRouting(tenantId: string, id: string, dto: UpdateRoutingRequest): Promise<RoutingDto> {
-    if (dto.partNo) await this.assertPartNo(tenantId, dto.partNo)
+  async updateRouting(tenantId: string, id: string, dto: UpdateRoutingRequest, actor: string = SYSTEM_ACTOR): Promise<RoutingDto> {
+    const target = await this.repo.findRouting(tenantId, id)
+    if (!target) throw new AppException(HttpStatus.NOT_FOUND, 'Routing not found', ERROR_CODES.ROUTING_NOT_FOUND)
+    const open = await this.repo.findOpenRouting(tenantId, target.partNo, { name: target.name })
+    if (!open) throw new AppException(HttpStatus.NOT_FOUND, 'Routing not found', ERROR_CODES.ROUTING_NOT_FOUND)
     if (dto.operations) {
       await this.assertResourceGroupsExist(tenantId, dto.operations.map((o) => o.resourceGroupId))
     }
-    const { operations, ...fields } = dto
-    const row = await this.repo.updateRouting(tenantId, id, fields, operations)
-    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Routing not found', ERROR_CODES.ROUTING_NOT_FOUND)
-    return toRoutingDto(row, await this.repo.operationsFor(id))
+    const changes = await this.routingEditChanges(dto, open)
+    if (Object.keys(changes).length === 0) {
+      return toRoutingDto(open, await this.repo.operationsFor(open.id)) // no-op → write nothing
+    }
+    const revision = dto.revision ?? this.nextRevision(open.revision)
+    const effectiveFrom = dto.effectiveFrom ?? new Date().toISOString()
+    return this.resolver.reviseRouting(tenantId, open.partNo, { revision, effectiveFrom, ecnRef: null, name: open.name, changes }, actor)
   }
 
   // --- certification ---------------------------------------------------------
@@ -505,6 +527,54 @@ export class MasterDataService {
     if (a.length !== b.length) return false
     const set = new Set(a)
     return b.every((x) => set.has(x))
+  }
+
+  // --- Pattern-A edit → revise helpers (D-L0-7) ------------------------------
+  /** Next revision label: A→B … Y→Z, then bump a trailing number (Z→Z2, B1→B2), else append '2'. */
+  private nextRevision(cur: string): string {
+    if (/^[A-Y]$/.test(cur)) return String.fromCharCode(cur.charCodeAt(0) + 1)
+    const m = cur.match(/^(.*?)(\d+)$/)
+    if (m) return `${m[1]}${Number(m[2]) + 1}`
+    return `${cur}2`
+  }
+
+  /** The part attributes in `dto` that actually differ from the open version (the revise's `changes`). */
+  private partEditChanges(dto: UpdatePartRequest, open: Part): RevisePartRequest['changes'] {
+    const cols = ['description', 'partType', 'uom', 'material', 'gauge', 'colour', 'status'] as const
+    const out: Record<string, unknown> = {}
+    for (const c of cols) {
+      const v = (dto as Record<string, unknown>)[c]
+      if (v !== undefined && v !== open[c]) out[c] = v
+    }
+    return out as RevisePartRequest['changes']
+  }
+
+  /** The routing header/op changes in `dto` that actually differ from the open version. */
+  private async routingEditChanges(dto: UpdateRoutingRequest, open: Routing): Promise<ReviseRoutingRequest['changes']> {
+    const out: Record<string, unknown> = {}
+    if (dto.name !== undefined && dto.name !== open.name) out['name'] = dto.name
+    if (dto.isPrimary !== undefined && dto.isPrimary !== open.isPrimary) out['isPrimary'] = dto.isPrimary
+    if (dto.status !== undefined && dto.status !== open.status) out['status'] = dto.status
+    if (dto.operations) {
+      const current = await this.repo.operationsFor(open.id)
+      if (!this.sameOps(current, dto.operations)) out['operations'] = dto.operations
+    }
+    return out as ReviseRoutingRequest['changes']
+  }
+
+  /** Order-independent equality of a routing's operation set (opSeq-keyed field compare). */
+  private sameOps(cur: RoutingOperation[], next: NonNullable<ReviseRoutingRequest['changes']['operations']>): boolean {
+    if (cur.length !== next.length) return false
+    const c = [...cur].sort((a, b) => a.opSeq - b.opSeq)
+    const n = [...next].sort((a, b) => a.opSeq - b.opSeq)
+    return c.every(
+      (o, i) =>
+        o.opSeq === n[i]!.opSeq &&
+        o.resourceGroupId === n[i]!.resourceGroupId &&
+        o.stdSetupTime === n[i]!.stdSetupTime &&
+        o.stdCycleTime === n[i]!.stdCycleTime &&
+        (o.changeoverAttributeKey ?? null) === (n[i]!.changeoverAttributeKey ?? null),
+    )
   }
 
   // --- internal validation ---------------------------------------------------
