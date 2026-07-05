@@ -1,5 +1,6 @@
 import { Pool } from 'pg'
 import { env } from '../config/env'
+import { applyCustomMigrations } from './migrate-custom'
 import { seed } from './seed'
 
 /**
@@ -102,6 +103,11 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: env.DATABASE_URL })
 
   console.log('demo:reset — restoring the deterministic baseline')
+  // Commit-4 rider: a reset DB must ALWAYS enforce the Pattern-A non-overlap invariant. Apply the
+  // custom exclusion constraints here (idempotent) so a reset never leaves them missing — even if the
+  // DB was created + drizzle-migrated but never manually `db:migrate:custom`'d.
+  const customCount = await applyCustomMigrations(pool)
+  console.log(`  ✓ ensured ${customCount} custom migration(s) (effectivity exclusion constraints)`)
   const truncated = await truncateAll(pool)
   console.log(`  ✓ wiped ${truncated} tables (learned values, actuals, schedule versions)`)
 

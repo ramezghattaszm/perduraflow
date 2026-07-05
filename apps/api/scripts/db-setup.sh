@@ -24,3 +24,11 @@ else
   psql "$ADMIN_URL" -c "CREATE DATABASE \"${DB_NAME}\""
   echo "  ✓ created"
 fi
+
+# Apply schema + custom migrations so a freshly set-up DB is always fully migrated AND carries the
+# Pattern-A exclusion constraints (Commit-4 rider). Both are idempotent — safe when the DB already exists.
+echo "Applying schema migrations (drizzle)…"
+bun run db:migrate
+echo "Applying custom migrations (btree_gist effectivity exclusion constraints)…"
+bun run db:migrate:custom
+echo "  ✓ migrations applied (schema + custom)"

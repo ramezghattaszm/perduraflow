@@ -16,33 +16,37 @@ import { env } from '../config/env'
 // cwd is the api package root for these scripts (same basis as drizzle.config's `./drizzle/migrations`).
 const CUSTOM_DIR = join(process.cwd(), 'drizzle/migrations/custom')
 
-async function migrateCustom(): Promise<void> {
-  if (!existsSync(CUSTOM_DIR)) {
-    console.log('No custom SQL migrations directory.')
-    return
-  }
+/**
+ * Applies the custom SQL migrations over an EXISTING pool (does not open/close it). Reusable so the
+ * fresh-DB flows — `demo:reset` (reset.ts) and `db:setup` — always land the exclusion constraints, not
+ * only a manual `db:migrate:custom`. Idempotent (each file guards its own DDL); re-runs are safe.
+ */
+export async function applyCustomMigrations(pool: Pool): Promise<number> {
+  if (!existsSync(CUSTOM_DIR)) return 0
   const files = readdirSync(CUSTOM_DIR)
     .filter((f) => f.endsWith('.sql'))
     .sort()
-  if (files.length === 0) {
-    console.log('No custom SQL migrations found.')
-    return
+  for (const file of files) {
+    await pool.query(readFileSync(join(CUSTOM_DIR, file), 'utf8'))
   }
+  return files.length
+}
+
+/** CLI entry (`db:migrate:custom`): owns its own connection. */
+async function main(): Promise<void> {
   const pool = new Pool({ connectionString: env.DATABASE_URL })
   try {
-    for (const file of files) {
-      const sql = readFileSync(join(CUSTOM_DIR, file), 'utf8')
-      process.stdout.write(`Applying custom migration ${file} ... `)
-      await pool.query(sql)
-      console.log('ok')
-    }
-    console.log(`Custom migrations applied: ${files.length}.`)
+    const n = await applyCustomMigrations(pool)
+    console.log(n === 0 ? 'No custom SQL migrations found.' : `Custom migrations applied: ${n}.`)
   } finally {
     await pool.end()
   }
 }
 
-migrateCustom().catch((err: unknown) => {
-  console.error(err)
-  process.exit(1)
-})
+// Only run as a script, not when imported (reset.ts imports `applyCustomMigrations`).
+if (process.argv[1]?.endsWith('migrate-custom.ts') || process.argv[1]?.endsWith('migrate-custom.js')) {
+  main().catch((err: unknown) => {
+    console.error(err)
+    process.exit(1)
+  })
+}
