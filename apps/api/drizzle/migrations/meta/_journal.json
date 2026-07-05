@@ -155,6 +155,13 @@
       "when": 1783256104126,
       "tag": "0021_tense_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783258265308,
+      "tag": "0022_lethal_tusk",
+      "breakpoints": true
     }
   ]
 }
