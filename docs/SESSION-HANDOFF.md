@@ -48,7 +48,7 @@ Followed `docs/902-PERFORMANCE-DASHBOARD-BUILD.md` (5 parts, commit-per-part):
 - **Cost + churn** dashboard tiles (version-sequence source).
 - **Solver Policy (Group 4) / CP-SAT** build; **BOM + packaging** (REMAINING-ITEMS).
 - Sim-realism for the OEE performance leg (if wanted).
-- `docs/PRODUCTION-READINESS-PLAN.md` is untracked (appeared this session) — review/incorporate.
+- `docs/platform/PRODUCTION-READINESS-PLAN.md` is untracked (appeared this session) — review/incorporate.
 
 ---
 

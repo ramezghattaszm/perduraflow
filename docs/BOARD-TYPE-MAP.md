@@ -79,5 +79,5 @@
 ## Done when
 - Every board/dashboard text element uses the token/weight/colour above; no raw px, no ad-hoc weights/colours.
 - Labels are 11/600/caps/faint everywhere; each panel/tile has exactly one hero number; semantic colour appears only on status.
-- The map + six patterns are recorded in `docs/UI-ARCHITECTURE.md` as the dashboard standard (applies to Scorecard, Workforce, phase-4/5 views).
+- The map + six patterns are recorded in `docs/platform/UI-ARCHITECTURE.md` as the dashboard standard (applies to Scorecard, Workforce, phase-4/5 views).
 - Verified web + native, both themes.

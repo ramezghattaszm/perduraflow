@@ -19,8 +19,8 @@ Stand up `scheduling` as the second domain module: bind to Master Data through t
 ## 1. Read first
 
 1. `docs/CLAUDE-CODE-BRIEF.md` §2 and `docs/CLAUDE-CODE-BRIEF-PHASE-1.md` §2 — invariants and contract-bound-module rules, still binding.
-2. `docs/production-scheduling-business-functional-spec.md` (Draft v0.11) — §4.1 demand input, §4.4 committed schedule, §4.9 schedule versions/optimizer runs, §5.3/5.4 resource & changeover model, D2 (deterministic decision), D4 (hard gates), D7 (standard baseline), D18/AQ6 (optimizer deferred), D44 (stability — context, deferred here).
-3. `docs/platform-architecture-spec.md` (Draft v0.10) — A8 (contracts/registry/binding), the binding counterparts model.
+2. `docs/scheduling/production-scheduling-business-functional-spec.md` (Draft v0.11) — §4.1 demand input, §4.4 committed schedule, §4.9 schedule versions/optimizer runs, §5.3/5.4 resource & changeover model, D2 (deterministic decision), D4 (hard gates), D7 (standard baseline), D18/AQ6 (optimizer deferred), D44 (stability — context, deferred here).
+3. `docs/platform/platform-architecture-spec.md` (Draft v0.10) — A8 (contracts/registry/binding), the binding counterparts model.
 4. `docs/frontend-spec-shell.md` — the shell the board renders into.
 5. `docs/PLATFORM-COMPLETION-LOG.md` (v0.3) — SKIP-03 (sequencer stand-in), SKIP-40 (board scope), SKIP-10 (demand seeded / net-req deferred), SKIP-04 (source/confidence carry-through).
 
@@ -67,7 +67,7 @@ Sketch (refine field-level in your draft; ground every field in a spec ref):
 
 ## 4. Working protocol
 
-1. **Draft the deltas** to `docs/api-spec.md` and `docs/frontend-spec.md` (the `scheduling` module + tables, the binding resolver, the EDD heuristic, the seeded demand fixture, the board), plus `PROJECT-SUMMARY.md`. **Present and stop for sign-off. Do not implement tables, the sequencer, or the board yet.**
+1. **Draft the deltas** to `docs/platform/api-spec.md` and `docs/frontend-spec.md` (the `scheduling` module + tables, the binding resolver, the EDD heuristic, the seeded demand fixture, the board), plus `PROJECT-SUMMARY.md`. **Present and stop for sign-off. Do not implement tables, the sequencer, or the board yet.**
 2. On sign-off: implement — binding resolver → schema + migration + seeded demand → scheduling module + sequencer → board.
 3. Verify against Section 6, including the boundary proofs.
 4. Propose before any large or irreversible move.

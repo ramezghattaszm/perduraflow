@@ -183,7 +183,7 @@ None in phase 0.
 
 > **STATUS: BUILT & browser-verified** (CRUD incl. soft-delete on Certifications; routing
 > master-detail editor; qualifications matrix toggle; org-ref validation errors). Source:
-> `docs/CLAUDE-CODE-BRIEF-PHASE-1.md`, `docs/master-data-module-spec.md`. The shell is **already
+> `docs/CLAUDE-CODE-BRIEF-PHASE-1.md`, `docs/master-data/master-data-module-spec.md`. The shell is **already
 > built and decided** (`frontend-spec-shell.md`, §1–§3 above) — Master Data screens land **into** it;
 > the shell is not re-proposed. API side: api-spec §10.
 

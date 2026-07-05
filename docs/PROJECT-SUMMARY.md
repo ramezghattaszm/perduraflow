@@ -154,13 +154,13 @@ Monorepo already scaffolded and installed (template baseline present; slug `perd
 |---|---|
 | `CLAUDE.md` | Build instructions (template-level) |
 | `docs/CLAUDE-CODE-BRIEF.md` | Kickoff brief — phase 0 scope + invariants (governs this build) |
-| `docs/API-ARCHITECTURE.md` | Reusable API patterns (note: §3 overridden — see api-spec §0) |
-| `docs/UI-ARCHITECTURE.md` | Reusable UI patterns |
-| `docs/platform-architecture-spec.md` | Platform architecture (A-series) |
-| `docs/production-scheduling-business-functional-spec.md` | Module #1 business/functional (D-series) |
-| `docs/master-data-module-spec.md` · `net-requirements-…` · `network-material-allocation-…` | Future-module context |
+| `docs/platform/API-ARCHITECTURE.md` | Reusable API patterns (note: §3 overridden — see api-spec §0) |
+| `docs/platform/UI-ARCHITECTURE.md` | Reusable UI patterns |
+| `docs/platform/platform-architecture-spec.md` | Platform architecture (A-series) |
+| `docs/scheduling/production-scheduling-business-functional-spec.md` | Module #1 business/functional (D-series) |
+| `docs/master-data/master-data-module-spec.md` · `net-requirements-…` · `network-material-allocation-…` | Future-module context |
 | `docs/PLATFORM-COMPLETION-LOG.md` | Demo→full gap tracker (SKIP-NN; governs scope) |
-| `docs/api-spec.md` | This app's API decisions (phase 0) |
+| `docs/platform/api-spec.md` | This app's API decisions (phase 0) |
 | `docs/frontend-spec.md` | This app's UI decisions (phase 0) |
 
 ---

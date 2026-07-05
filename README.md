@@ -487,7 +487,7 @@ The deploy design and AWS-specific gotchas are detailed in [`docs/DEPLOY-HANDOFF
 ## Building a real app on top
 
 1. `create-app.ts` with your real name/slug/bundle, then `setup-repo.ts` + `finalize-app.ts`.
-2. Fill `docs/api-spec.md` and `docs/frontend-spec.md` from the skeletons (palette, tenant model,
+2. Fill `docs/platform/api-spec.md` and `docs/frontend-spec.md` from the skeletons (palette, tenant model,
    modules, routes).
 3. Copy the `example` module as the pattern for each new domain module; build UI from the `H`/`P`
    - component primitives in `packages/ui`.

@@ -3,8 +3,8 @@
 Requirements for the **learned predictive model** that will replace the deterministic OLS
 parameter predictor (`apps/api/src/modules/learning/learning.predictor.ts`). Scope is the
 **predictor arm** (the A14 *predictive* arm — "where is this parameter heading"), not the
-relearn arm (the *measured* arm — "what is it now"). See `docs/API-ARCHITECTURE.md` §AI
-posture (A14–A19) and `docs/api-spec.md` §13 for the surrounding contracts.
+relearn arm (the *measured* arm — "what is it now"). See `docs/platform/API-ARCHITECTURE.md` §AI
+posture (A14–A19) and `docs/platform/api-spec.md` §13 for the surrounding contracts.
 
 > The OLS predictor is an explicit placeholder ("as the greedy heuristic stands in for the
 > optimizer"). The model below **drops into the same seam**; this doc says what it must satisfy

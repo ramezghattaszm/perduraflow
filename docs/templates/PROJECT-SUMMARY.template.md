@@ -31,9 +31,9 @@ packages/  app/  ui/  config/  contracts/
 | File | Purpose |
 |---|---|
 | `CLAUDE.md` | Build instructions (template-level) |
-| `docs/API-ARCHITECTURE.md` | Reusable API patterns |
-| `docs/UI-ARCHITECTURE.md` | Reusable UI patterns |
-| `docs/api-spec.md` | This app's API decisions |
+| `docs/platform/API-ARCHITECTURE.md` | Reusable API patterns |
+| `docs/platform/UI-ARCHITECTURE.md` | Reusable UI patterns |
+| `docs/platform/api-spec.md` | This app's API decisions |
 | `docs/frontend-spec.md` | This app's UI decisions |
 
 ---

@@ -25,10 +25,10 @@ The whole slice plan (for context, **not** this session's scope):
 
 ## 1. Read first (in this order)
 
-1. `docs/API-ARCHITECTURE.md` — reusable API patterns. **Binding.**
-2. `docs/UI-ARCHITECTURE.md` — reusable UI patterns. **Binding.**
-3. `docs/production-scheduling-business-functional-spec.md` — what the module does (D-series).
-4. `docs/platform-architecture-spec.md` — how the platform is built (A-series).
+1. `docs/platform/API-ARCHITECTURE.md` — reusable API patterns. **Binding.**
+2. `docs/platform/UI-ARCHITECTURE.md` — reusable UI patterns. **Binding.**
+3. `docs/scheduling/production-scheduling-business-functional-spec.md` — what the module does (D-series).
+4. `docs/platform/platform-architecture-spec.md` — how the platform is built (A-series).
 5. `docs/PLATFORM-COMPLETION-LOG.md` — what the demo deliberately scopes down/skips and why. **Governs scope.**
 6. Master Data / Net-requirements / Network-allocation specs — context only; not built this session.
 
@@ -99,7 +99,7 @@ Notes grounded in the specs:
 ## 4. Working protocol
 
 1. Confirm/instantiate the PerduraFlow monorepo (`apps/api`, `apps/next`, `apps/expo`, `packages/{app,ui,config,contracts}`).
-2. **Draft `docs/api-spec.md`, `docs/frontend-spec.md`, `docs/PROJECT-SUMMARY.md`** from the templates, scoped to phase 0 (module/table map above, scope key, roles, route tree, palette, screens). **Present them and stop for sign-off. Do not implement tables or screens yet.**
+2. **Draft `docs/platform/api-spec.md`, `docs/frontend-spec.md`, `docs/PROJECT-SUMMARY.md`** from the templates, scoped to phase 0 (module/table map above, scope key, roles, route tree, palette, screens). **Present them and stop for sign-off. Do not implement tables or screens yet.**
 3. On sign-off: implement phase 0 — schema + migrations + seed, the three modules, the admin screens, the app shell.
 4. Verify before declaring done (Section 5).
 5. Propose before any large or irreversible move (new dependency, deviation from a spec, anything that needs a `SKIP` row).

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Target** | `ScheduleGantt` bar interaction + the detail panel; record in `docs/UI-ARCHITECTURE.md` (interaction patterns). |
+| **Target** | `ScheduleGantt` bar interaction + the detail panel; record in `docs/platform/UI-ARCHITECTURE.md` (interaction patterns). |
 | **Type** | Interaction model. Resolves hover vs click and web vs native into one coherent rule. No schema/API change — the performance detail computes from existing actuals (per-version). |
 | **Core invariant** | **Nothing is hover-only.** Hover is a web-only convenience; the **click/tap panel is the source of truth and is complete on both platforms.** Native has no hover, so anything on hover must also be in the panel. |
 
@@ -43,4 +43,4 @@ Top → bottom:
 - Web: hover shows the preview; click opens a self-contained panel beside/below the board with identity + learned + performance; selected bar is outlined.
 - Native: tap opens a bottom sheet with the same self-contained content; no hover dependency anywhere.
 - Performance detail computes from per-version actuals (or "no actuals yet"); no hardcoding.
-- Recorded in `docs/UI-ARCHITECTURE.md`. Verified web + native, both themes.
+- Recorded in `docs/platform/UI-ARCHITECTURE.md`. Verified web + native, both themes.

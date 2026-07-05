@@ -15,8 +15,8 @@ Phase 3 *learned from* actuals (reactive — adopted a value after evidence accr
 ## 1. Read first
 
 1. `docs/CLAUDE-CODE-BRIEF-PHASE-3.md` §2 (+ prior briefs) — invariants, still binding.
-2. `docs/platform-architecture-spec.md` (v0.10) — **A18** (the trust envelope + autonomy gradient — phase 4 operationalizes the *predictive* case), **A14** (ML parameter prediction — this is its predictive arm), A16/A17 (boundary widens with track record).
-3. `docs/production-scheduling-business-functional-spec.md` (v0.11) — D5 (closed loop), D3 (ML targets), D56 (tool-wear signal — the drift this predicts the continuation of), D26 (human-disposes posture), D44 (stability — predictive action must not destabilize the committed near-horizon).
+2. `docs/platform/platform-architecture-spec.md` (v0.10) — **A18** (the trust envelope + autonomy gradient — phase 4 operationalizes the *predictive* case), **A14** (ML parameter prediction — this is its predictive arm), A16/A17 (boundary widens with track record).
+3. `docs/scheduling/production-scheduling-business-functional-spec.md` (v0.11) — D5 (closed loop), D3 (ML targets), D56 (tool-wear signal — the drift this predicts the continuation of), D26 (human-disposes posture), D44 (stability — predictive action must not destabilize the committed near-horizon).
 4. The phase-3 learned-value record (structured: value, source, confidence, sample basis, provenance) — the substrate prediction reads/extends.
 5. `docs/VIEW-PLAN.md` + `docs/perduraflow-six-views.html` — predictions feed **View 4 (Exception Queue)** rows and **View 1 (Cockpit)** forward-looking elements; the threshold is configured in **View 5 (Objective Policy)**.
 

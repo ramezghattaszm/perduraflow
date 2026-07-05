@@ -5,7 +5,7 @@ Read this file first, before doing anything, every session. It is the contract f
 non-negotiable rules and points into them.
 
 This is a **reusable starter template** (Tamagui + Expo + Next.js + NestJS, bun monorepo).
-Nothing here is app-specific. App-specific decisions live in `docs/api-spec.md` and
+Nothing here is app-specific. App-specific decisions live in `docs/platform/api-spec.md` and
 `docs/frontend-spec.md`, which are created per app from the `*.template.md` skeletons.
 
 ---
@@ -24,10 +24,10 @@ When this template is used to start a new app, do these once, before building fe
    - The workspace scope is project-specific by design (e.g. slug `magna` → `@magna/ui`, `@magna/api`);
      replacing `perduraflow` sets it everywhere. Use a scope distinct from the slug only if asked.
 3. **Create the app spec docs** from the skeletons:
-   - `docs/api-spec.template.md` → `docs/api-spec.md`
-   - `docs/frontend-spec.template.md` → `docs/frontend-spec.md`
-   - `docs/PROJECT-SUMMARY.template.md` → `docs/PROJECT-SUMMARY.md`
-4. **Do not edit** `docs/API-ARCHITECTURE.md` or `docs/UI-ARCHITECTURE.md` for app specifics —
+   - `docs/templates/api-spec.template.md` → `docs/platform/api-spec.md`
+   - `docs/templates/frontend-spec.template.md` → `docs/frontend-spec.md`
+   - `docs/templates/PROJECT-SUMMARY.template.md` → `docs/PROJECT-SUMMARY.md`
+4. **Do not edit** `docs/platform/API-ARCHITECTURE.md` or `docs/platform/UI-ARCHITECTURE.md` for app specifics —
    those are durable template docs. App decisions go in the spec docs from step 3.
 
 Stop after init and confirm the app builds (`bun web`, `bun native`, `bun --filter @perduraflow/api dev`)
@@ -40,9 +40,9 @@ before starting features.
 | Doc | Role | Editable per app? |
 |---|---|---|
 | `CLAUDE.md` (this file) | Entry point + rules index | No (template-level) |
-| `docs/API-ARCHITECTURE.md` | Reusable API patterns + rules | No |
-| `docs/UI-ARCHITECTURE.md` | Reusable UI patterns + rules | No |
-| `docs/api-spec.md` | This app's API decisions (modules, tables, scope key, error codes, env) | Yes |
+| `docs/platform/API-ARCHITECTURE.md` | Reusable API patterns + rules | No |
+| `docs/platform/UI-ARCHITECTURE.md` | Reusable UI patterns + rules | No |
+| `docs/platform/api-spec.md` | This app's API decisions (modules, tables, scope key, error codes, env) | Yes |
 | `docs/frontend-spec.md` | This app's UI decisions (palette, routes, screens, copy) | Yes |
 | `docs/PROJECT-SUMMARY.md` | This app's live state / handoff | Yes |
 | **`docs/SESSION-HANDOFF.md`** | **▶ Resume here.** Where the last session left off — current status, decisions made (don't re-litigate), open threads, next step (the line-down duration fix) | Yes |
@@ -116,7 +116,7 @@ Build in this order. Stop after each phase and confirm before the next.
 - [ ] **Phase 9** — Wire screens into `apps/expo/app/`
 - [ ] **Phase 10** — Wire screens into `apps/next/app/`
 
-API modules are built against `docs/API-ARCHITECTURE.md` + `docs/api-spec.md` and can proceed in
+API modules are built against `docs/platform/API-ARCHITECTURE.md` + `docs/platform/api-spec.md` and can proceed in
 parallel with the UI phases, starting from the `example` module as the template.
 
 ---

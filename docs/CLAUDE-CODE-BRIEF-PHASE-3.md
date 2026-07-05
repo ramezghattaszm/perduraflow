@@ -17,8 +17,8 @@ Close the loop. Execution actuals (4.3) are ingested from a parameterized **simu
 ## 1. Read first
 
 1. `docs/CLAUDE-CODE-BRIEF.md` §2, `-PHASE-1.md` §2, `-PHASE-2.md` §2 — invariants and contract-bound-module rules, still binding.
-2. `docs/platform-architecture-spec.md` (v0.10) — **A18** (governing — the trust envelope, the autonomy gradient, the damping rule), A14 (ML parameter prediction = the Tier-1 mechanism).
-3. `docs/production-scheduling-business-functional-spec.md` (v0.11) — §4.3 execution actuals, §4.4 committed schedule, D5 (closed loop), D3 (ML targets: changeover/cycle/downtime/scrap), D7 (standard baseline, ML overlays it), **D56** (tool-wear signal), §10/14.2 (KPIs).
+2. `docs/platform/platform-architecture-spec.md` (v0.10) — **A18** (governing — the trust envelope, the autonomy gradient, the damping rule), A14 (ML parameter prediction = the Tier-1 mechanism).
+3. `docs/scheduling/production-scheduling-business-functional-spec.md` (v0.11) — §4.3 execution actuals, §4.4 committed schedule, D5 (closed loop), D3 (ML targets: changeover/cycle/downtime/scrap), D7 (standard baseline, ML overlays it), **D56** (tool-wear signal), §10/14.2 (KPIs).
 4. `docs/PLATFORM-COMPLETION-LOG.md` (v0.3) — SKIP-51 (simulator/actuals source), SKIP-04 (source/confidence carry-through — now goes live), SKIP-15 (maintenance module deferred; D56 flag is not it), SKIP-23 (notifications presentational).
 5. **`docs/VIEW-PLAN.md`** — the six-view build plan, the **no-hardcoding invariant** (binds every board), and the **cost model = Tier B** decision. **`docs/perduraflow-six-views.html`** — the view designs (build to them; sample numbers are representative, not literals). **`docs/perduraflow-phase3-board.html`** — the phase-3 board design. **`docs/GANTT-FIX-NOTE.md`** — the board's render fix + horizon mode (apply if not already done).
 

@@ -30,9 +30,9 @@ Two architectural firsts this session, both load-bearing:
 
 1. `docs/CLAUDE-CODE-BRIEF.md` — Phase 0 brief. **Section 2 (invariants) and the contract-bound-module rules still bind in full.** Re-read; not repeated here.
 2. `docs/frontend-spec-shell.md` — **the decided app shell (Deep Navy tokens, TopBar, collapsible SidebarNav, responsive drawer, scroll-wrapped DataTable, round OrgAvatar/UserAvatar). This is the frontend baseline — build it, do not re-propose it.**
-3. `docs/master-data-module-spec.md` (Draft v0.4) — what Master Data owns (MD-series incl. **MD15**, the ownership principle).
-4. `docs/production-scheduling-business-functional-spec.md` (Draft v0.11) — §5.3 resource model, §5.4 changeover, routing/operation model; **D54** (the eventual consumer of cert/qualification data — Phase 2+, context only).
-5. `docs/platform-architecture-spec.md` (Draft v0.10) and `docs/PLATFORM-COMPLETION-LOG.md` (v0.3) — SKIP-02 (this build), SKIP-44 (effectivity), SKIP-45 (BOM), SKIP-21 (contract id/version, foundational half).
+3. `docs/master-data/master-data-module-spec.md` (Draft v0.4) — what Master Data owns (MD-series incl. **MD15**, the ownership principle).
+4. `docs/scheduling/production-scheduling-business-functional-spec.md` (Draft v0.11) — §5.3 resource model, §5.4 changeover, routing/operation model; **D54** (the eventual consumer of cert/qualification data — Phase 2+, context only).
+5. `docs/platform/platform-architecture-spec.md` (Draft v0.10) and `docs/PLATFORM-COMPLETION-LOG.md` (v0.3) — SKIP-02 (this build), SKIP-44 (effectivity), SKIP-45 (BOM), SKIP-21 (contract id/version, foundational half).
 
 ---
 
@@ -79,7 +79,7 @@ Sketch (refine field-level in your draft; ground every field in a spec ref):
 
 ## 4. Working protocol
 
-1. **Draft the deltas** to `docs/api-spec.md` and `docs/frontend-spec.md` (the `master-data` module + tables, the `org` priority edit, the `org.read 1.1` bump, the `masterdata.read 1.0` publication, the shell build + new screens + routing-editor pattern), plus the `PROJECT-SUMMARY.md` state update. The shell follows `frontend-spec-shell.md` — incorporate, don't re-derive. **Present and stop for sign-off. Do not implement tables or screens yet.**
+1. **Draft the deltas** to `docs/platform/api-spec.md` and `docs/frontend-spec.md` (the `master-data` module + tables, the `org` priority edit, the `org.read 1.1` bump, the `masterdata.read 1.0` publication, the shell build + new screens + routing-editor pattern), plus the `PROJECT-SUMMARY.md` state update. The shell follows `frontend-spec-shell.md` — incorporate, don't re-derive. **Present and stop for sign-off. Do not implement tables or screens yet.**
 2. On sign-off: build the shell, then schema + migration + seed, the module, contract changes, screens.
 3. Verify against Section 6, including the boundary proofs.
 4. Propose before any large or irreversible move.

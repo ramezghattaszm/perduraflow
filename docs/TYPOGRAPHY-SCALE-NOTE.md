@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Targets** | the type tokens (the `HEADING`/`BODY` objects), `docs/UI-ARCHITECTURE.md` (record the standard), and all call-sites using the old sizes |
+| **Targets** | the type tokens (the `HEADING`/`BODY` objects), `docs/platform/UI-ARCHITECTURE.md` (record the standard), and all call-sites using the old sizes |
 | **Type** | Token + usage refactor. Reduces 7 heading + 9 body sizes → **5 + 5**, raises the body default, makes only the large headings responsive. |
 | **Principle** | **One scale, not two.** Body sizes are identical on web and mobile (floor 16 for primary reading). Only the **large headings shrink on small screens** — small text is the same everywhere, big text scales with the viewport. (This corrects the "smaller on mobile" instinct — convention is body stays ≥16 on mobile; headings clamp down.) |
 
@@ -37,7 +37,7 @@ Note the shape: headings **diverge at the top** (48→32) and **converge at the 
 ## Implementation
 1. **Replace the tokens** — collapse `HEADING` to 5 (`display,1–4`) and `BODY` to 5 (`1–5`) with the values above. Headings carry both web + small values through the responsive mechanism already in use (the `small` breakpoint); body is single-valued.
 2. **Migrate call-sites** — map old → new (old `BODY.4=14` → `body.3`; old default → `body.2`; old `HEADING.2=28` → `heading.2`; old `HEADING.6=15` → `heading.4`, etc.). Anything below 11 moves up to `body.5`. **No raw px font sizes left in components** — all go through tokens.
-3. **Update `docs/UI-ARCHITECTURE.md`** — add a Typography section recording this as the standard: the two tables, the rules (body floor 16, micro floor 11, min-2 at ≥14, one responsive scale, headings clamp on small), and a one-line rationale (mobile keeps body ≥16; only large headings shrink). This is the source of truth going forward.
+3. **Update `docs/platform/UI-ARCHITECTURE.md`** — add a Typography section recording this as the standard: the two tables, the rules (body floor 16, micro floor 11, min-2 at ≥14, one responsive scale, headings clamp on small), and a one-line rationale (mobile keeps body ≥16; only large headings shrink). This is the source of truth going forward.
 4. **Both themes / both platforms** — verify rendering on web and an iPhone-sized native viewport: body reads at 16 default, page titles shrink appropriately on small (not a 36px title on a 390px screen), nothing below 11.
 
 ## Done when

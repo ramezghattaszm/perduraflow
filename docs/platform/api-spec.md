@@ -5,8 +5,8 @@
 >
 > **This app is the manufacturing operations platform** (production scheduling = module #1). Source
 > documents: `docs/CLAUDE-CODE-BRIEF.md` (phase 0), `docs/CLAUDE-CODE-BRIEF-PHASE-1.md` (phase 1),
-> `docs/platform-architecture-spec.md` (A-series), `docs/production-scheduling-business-functional-spec.md`
-> (D-series), `docs/master-data-module-spec.md` (MD-series), `docs/PLATFORM-COMPLETION-LOG.md` (SKIP-NN).
+> `docs/platform/platform-architecture-spec.md` (A-series), `docs/scheduling/production-scheduling-business-functional-spec.md`
+> (D-series), `docs/master-data/master-data-module-spec.md` (MD-series), `docs/PLATFORM-COMPLETION-LOG.md` (SKIP-NN).
 >
 > **STATUS:**
 > - **Phase 0 (§1–§9): BUILT & signed off** — kernel spine (tenant, auth) + org model, admin screens.
@@ -306,7 +306,7 @@ Not used in phase 0.
 # Phase 1 — Master Data (BUILT)
 
 > **STATUS: BUILT & verified.** Source:
-> `docs/CLAUDE-CODE-BRIEF-PHASE-1.md`, `docs/master-data-module-spec.md` (MD1–MD15),
+> `docs/CLAUDE-CODE-BRIEF-PHASE-1.md`, `docs/master-data/master-data-module-spec.md` (MD1–MD15),
 > scheduling spec §5.2–5.4 (routing/operation, resource, changeover), D7/D54/D57. All §0 override
 > rules (O1–O8) and §2 schema rules carry forward unchanged.
 
