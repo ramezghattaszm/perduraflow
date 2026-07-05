@@ -70,8 +70,9 @@ Separate from the atomic identity commit (independent — needs only `revise*` f
 - **Interface = explicit revision (B):** the revise takes explicit `revision` + `effectiveFrom`. Rationale: draft/publish (Layer 2) *extends* explicit revision but would *undo* an auto-anchor-to-now; explicit is the no-rework-aligned precursor. Meaningful (ECN-tied) revisions, not one-per-keystroke.
 - **UI hedge:** if the admin **UI** form change is out of appetite this pass, the *service* may accept `revision`/`effectiveFrom` as optional and auto-derive when absent — the never-in-place redirect still lands now; the explicit-input UI form becomes a tracked `REMAINING-ITEMS` follow-up. Do **not** defer the redirect itself (that's the rejected option C).
 - No-op edits write nothing (consistent with Pattern-B audit behavior).
-- Record in `REMAINING-ITEMS`: 6b is the foundation the Layer 2 draft/publish lifecycle builds on; note the UI-form follow-up if the hedge is taken.
-- **Report:** an edit via the admin path now produces a new version (not an in-place update); audit shows `revise`/`supersede`; a no-op edit writes nothing; existing admin flows still function.
+- **Snapshot-read coherence:** add a **non-deprecated** `getPartVersion(tenantId, versionId) → PartVersionDto` (an exact-version-by-id read, legitimate for FROZEN SNAPSHOTS). Repoint the snapshot reader at `simulator.service:134` (and any other exact-version reader) OFF the deprecated `getPart` live-lookup shim ONTO it. Then confirm the deprecated live-lookup ops (`getPart`/`getRouting`/`getPrimaryRoutingForPart`) have **zero legitimate callers** — they exist only for A12 must-ignore until the 2.0 removal.
+- Record in `REMAINING-ITEMS`: 6b is the foundation the Layer 2 draft/publish lifecycle builds on; the `revise*` **HTTP-endpoint guard** (JwtAuthGuard + ConfigureGuard, JWT actor — noted back in Commit 5) when revise is exposed over transport; note the UI-form follow-up if the hedge is taken.
+- **Report:** an edit via the admin path now produces a new version (not an in-place update); audit shows `revise`/`supersede`; a no-op edit writes nothing; existing admin flows still function; the `getPartVersion` addition + confirmation the deprecated live-lookup ops have no remaining live callers; and whether the UI hedge was taken or the full form change was done.
 
 ### Commit 7 — re-seed + verification
 - **Rider (from Commit 4):** wire `db:migrate:custom` into the fresh-DB flow — `demo:reset` (and `db:setup`) must run the custom migrations so a reset DB **always** has the exclusion constraints. Without this, a reset leaves the invariant unenforced and the DoD below can pass hollow on clean seed data.
@@ -88,7 +89,7 @@ Separate from the atomic identity commit (independent — needs only `revise*` f
 - [ ] `master_data_audit` records every create/revise/supersede/update/deactivate (incl. Pattern-B resource updates).
 - [ ] every master-data change + its audit row are written **atomically** (Pattern-A revise *and* Pattern-B update; forced-failure rollback test green).
 - [ ] **grep proves no *live* consumer holds a part version `id`**; remaining version-id refs are only the documented allowlist (`supersedes_id`, `scheduled_operation.part_id`, `execution_actual.part_id`); id-based part ops deprecated (present, unused).
-- [ ] **Pattern-A never-edit-in-place enforced:** admin `updatePart`/`updateRouting` create a new version via `revise*`, never an in-place `UPDATE` (6b).
+- [ ] **Pattern-A never-edit-in-place enforced:** admin `updatePart`/`updateRouting` create a new version via `revise*`, never an in-place `UPDATE` (6b); snapshot readers use the non-deprecated `getPartVersion`, and the deprecated live-lookup ops have no remaining live callers.
 - [ ] `masterdata.read` at `1.4`; `org.read` unchanged; **no new cross-schema FK**; O2/O3 intact.
 - [ ] stale O7 comments corrected.
 - [ ] `demo:reset` + `db:seed` green; **demo schedule identical** to pre-Layer-0.
