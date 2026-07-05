@@ -3,6 +3,9 @@ import {
   type ConfigGroupKey,
   type ConfigValue,
   firmLatenessDominates,
+  kpiBandFieldKeys,
+  KPI_POLICY_DEFAULTS,
+  KPI_THRESHOLD_METRICS,
   OBJECTIVE_DEFAULTS,
   OBJECTIVE_WEIGHT_KEYS,
   type ObjectiveWeights,
@@ -81,13 +84,52 @@ const AUTONOMY: ConfigGroupDescriptor = {
 }
 
 /**
+ * Group 3 — KPI / Metric Policy (902 dashboard). The configurable **measure** (On-Time tolerance, a
+ * minutes value) + per-KPI **threshold bands** (green/amber as 0–1 rate percents, generated from
+ * {@link KPI_THRESHOLD_METRICS}). Defaults reproduce current behavior (tolerance 0). The `validate` guard
+ * keeps each band ordered for its direction (higher-better: green ≥ amber; lower-better: green ≤ amber).
+ */
+const KPI: ConfigGroupDescriptor = {
+  key: 'kpi',
+  defaults: { ...KPI_POLICY_DEFAULTS },
+  fields: [
+    { key: 'onTimeToleranceMinutes', kind: 'int', min: 0, max: 10080, display: 'raw', control: 'number' },
+    ...KPI_THRESHOLD_METRICS.flatMap((m) => {
+      const k = kpiBandFieldKeys(m.key)
+      const band = { kind: 'number' as const, min: 0, max: 1, display: 'percent' as const, control: 'slider' as const, sliderMax: 100, sliderStep: 1 }
+      return [
+        { key: k.green, ...band },
+        { key: k.amber, ...band },
+      ]
+    }),
+  ],
+  validate: (values) => {
+    const warnings: string[] = []
+    for (const m of KPI_THRESHOLD_METRICS) {
+      const k = kpiBandFieldKeys(m.key)
+      const green = Number(values[k.green])
+      const amber = Number(values[k.amber])
+      const ordered = m.direction === 'higher' ? green >= amber : green <= amber
+      if (!ordered) {
+        warnings.push(
+          `${m.key}: green (${green}) and amber (${amber}) are out of order for a ${m.direction}-better metric`,
+        )
+      }
+    }
+    return { ok: warnings.length === 0, warnings }
+  },
+}
+
+/**
  * The group registry. Stage 1: `reporting`; Stage 2: `objective` (weights + dominance guard);
- * Stage 3: `autonomy` (folded from the retired policy module).
+ * Stage 3: `autonomy` (folded from the retired policy module); Stage 4: `kpi` (902 dashboard
+ * configurable measures + threshold bands).
  */
 export const CONFIG_GROUPS: Partial<Record<ConfigGroupKey, ConfigGroupDescriptor>> = {
   objective: OBJECTIVE,
   reporting: REPORTING,
   autonomy: AUTONOMY,
+  kpi: KPI,
 }
 
 /** Resolve a group descriptor or throw a typed "unknown group" for the controller to 404/400. */

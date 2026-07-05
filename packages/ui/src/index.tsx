@@ -64,6 +64,9 @@ export * from './BaselineDeltaStrip'
 export * from './ChatRichText'
 export * from './WhatIfComparison'
 
+// Chart toolkit (line/bar/area/sparkline) — react-native-svg primitives, components/charts.
+export * from './charts'
+
 // type augmentation for tamagui custom config
 import type { Conf } from '@perduraflow/config'
 declare module 'tamagui' {

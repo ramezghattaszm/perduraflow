@@ -72,9 +72,34 @@
     "dark": "Dark"
   },
   "dashboard": {
-    "title": "Dashboard",
-    "subtitle": "Your operations overview will appear here as modules are activated.",
-    "empty": "No dashboards have been registered yet."
+    "title": "Performance",
+    "subtitle": "Plant KPIs over the reporting window — current value, status, and trend.",
+    "empty": "No dashboards have been registered yet.",
+    "plant": "Plant",
+    "selectPlant": "Select a plant to see its performance.",
+    "noData": "No executed actuals in the reporting window yet.",
+    "window": "Trailing {{days}} days",
+    "trendTitle": "{{kpi}} trend",
+    "noTrend": "Current value only",
+    "kpi": {
+      "onTime": "On-time",
+      "throughput": "Throughput",
+      "oee": "OEE",
+      "scrap": "Scrap rate",
+      "adherence": "Schedule adherence"
+    },
+    "caption": {
+      "onTime": "orders delivered by due",
+      "throughput": "good ÷ planned",
+      "oee": "availability · performance · quality",
+      "scrap": "scrap ÷ produced",
+      "adherence": "ops started on plan"
+    },
+    "oeeLeg": {
+      "availability": "Availability",
+      "performance": "Performance",
+      "quality": "Quality"
+    }
   },
   "plants": {
     "title": "Plants",

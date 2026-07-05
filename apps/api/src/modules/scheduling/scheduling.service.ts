@@ -6,6 +6,7 @@ import {
   type CoverageAxisDto,
   type CoverageCell,
   type ConfigReadContract,
+  type KpiDashboardDto,
   type ObjectiveWeights,
   type CoverageProposalDto,
   type ExecutionActualDto,
@@ -1028,10 +1029,10 @@ export class SchedulingService {
     // CONTINUOUS plant On-Time delivery over the same window — order-grain (delivered by due), from the
     // SAME authoritative actuals. The cockpit On-Time KPI reads this; reflects historical late deliveries.
     const onTime = await this.rollup.computePlantOnTime(tenantId, version.plantId)
-    // CONTINUOUS historical OEE (A·P·Q) — the cockpit headline. Read from the seeded measured_historical
-    // rows over the Reporting-Policy window (same source as the scorecard's Historical baseline arm), so
-    // it's plan-independent, present from demo:reset, and never waits for a re-solve.
-    const histOee = await this.rollup.computeHistoricalOee(tenantId, version.plantId)
+    // CONTINUOUS OEE (A·P·Q) from ACTUALS — the cockpit headline + per-lane. The real measured OEE over
+    // the Reporting-Policy window (same fold as the scorecard's per-version OEE), not the seeded snapshot.
+    // The seeded `historical_outcome` stays only for the scorecard's measured-historical BASELINE arm.
+    const contOee = await this.rollup.computeOeeFromActuals(tenantId, version.plantId)
 
     const byResource = new Map<string, typeof ops>()
     for (const op of ops) {
@@ -1071,7 +1072,7 @@ export class SchedulingService {
           resourceName: nameById.get(resourceId) ?? resourceId,
           throughputAttainment: attainment,
           continuousAttainment,
-          continuousOee: histOee.byResource.get(resourceId) ?? null,
+          continuousOee: contOee.byResource.get(resourceId) ?? null,
           behindPlanPct: continuousAttainment != null ? Math.max(0, 1 - continuousAttainment) : 0,
           scheduleAdherence: withActual.length > 0 ? onTime / withActual.length : 1,
           utilizationPct,
@@ -1119,7 +1120,7 @@ export class SchedulingService {
       // CONTINUOUS plant On-Time (cross-version, Reporting-Policy window) — the cockpit On-Time headline.
       plantOnTime: onTime.plant,
       // CONTINUOUS historical OEE (A·P·Q) from measured_historical rows — the cockpit headline.
-      plantOee: histOee.plant,
+      plantOee: contOee.plant,
       reportingWindowStart: new Date(cont.windowStartMs).toISOString(),
       reportingWindowEnd: new Date(cont.windowEndMs).toISOString(),
       utilizationPct: plantAvail > 0 ? plantBusy / plantAvail : null,
@@ -1138,6 +1139,12 @@ export class SchedulingService {
    */
   computePlantOnTime(tenantId: string, plantId: string): Promise<{ plant: number | null; byResource: Map<string, number | null> }> {
     return this.rollup.computePlantOnTime(tenantId, plantId)
+  }
+
+  /** The 902 performance dashboard (tiles + trends + threshold status) for a plant — delegates to the
+   *  {@link ActualsRollupService}; the public seam the controller's `GET /scheduling/dashboard` reads. */
+  kpiDashboard(tenantId: string, plantId: string): Promise<KpiDashboardDto> {
+    return this.rollup.computeKpiDashboard(tenantId, plantId)
   }
 
   /** Compute one version's metrics, optionally scoped to a single resource/line. */

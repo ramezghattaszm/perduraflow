@@ -15,7 +15,7 @@ import { z } from 'zod'
 export const CONFIG_READ_CONTRACT = { id: 'config.read', version: '1.0' } as const
 
 /** The setting groups that plug into the framework. */
-export const configGroupKeySchema = z.enum(['objective', 'reporting', 'autonomy'])
+export const configGroupKeySchema = z.enum(['objective', 'reporting', 'autonomy', 'kpi'])
 export type ConfigGroupKey = z.infer<typeof configGroupKeySchema>
 
 /** Resolution levels — `global` is the shipped default floor; tenant/plant are stored overrides. */
@@ -95,6 +95,74 @@ export interface ReportingPolicy {
 
 /** Shipped default reporting window (covers the demo seed's ~12-day rolling history). */
 export const REPORTING_DEFAULTS: ReportingPolicy = { reportingWindowDays: 14 }
+
+// --- Group: KPI / Metric Policy (Group 3 — configurable measures + thresholds) ---
+/**
+ * KPI / Metric Policy — the dashboard's **configurable measures** AND threshold bands (CONFIG-FRAMEWORK
+ * §Group 3). Two layers: (1) **measure definitions** — *what composes* a KPI (e.g. the On-Time tolerance
+ * window) — the configurability the dashboard requirement calls for; (2) **threshold bands** — green/amber
+ * edges per KPI for tile coloring. Stored FLAT (the cascade holds scalars); resolved into this structured
+ * shape. **Defaults reproduce current behavior byte-identical** (On-Time tolerance 0 = `delivery > due`),
+ * so nothing moves until a tenant/plant overrides. Resolves to plant; threshold bands may go to line later.
+ */
+export type KpiThresholdDirection = 'higher' | 'lower'
+
+/** A KPI's threshold band — `green`/`amber` edges (the band values are configurable; below/above per the
+ *  fixed `direction` is red). E.g. higher-better On-Time: ≥green = green, ≥amber = amber, else red. */
+export interface KpiThreshold {
+  direction: KpiThresholdDirection
+  green: number
+  amber: number
+}
+
+/**
+ * The metrics carrying a configurable threshold band — fixed direction + shipped default band (rate
+ * fractions 0–1). Cost is intentionally excluded: its $/unit band is product/plant-specific, so there's
+ * no universal default to ship (the dashboard renders cost without a band until a plant configures one).
+ */
+export const KPI_THRESHOLD_METRICS = [
+  { key: 'onTime', direction: 'higher', green: 0.95, amber: 0.9 },
+  { key: 'oee', direction: 'higher', green: 0.85, amber: 0.75 },
+  { key: 'throughput', direction: 'higher', green: 0.95, amber: 0.9 },
+  { key: 'adherence', direction: 'higher', green: 0.95, amber: 0.9 },
+  { key: 'scrap', direction: 'lower', green: 0.02, amber: 0.05 },
+  { key: 'churn', direction: 'lower', green: 0.05, amber: 0.1 },
+] as const satisfies ReadonlyArray<{ key: string; direction: KpiThresholdDirection; green: number; amber: number }>
+
+/** A metric key that carries a configurable threshold band. */
+export type KpiThresholdKey = (typeof KPI_THRESHOLD_METRICS)[number]['key']
+
+/** Flat stored field keys for one metric's band (the cascade holds `<key>Green` / `<key>Amber`). */
+export const kpiBandFieldKeys = (key: string): { green: string; amber: string } => ({
+  green: `${key}Green`,
+  amber: `${key}Amber`,
+})
+
+/** The resolved KPI / Metric Policy — configurable MEASURE definitions + threshold bands. */
+export interface KpiPolicy {
+  /** On-Time measure definition — the configurable measure. Default `{ toleranceMinutes: 0 }` reproduces
+   *  the current `delivery > due` rule exactly. */
+  onTime: { toleranceMinutes: number }
+  /** Per-metric threshold bands (configurable edges + fixed direction). */
+  thresholds: Record<KpiThresholdKey, KpiThreshold>
+}
+
+/**
+ * Shipped KPI / Metric Policy defaults — FLAT (the config-store shape). On-Time tolerance defaults to 0
+ * (parity: equals today's rule); each metric's green/amber default comes from {@link KPI_THRESHOLD_METRICS}.
+ */
+export const KPI_POLICY_DEFAULTS: Record<string, ConfigValue> = {
+  onTimeToleranceMinutes: 0,
+  ...Object.fromEntries(
+    KPI_THRESHOLD_METRICS.flatMap((m) => {
+      const k = kpiBandFieldKeys(m.key)
+      return [
+        [k.green, m.green],
+        [k.amber, m.amber],
+      ]
+    }),
+  ),
+}
 
 // --- Group: autonomy policy (the learning gate) -----------------------------
 /**
@@ -249,4 +317,7 @@ export interface ConfigReadContract {
   resolveObjective(tenantId: string, plantId?: string): Promise<{ weights: ObjectiveWeights; version: string }>
   /** The resolved Autonomy Policy (global → tenant) — the learning gate's threshold + tier + snooze. */
   resolveAutonomy(tenantId: string): Promise<AutonomyPolicy>
+  /** The resolved KPI / Metric Policy (plant → tenant → global) — the configurable On-Time measure +
+   *  the per-KPI threshold bands the dashboard reads. */
+  resolveKpiPolicy(tenantId: string, plantId?: string): Promise<KpiPolicy>
 }

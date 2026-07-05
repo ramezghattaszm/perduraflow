@@ -1079,3 +1079,48 @@ export const simulateActualsSchema = z
   })
   .strict()
 export type SimulateActualsRequest = z.infer<typeof simulateActualsSchema>
+
+// --- 902 performance dashboard (KPI tiles + trends + threshold status) -------
+
+/** A point on a KPI trend — `x` is the bucket-start instant (epoch ms), `y` the value or `null` (a
+ *  period with no executed work → an honest gap, never a fabricated 0). */
+export interface KpiTrendPointDto {
+  x: number
+  y: number | null
+}
+
+/** A KPI's status against its cascade-resolved threshold band, or `none` (no value / no band). */
+export type KpiStatusDto = 'green' | 'amber' | 'red' | 'none'
+
+/**
+ * One KPI tile on the 902 performance dashboard — a current value, its status vs the resolved band,
+ * and a trend series. All five v1 KPIs (incl. OEE, now actuals-derived) carry a trend; the `oee` tile
+ * additionally carries its current A·P·Q legs and their per-period leg trends.
+ */
+export interface KpiTileDto {
+  /** Stable metric key: `onTime` | `throughput` | `oee` | `scrap` | `adherence`. */
+  key: string
+  /** Current value as a rate 0–1 (for OEE, the blended oee); `null` on an empty window. */
+  value: number | null
+  /** Status vs the resolved threshold band — `none` when there's no value or no configured band. */
+  status: KpiStatusDto
+  /** Trend series, or `null` for a current-value-only KPI. For `oee` this is the combined-OEE trend. */
+  trend: KpiTrendPointDto[] | null
+  /** OEE legs (current value) — present only on the `oee` tile. */
+  oee?: { availability: number; performance: number; quality: number } | null
+  /** Per-period A·P·Q leg trends — present only on the `oee` tile (each a rate series over the window). */
+  legTrends?: { availability: KpiTrendPointDto[]; performance: KpiTrendPointDto[]; quality: KpiTrendPointDto[] } | null
+}
+
+/**
+ * The 902 performance dashboard payload for one plant — current-value tiles (each with band status)
+ * plus trends, over the resolved reporting window. Read surface; the measure definitions + threshold
+ * bands come from the KPI / Metric Policy cascade (so both are configurable per tenant/plant).
+ */
+export interface KpiDashboardDto {
+  plantId: string
+  windowStartMs: number
+  windowEndMs: number
+  bucket: 'day' | 'week'
+  tiles: KpiTileDto[]
+}

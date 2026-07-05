@@ -67,9 +67,17 @@ export function ExceptionsContent() {
   const resName = useMemo(() => new Map(resources.map((r) => [r.id, r.name])), [resources])
   const plantOptions = plants.map((p) => ({ value: p.id, label: p.name }))
 
-  const auto = predictions.filter(
-    (p) => p.disposition === 'auto_committed' || p.disposition === 'approved'
-  )
+  // One auto-handled row per lane (resource, param): a lane wears as ONE tool, but the engine forecasts
+  // per routing-op, so several ops on the same lane can each auto-commit. Collapse to the strongest
+  // (highest-confidence) — the queue shows one auto-handled item per lane, not confusing per-op duplicates.
+  const auto = [
+    ...new Map(
+      predictions
+        .filter((p) => p.disposition === 'auto_committed' || p.disposition === 'approved')
+        .sort((a, b) => a.confidence - b.confidence) // asc → Map keeps the last (highest-confidence) per key
+        .map((p) => [`${p.resourceId}:${p.param}`, p] as const)
+    ).values(),
+  ]
   // A lane wears as ONE tool: if a (resource, param) already auto-committed/approved, a second routing
   // op's still-queued forecast for the SAME wear is not a separate "needs you" — the lane is handled.
   // Suppress it so the lane appears once (auto-handled), consistent with the board's wear card.

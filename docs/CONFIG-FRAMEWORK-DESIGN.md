@@ -1,17 +1,24 @@
 # Hierarchical Configuration Framework — design
 
-> A reusable mechanism for tenant/plant-scoped settings, so configuration is **never hardcoded** and every setting resolves through one consistent path. Built once; setting groups plug into it. First two groups: **Objective Policy** (the engine weights) and **Reporting Policy** (the KPI reporting window). Future settings (display thresholds, more KPI preferences) use the same framework.
+> A reusable mechanism for tenant/plant/sub-plant-scoped settings, so configuration is **never hardcoded** and every setting resolves through one consistent path. Built once; setting groups plug into it. Live groups: **Objective Policy** (the engine weights), **Reporting Policy** (the KPI reporting window), **Autonomy** (the tier-1 gate). Documented-next groups: **KPI / Metric Policy** and **Solver Policy**. Future settings use the same framework.
 >
-> **The principle:** no hardcoding. Anything that is a *policy* or *preference* (not physics) is configured, resolves hierarchically, cascades with override + reset, and is audited. The framework makes that the default for all such settings rather than bespoke per-setting plumbing.
+> **The overarching platform tenet (D42, A7): everything is configurable, nothing is hardcoded.** Anything that is a *policy* or *preference* (not physics) is configured, resolves hierarchically, cascades with override + reset, is versioned, and is audited. The framework makes that the **default** for all such settings rather than bespoke per-setting plumbing. Configuration resolves at the **most specific *coherent* level** — tenant → plant → (where the group is coherent there) line/resource. The level a group *stops* at is a property of the group, not the framework: the framework reaches sub-plant, and each group declares how far down it is meaningful (see "Resolution depth is per-group" below).
 
 ---
 
 ## The framework (build once)
 
-### Hierarchy: global → tenant → plant
-Resolution: **plant override → tenant override → global default** (most specific wins; global is the shipped-default floor). Reset-to-parent at any level (a plant resets to tenant, a tenant resets to global).
+### Hierarchy: global → tenant → plant → (line/resource)
+Resolution: **most specific override wins** — line/resource → plant → tenant → global default (global is the shipped-default floor). Reset-to-parent at any level (a resource resets to plant, a plant to tenant, a tenant to global).
 
-**Stops at plant.** Sub-plant (line) config is excluded — but the *reason* differs by setting group, so it's recorded per group (see each group). The framework supports an optional scope level below plant only if a group ever needs it (none do today).
+### Resolution depth is per-group (the policy-vs-physics boundary)
+The framework **reaches sub-plant** (line/resource scope rows are first-class). How far down a given group is *meaningful* is declared **per group**, because the answer is governed by the **policy-vs-physics boundary**:
+
+- **Policy that scores a whole-plant outcome stops at plant** — going lower is *incoherent*, not merely undesirable. The objective weights are the canonical case: they score one plant schedule against one objective; per-line weights would score one schedule against two objectives ("best plan" undefined). Reporting windows stop at plant for a *different* reason — coherent below but undesirable (comparability). Each group records its reason.
+- **Physics / operating parameters go to the resource** — these already do, today, via `resource_type_config` (per-resource OT cap, min-batch, rates). The tenet formalizes `resource_type_config` as the **sub-plant config tier**: it *is* the framework reaching the resource level for physics, and admin write-paths/cascade/audit should be brought onto it (the section-G work in `REMAINING-ITEMS.md`).
+- **Display preferences may go to the line** where comparability is preserved — e.g. a lane-level KPI target is coherent below plant (see KPI / Metric Policy).
+
+So "everything configurable at every level" is true of the **framework**; the **stop level is the group's own coherence call**, recorded with each group. This is the reconciliation of the platform tenet ("configurable even below plant") with the long-standing weights rule ("policy stops at plant").
 
 ### Generic mechanism
 - **Storage** — a config store keyed by `(settingGroup, level, scopeId)`; each row holds the group's settings payload + a version. Global rows seed the shipped defaults. Soft-delete/transition per the standing rule.
@@ -42,6 +49,20 @@ The trailing window over which **continuous plant throughput** (and sibling cont
   - **Production:** the resolved window is the plant's configured reporting period (trailing N days / shift / week) — real continuous execution history, reported over the stated period.
 - **Note:** this is a *reporting/display* policy (affects what KPIs show), distinct from Objective Policy (a *scheduling* policy). Same framework, different concern — which is exactly why a general framework (not weight-specific config) is the right build.
 
+## Group 3 — KPI / Metric Policy (which KPIs, targets, thresholds, dashboard composition)
+*Documented-next (not yet built). The configurable extension of Reporting Policy: that group sets the **window**; this sets **which metrics**, their **targets/thresholds**, and **where they show**.*
+- **Fields:** the **metric set** surfaced on each dashboard (cockpit / scorecard / the fuller 902 dashboard), each metric's **target + threshold bands** (green/amber/red), and **dashboard composition** (which metrics, in what order, on which surface/role). Metric *definitions* (formula, unit, axis) are reference data the modules register; this group selects and parameterizes them per scope.
+- **Resolution depth — plant, optionally line for targets/thresholds.** *Which* metrics show and *how* a dashboard is composed resolve at plant (one consistent operational view per plant). **Targets/thresholds may resolve to the line** — a lane-level target (Press A vs Press B different OEE goal) is coherent below plant because it's a display preference against a per-line reality, not a whole-plant objective. (Contrast Objective Policy, incoherent below plant.)
+- **Consumed:** the dashboard-registration framework (A7) reads composition; each KPI tile reads its target/threshold from the resolved policy — **not hardcoded** curated constants. Today's cockpit/scorecard curation (4 distinct-axis KPIs each) becomes the *default* composition, overridable per tenant/plant.
+- **Ties to:** `REMAINING-ITEMS.md` → "Performance / KPI dashboard (902…)" (the surface) and the `Constraints control panel` (the sibling configure-and-see pattern). Blocked on **Q20** (which KPIs the client actually tracks, at what level, with what targets) — but the framework makes "they are all configurable" the structural answer regardless of Q20's content.
+
+## Group 4 — Solver Policy (the optimizing-engine parameters, incl. CP-SAT)
+*Documented-next (not yet built). The parameters that tune the optimizer itself — distinct from Objective Policy, which sets what the optimizer optimizes *for*.*
+- **Fields:** solver run parameters — **time limit / solve budget**, **optimality gap** (accept a provably-near-optimal plan to bound runtime), **search workers / parallelism**, **deterministic seed**, and the **engine selection** (heuristic stand-in ↔ CP-SAT/OR-Tools, the `external_solver` binding). The objective **weights stay in Objective Policy** (Group 1); Solver Policy references them, it does not own them.
+- **Resolution depth — tenant/plant; selected params to the line.** Engine selection + global budget resolve at plant (one engine, one budget per plant solve). Some operating params (a line's allowed search window) can resolve per-resource alongside `resource_type_config`.
+- **Determinism (D2) preserved:** these are **resolved config stamped at solve**, not live runtime knobs — same resolved Solver Policy + same inputs → byte-identical plan. A deterministic seed and a fixed optimality gap are *part of* the determinism contract, not a threat to it.
+- **Consumed:** the sequencer / `scorePlan` today, and the CP-SAT/OR-Tools flexible-job-shop optimizer when it drops in behind the `external_solver` binding (the provider/contract swap is **already designed** — see `ENGINE-CONSTRAINTS-AND-PRODUCTION.md §Engine` and `REMAINING-ITEMS.md` "Full optimizer" / "Optimizer selection AQ6"). Solver Policy is the config half of that swap; the binding is the provider half.
+
 ---
 
 ## The reframe that motivated this (recorded)
@@ -54,6 +75,9 @@ The continuous-throughput fix initially risked hardcoding `today−12` as the wi
 2. **Group 1 — Objective Policy (weights)** — fields + the firm-lateness-dominance guard + wire into scoring. (Per `WEIGHT-CONFIG-DESIGN.md`.)
 3. **Group 2 — Reporting Policy (reporting window)** — the `reportingWindow` field + wire into the continuous-throughput metric (`windowStart` from resolved config, not hardcoded).
 4. **UI** — the per-group config surface (inherited/overridden indicators, effective values, reset-to-parent).
+5. **Group 3 — KPI / Metric Policy** (post-demo, with the 902 dashboard) — metric set + targets/thresholds + dashboard composition; line-level targets where coherent. Unblocks "configurable KPIs" (Q20).
+6. **Group 4 — Solver Policy** (post-demo, with the CP-SAT swap) — solve budget / optimality gap / workers / seed / engine selection; the config half of the `external_solver` binding. Determinism stamped at solve.
+7. **Sub-plant write-paths** — bring `resource_type_config` (per-resource physics: OT cap, min-batch, rates) onto the framework's cascade + audit + admin CRUD (the section-G gap in `REMAINING-ITEMS.md`), making the resource level a first-class config tier in practice, not just in design.
 
 **Verification (per group + framework):**
 - Resolution cascade: plant override wins → clear → tenant → clear → global. Reset-to-parent at each level.
