@@ -15,7 +15,18 @@ import { LEARNING_READ } from '../learning/learning-read.service'
 import { CONFIG_READ } from '../config/config-read.service'
 import { SchedulingRepository } from './scheduling.repository'
 import { startOfDayUtc } from '../../common/utils/working-calendar'
-import { bucketStartUtc, bucketStartsInRange, isOrderLate, kpiStatus, type OnTimeDefinition, type TrendBucket } from './kpi-measures'
+import {
+  accumulateOee,
+  bucketStartUtc,
+  bucketStartsInRange,
+  emptyOeeAccumulator,
+  isOrderLate,
+  kpiStatus,
+  type OeeAccumulator,
+  oeeFromAccumulator,
+  type OnTimeDefinition,
+  type TrendBucket,
+} from './kpi-measures'
 
 const MS_PER_DAY = 86_400_000
 /** Mirrors `ADHERENCE_TOLERANCE_MIN` in the per-version fold (SchedulingService) — an op counts
@@ -39,9 +50,28 @@ export interface KpiCurrentValues {
   adherence: number | null
 }
 
+/** Per-period OEE (A·P·Q + combined) trends over the window — the OEE card's charts. */
+export interface OeeTrend {
+  oee: KpiTrendPoint[]
+  availability: KpiTrendPoint[]
+  performance: KpiTrendPoint[]
+  quality: KpiTrendPoint[]
+}
+
+/** OEE derived from ACTUALS (not the seeded snapshot) — plant + per-resource current value + the
+ *  windowed trend. The real measured OEE, and the source that makes an honest A·P·Q trend possible. */
+export interface OeeFromActuals {
+  plant: OeeDto | null
+  byResource: Map<string, OeeDto | null>
+  trend: OeeTrend
+  bucket: TrendBucket
+  windowStartMs: number
+  windowEndMs: number
+}
+
 /** Windowed KPI trends + window-aggregate current values for a plant — the actuals-derived KPIs the 902
- *  dashboard charts. OEE is deliberately ABSENT (current-value tile only: it reads the locked seeded
- *  snapshot, no honest trend; the dashboard adds it separately via computeHistoricalOee). */
+ *  dashboard charts. OEE is handled separately by {@link ActualsRollupService.computeOeeFromActuals}
+ *  (it needs its own A·P·Q accumulation, and feeds both the dashboard and the cockpit). */
 export interface KpiTrends {
   bucket: TrendBucket
   windowStartMs: number
@@ -64,11 +94,11 @@ export interface KpiTrends {
  * actuals are read **only** through `learning.read` (the contract — O1/O2; scheduling never touches
  * learning's tables). Pure code-move from `SchedulingService`; identical math.
  *
- * Scope this pass: the continuous trio (throughput / on-time) + the windowed authority primitive, plus
- * the historical-OEE read. **OEE stays sourced from the seeded `historical_outcome` snapshot** — NOT
- * unified to op_actuals — the demo's seeded OEE is load-bearing. The per-version `versionMetrics` fold
- * stays in `SchedulingService` for now (it's entangled with the lateness-chain DTO assembly shared by
- * the work-list — a separate, larger move, flagged not muddied into this rollup).
+ * Folds here: the continuous throughput / on-time, the windowed KPI trends, and **OEE from actuals**
+ * (`computeOeeFromActuals` — A·P·Q current + trend, the same fold as the per-version scorecard). OEE is
+ * no longer read from the seeded `historical_outcome` snapshot (that stays only for the scorecard's
+ * measured-historical *baseline* comparison). The per-version `versionMetrics` fold stays in
+ * `SchedulingService` for now (entangled with the lateness-chain DTO assembly shared by the work-list).
  */
 @Injectable()
 export class ActualsRollupService {
@@ -241,44 +271,76 @@ export class ActualsRollupService {
   }
 
   /**
-   * Continuous **historical OEE** (A·P·Q) for the cockpit — aggregated from the seeded `historical_outcome`
-   * (measured_historical) rows whose period overlaps the Reporting-Policy window. **LOCKED to that seeded
-   * source this pass** (NOT derived from op_actuals — the demo's seeded OEE is load-bearing). The SAME
-   * source the scorecard's "Historical" baseline arm reads (no divergence), plan-independent and present
-   * from `demo:reset`. `null` per scope when no in-window rows exist (the honest empty state).
-   * @returns plant OEE + per-resource OEE (both `null` when the window has no rows for that scope).
+   * **OEE from ACTUALS** (A·P·Q) over the Reporting-Policy window — the real measured OEE, computed with
+   * the SAME fold as the per-version scorecard ({@link oeeFromAccumulator}) but continuous/windowed and
+   * bucketed for a trend. This is the OEE source for the cockpit + dashboard (replacing the earlier
+   * seeded-snapshot read), so OEE gains an honest per-period A·P·Q trend and one consistent source.
+   * (The seeded `historical_outcome` stays only for the scorecard's measured-historical *baseline*
+   * comparison, read directly by `plan-comparison.service`.)
+   * Returns plant + per-resource current values + the windowed OEE/A/P/Q trend. `null` where a scope /
+   * period has no executed actuals (a gap, not 0%).
    */
-  async computeHistoricalOee(
+  async computeOeeFromActuals(
     tenantId: string,
     plantId: string,
-  ): Promise<{ plant: OeeDto | null; byResource: Map<string, OeeDto | null> }> {
+    opts?: { bucket?: TrendBucket; trendDays?: number },
+  ): Promise<OeeFromActuals> {
+    const bucket = opts?.bucket ?? 'day'
     const { reportingWindowDays } = await this.config.resolveReporting(tenantId, plantId)
+    const trendDays = opts?.trendDays ?? reportingWindowDays
     const windowEndMs = startOfDayUtc(Date.now())
-    const windowStartMs = windowEndMs - reportingWindowDays * MS_PER_DAY
-    const rows = (await this.repo.listHistoricalOutcomes(tenantId, plantId)).filter(
-      (r) => r.periodEnd.getTime() > windowStartMs && r.periodStart.getTime() < windowEndMs && r.oee != null,
-    )
-    type Row = (typeof rows)[number]
-    const agg = (subset: Row[]): OeeDto | null => {
-      if (subset.length === 0) return null
-      const mean = (sel: (r: Row) => number | null): number => {
-        const vals = subset.map(sel).filter((v): v is number => v != null)
-        return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
+    const windowStartMs = windowEndMs - trendDays * MS_PER_DAY
+    const starts = bucketStartsInRange(windowStartMs, windowEndMs, bucket)
+    const nullSeries = (): KpiTrendPoint[] => starts.map((x) => ({ x, y: null }))
+    const emptyTrend = (): OeeTrend => ({ oee: nullSeries(), availability: nullSeries(), performance: nullSeries(), quality: nullSeries() })
+
+    const { authoritative, resourceIds } = await this.resolveAuthoritativeActuals(tenantId, plantId, windowStartMs, windowEndMs)
+    if (authoritative.length === 0) {
+      return { plant: null, byResource: new Map(resourceIds.map((r) => [r, null])), trend: emptyTrend(), bucket, windowStartMs, windowEndMs }
+    }
+    const opById = new Map((await this.repo.findOpsByIds(authoritative.map((a) => a.scheduledOperationId))).map((o) => [o.id, o]))
+
+    const total = emptyOeeAccumulator()
+    const byRes = new Map<string, OeeAccumulator>()
+    const byBucket = new Map<number, OeeAccumulator>()
+    const accFor = (map: Map<string | number, OeeAccumulator>, key: string | number): OeeAccumulator => {
+      let a = map.get(key)
+      if (!a) map.set(key, (a = emptyOeeAccumulator()))
+      return a
+    }
+    for (const a of authoritative) {
+      const op = opById.get(a.scheduledOperationId)
+      if (!op) continue
+      const fold = {
+        opMinutes: (new Date(a.actualEnd).getTime() - new Date(a.actualStart).getTime()) / 60_000,
+        setupMinutes: a.actualSetupTime ?? 0,
+        downtimeMinutes: a.downtimeMinutes,
+        stdCycle: op.cycleTime, // the op's std cycle per unit — mirrors the per-version fold
+        good: a.goodQty,
+        scrap: a.scrapQty,
       }
-      const availability = mean((r) => r.oeeAvailability)
-      const performance = mean((r) => r.oeePerformance)
-      const quality = mean((r) => r.oeeQuality)
-      return { availability, performance, quality, oee: availability * performance * quality }
+      accumulateOee(total, fold)
+      accumulateOee(accFor(byRes as Map<string | number, OeeAccumulator>, a.resourceId), fold)
+      accumulateOee(accFor(byBucket as Map<string | number, OeeAccumulator>, bucketStartUtc(new Date(a.actualStart).getTime(), bucket)), fold)
     }
-    // Plant = aggregate ALL in-window rows (blend + per-line), the SAME scope the scorecard's
-    // measured_historical baseline arm uses (`listHistoricalOutcomes(plantId)` with no resourceId) —
-    // so the cockpit headline and the Historical baseline show the identical number (no divergence, #6).
-    const plant = agg(rows)
+
     const byResource = new Map<string, OeeDto | null>()
-    for (const rid of new Set(rows.filter((r) => r.resourceId != null).map((r) => r.resourceId as string))) {
-      byResource.set(rid, agg(rows.filter((r) => r.resourceId === rid)))
+    for (const rid of resourceIds) byResource.set(rid, byRes.has(rid) ? oeeFromAccumulator(byRes.get(rid)!) : null)
+    const oeeByBucket = new Map<number, OeeDto | null>()
+    for (const [b, acc] of byBucket) oeeByBucket.set(b, oeeFromAccumulator(acc))
+    const leg = (sel: (o: OeeDto) => number): KpiTrendPoint[] =>
+      starts.map((x) => {
+        const o = oeeByBucket.get(x)
+        return { x, y: o ? sel(o) : null }
+      })
+    return {
+      plant: oeeFromAccumulator(total),
+      byResource,
+      trend: { oee: leg((o) => o.oee), availability: leg((o) => o.availability), performance: leg((o) => o.performance), quality: leg((o) => o.quality) },
+      bucket,
+      windowStartMs,
+      windowEndMs,
     }
-    return { plant, byResource }
   }
 
   /**
@@ -406,7 +468,7 @@ export class ActualsRollupService {
   async computeKpiDashboard(tenantId: string, plantId: string): Promise<KpiDashboardDto> {
     const [trends, oee, policy] = await Promise.all([
       this.computeKpiTrends(tenantId, plantId),
-      this.computeHistoricalOee(tenantId, plantId),
+      this.computeOeeFromActuals(tenantId, plantId),
       this.config.resolveKpiPolicy(tenantId, plantId),
     ])
     const band = (key: KpiThresholdKey) => policy.thresholds[key] ?? null
@@ -417,8 +479,9 @@ export class ActualsRollupService {
         key: 'oee',
         value: oee.plant?.oee ?? null,
         status: kpiStatus(oee.plant?.oee ?? null, band('oee')),
-        trend: null,
+        trend: oee.trend.oee, // OEE is now actuals-derived → it has an honest combined-OEE trend
         oee: oee.plant ? { availability: oee.plant.availability, performance: oee.plant.performance, quality: oee.plant.quality } : null,
+        legTrends: { availability: oee.trend.availability, performance: oee.trend.performance, quality: oee.trend.quality },
       },
       { key: 'scrap', value: trends.current.scrap, status: kpiStatus(trends.current.scrap, band('scrap')), trend: trends.scrap },
       { key: 'adherence', value: trends.current.adherence, status: kpiStatus(trends.current.adherence, band('adherence')), trend: trends.adherence },

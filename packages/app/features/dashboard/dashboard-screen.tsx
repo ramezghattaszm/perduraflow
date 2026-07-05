@@ -11,6 +11,7 @@ import {
   P,
   PageHeader,
   Panel,
+  Sparkline,
   XStack,
   YStack,
 } from '@perduraflow/ui'
@@ -87,23 +88,24 @@ export function DashboardScreen() {
           <XStack gap="$4" flexWrap="wrap">
             {tiles.map((tile) =>
               tile.key === 'oee' ? (
-                <Panel key={tile.key} title={t('dashboard.kpi.oee')} flexBasis={320} flexGrow={1}>
-                  <P size={5} color="$textTertiary">
-                    {t('dashboard.noTrend')}
-                  </P>
-                  <YStack gap="$2" paddingTop="$2">
-                    {tile.oee
-                      ? (['availability', 'performance', 'quality'] as const).map((leg) => (
-                          <XStack key={leg} justifyContent="space-between">
-                            <P size={3} color="$textSecondary">
-                              {t(`dashboard.oeeLeg.${leg}`)}
-                            </P>
-                            <P size={3} weight="b" color="$textPrimary">
-                              {pct1(tile.oee![leg])}
-                            </P>
-                          </XStack>
-                        ))
-                      : null}
+                <Panel key={tile.key} title={t('dashboard.trendTitle', { kpi: t('dashboard.kpi.oee') })} flexBasis={320} flexGrow={1}>
+                  {/* Combined OEE trend (actuals-derived) */}
+                  <KpiTrend points={tile.trend} />
+                  {/* A·P·Q legs — current value + a sparkline of each leg's trend */}
+                  <YStack gap="$2.5" paddingTop="$3">
+                    {(['availability', 'performance', 'quality'] as const).map((leg) => (
+                      <XStack key={leg} alignItems="center" justifyContent="space-between" gap="$2">
+                        <P size={4} color="$textSecondary">
+                          {t(`dashboard.oeeLeg.${leg}`)}
+                        </P>
+                        <XStack alignItems="center" gap="$2">
+                          <OeeLegSpark points={tile.legTrends?.[leg] ?? null} />
+                          <P size={3} weight="b" color="$textPrimary" width={44} textAlign="right">
+                            {tile.oee ? pct1(tile.oee[leg]) : '—'}
+                          </P>
+                        </XStack>
+                      </XStack>
+                    ))}
                   </YStack>
                 </Panel>
               ) : (
@@ -162,4 +164,11 @@ function KpiTrend({ points }: { points: KpiTileDto['trend'] }) {
       dots={false}
     />
   )
+}
+
+/** A tiny inline trend for one OEE leg (Availability / Performance / Quality) — nulls dropped. */
+function OeeLegSpark({ points }: { points: KpiTileDto['trend'] }) {
+  const data = (points ?? []).filter((p): p is { x: number; y: number } => p.y != null)
+  if (data.length < 2) return <YStack width={72} height={20} />
+  return <Sparkline data={data} width={72} height={20} />
 }

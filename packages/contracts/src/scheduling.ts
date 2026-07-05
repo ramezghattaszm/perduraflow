@@ -1094,8 +1094,8 @@ export type KpiStatusDto = 'green' | 'amber' | 'red' | 'none'
 
 /**
  * One KPI tile on the 902 performance dashboard — a current value, its status vs the resolved band,
- * and (for the actuals-derived KPIs) a trend series. OEE is current-value-only (`trend: null`) and
- * carries its A·P·Q legs.
+ * and a trend series. All five v1 KPIs (incl. OEE, now actuals-derived) carry a trend; the `oee` tile
+ * additionally carries its current A·P·Q legs and their per-period leg trends.
  */
 export interface KpiTileDto {
   /** Stable metric key: `onTime` | `throughput` | `oee` | `scrap` | `adherence`. */
@@ -1104,10 +1104,12 @@ export interface KpiTileDto {
   value: number | null
   /** Status vs the resolved threshold band — `none` when there's no value or no configured band. */
   status: KpiStatusDto
-  /** Trend series, or `null` for a current-value-only KPI (OEE). */
+  /** Trend series, or `null` for a current-value-only KPI. For `oee` this is the combined-OEE trend. */
   trend: KpiTrendPointDto[] | null
-  /** OEE legs — present only on the `oee` tile. */
+  /** OEE legs (current value) — present only on the `oee` tile. */
   oee?: { availability: number; performance: number; quality: number } | null
+  /** Per-period A·P·Q leg trends — present only on the `oee` tile (each a rate series over the window). */
+  legTrends?: { availability: KpiTrendPointDto[]; performance: KpiTrendPointDto[]; quality: KpiTrendPointDto[] } | null
 }
 
 /**

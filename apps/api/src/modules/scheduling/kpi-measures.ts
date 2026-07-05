@@ -1,8 +1,11 @@
+import type { OeeDto } from '@perduraflow/contracts'
+
 /**
- * Pure KPI measure helpers — the configurable-measure seam (KPI / Metric Policy, Group 3) plus the
- * trend-bucketing math. No I/O, fully unit-tested. Both the continuous current-value folds and the
- * windowed trend folds in {@link ActualsRollupService} call these, so the tile and the trend can NEVER
- * disagree on what "late" means or where a period boundary falls.
+ * Pure KPI measure helpers — the configurable-measure seam (KPI / Metric Policy, Group 3), the
+ * trend-bucketing math, and the OEE-from-actuals fold. No I/O, fully unit-tested. Both the continuous
+ * current-value folds and the windowed trend folds in {@link ActualsRollupService} call these, so the
+ * tile and the trend can NEVER disagree on what "late" means, where a period boundary falls, or how OEE
+ * is computed.
  */
 
 const MS_PER_MINUTE = 60_000
@@ -85,4 +88,56 @@ export function bucketStartsInRange(startMs: number, endMs: number, bucket: Tren
   const starts: number[] = []
   for (let b = bucketStartUtc(startMs, bucket); b < endMs; b += stride) starts.push(b)
   return starts
+}
+
+// --- OEE from actuals (A·P·Q) — the same fold as the per-version scorecard, over any op set ----------
+
+/** Running totals for OEE over a set of executed ops (a plant window, a resource, or one period bucket). */
+export interface OeeAccumulator {
+  /** Machine-occupied minutes (actual end − start, includes setup). */
+  operating: number
+  /** Actual setup / changeover minutes — an availability loss. */
+  setupMinutes: number
+  /** Recorded stop minutes — an availability loss. */
+  downtimeMinutes: number
+  /** Σ std-cycle × good — the value-adding ideal (performance numerator). */
+  idealRunMinutes: number
+  good: number
+  scrap: number
+  /** Executed ops folded in — 0 ⇒ no data ⇒ OEE is `null` (not 0%). */
+  ops: number
+}
+
+/** A fresh zeroed OEE accumulator. */
+export function emptyOeeAccumulator(): OeeAccumulator {
+  return { operating: 0, setupMinutes: 0, downtimeMinutes: 0, idealRunMinutes: 0, good: 0, scrap: 0, ops: 0 }
+}
+
+/** Fold one executed op's actuals into an accumulator (in place). `stdCycle` is the op's std cycle
+ *  time per unit (the performance reference); `opMinutes` the op's actual wall-clock duration. */
+export function accumulateOee(
+  acc: OeeAccumulator,
+  x: { opMinutes: number; setupMinutes: number; downtimeMinutes: number; stdCycle: number; good: number; scrap: number },
+): void {
+  acc.operating += x.opMinutes
+  acc.setupMinutes += x.setupMinutes
+  acc.downtimeMinutes += x.downtimeMinutes
+  acc.idealRunMinutes += x.stdCycle * x.good
+  acc.good += x.good
+  acc.scrap += x.scrap
+  acc.ops += 1
+}
+
+/**
+ * OEE (A·P·Q) from an accumulator — the SAME formula as the per-version fold (SchedulingService). Setup
+ * + downtime are availability losses; performance is pure rate (Σ std-cycle·good ÷ net run time); quality
+ * is good ÷ produced. `null` when no ops contributed (no data ≠ 0%).
+ */
+export function oeeFromAccumulator(acc: OeeAccumulator): OeeDto | null {
+  if (acc.ops === 0) return null
+  const netRun = Math.max(0, acc.operating - acc.setupMinutes)
+  const availability = acc.operating + acc.downtimeMinutes > 0 ? netRun / (acc.operating + acc.downtimeMinutes) : 0
+  const performance = netRun > 0 ? Math.min(1, acc.idealRunMinutes / netRun) : 0
+  const quality = acc.good + acc.scrap > 0 ? acc.good / (acc.good + acc.scrap) : 0
+  return { availability, performance, quality, oee: availability * performance * quality }
 }

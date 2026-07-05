@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  accumulateOee,
   bucketStartUtc,
   bucketStartsInRange,
   DEFAULT_ON_TIME_DEFINITION,
+  emptyOeeAccumulator,
   isOrderLate,
   kpiStatus,
+  oeeFromAccumulator,
 } from './kpi-measures'
 
 const DAY = 86_400_000
@@ -79,5 +82,31 @@ describe('kpiStatus', () => {
   it('null value or null band → none (no judgement)', () => {
     expect(kpiStatus(null, higher)).toBe('none')
     expect(kpiStatus(0.9, null)).toBe('none')
+  })
+})
+
+describe('OEE from actuals (A·P·Q fold)', () => {
+  it('null when no ops contributed (no data ≠ 0%)', () => {
+    expect(oeeFromAccumulator(emptyOeeAccumulator())).toBeNull()
+  })
+  it('folds ops and computes A·P·Q per the per-version formula', () => {
+    const acc = emptyOeeAccumulator()
+    // One op: 100 min occupied, 20 setup → netRun 80; 0 downtime → A = 80/100 = 0.8.
+    // idealRun 72 → P = 72/80 = 0.9. good 95 / (95+5) → Q = 0.95. OEE = 0.8·0.9·0.95 = 0.684.
+    accumulateOee(acc, { opMinutes: 100, setupMinutes: 20, downtimeMinutes: 0, stdCycle: 72 / 95, good: 95, scrap: 5 })
+    const oee = oeeFromAccumulator(acc)!
+    expect(oee.availability).toBeCloseTo(0.8, 6)
+    expect(oee.performance).toBeCloseTo(0.9, 6)
+    expect(oee.quality).toBeCloseTo(0.95, 6)
+    expect(oee.oee).toBeCloseTo(0.684, 6)
+  })
+  it('downtime is an availability loss; performance caps at 1', () => {
+    const acc = emptyOeeAccumulator()
+    // netRun 90, downtime 10 → A = 90/(90+10) = 0.9. idealRun 200 > netRun → P capped at 1.
+    accumulateOee(acc, { opMinutes: 90, setupMinutes: 0, downtimeMinutes: 10, stdCycle: 2, good: 100, scrap: 0 })
+    const oee = oeeFromAccumulator(acc)!
+    expect(oee.availability).toBeCloseTo(0.9, 6)
+    expect(oee.performance).toBe(1)
+    expect(oee.quality).toBe(1)
   })
 })
