@@ -141,6 +141,13 @@
       "when": 1782696588369,
       "tag": "0019_nostalgic_makkari",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783255096814,
+      "tag": "0020_late_carnage",
+      "breakpoints": true
     }
   ]
 }

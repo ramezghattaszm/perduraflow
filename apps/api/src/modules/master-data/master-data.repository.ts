@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm'
 import { MASTERDATA_DB, type MasterDataDatabase } from './master-data.db'
 import {
   certification,
+  masterDataAudit,
   operator,
   operatorQualification,
   part,
@@ -15,6 +16,7 @@ import {
   routingOperation,
   type Certification,
   type NewCertification,
+  type NewMasterDataAudit,
   type NewOperator,
   type NewPart,
   type NewResource,
@@ -40,6 +42,12 @@ import {
 @Injectable()
 export class MasterDataRepository {
   constructor(@Inject(MASTERDATA_DB) private readonly db: MasterDataDatabase) {}
+
+  // --- audit (append-only, Layer 0 §6) ---------------------------------------
+  /** Append master-data audit rows (one per change event). Append-only — never updated/deleted. */
+  async appendAudit(rows: NewMasterDataAudit[]): Promise<void> {
+    if (rows.length > 0) await this.db.insert(masterDataAudit).values(rows)
+  }
 
   // --- part ------------------------------------------------------------------
   listParts(tenantId: string): Promise<Part[]> {

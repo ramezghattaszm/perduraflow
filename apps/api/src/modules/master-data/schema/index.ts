@@ -1,4 +1,5 @@
 export * from './_schema'
+export * from './audit.schema'
 export * from './part.schema'
 export * from './resource.schema'
 export * from './resource-downtime.schema'

@@ -73,7 +73,7 @@ export class MasterDataAdminController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(createResourceSchema)) dto: CreateResourceRequest,
   ) {
-    return this.md.createResource(user.tenantId, dto)
+    return this.md.createResource(user.tenantId, dto, user.sub)
   }
 
   /** `PATCH /admin/master-data/resources/:id` — update a resource. */
@@ -83,7 +83,7 @@ export class MasterDataAdminController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateResourceSchema)) dto: UpdateResourceRequest,
   ) {
-    return this.md.updateResource(user.tenantId, id, dto)
+    return this.md.updateResource(user.tenantId, id, dto, user.sub)
   }
 
   // --- resource downtime (line-down / maintenance) ---------------------------
@@ -115,7 +115,7 @@ export class MasterDataAdminController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(createResourceGroupSchema)) dto: CreateResourceGroupRequest,
   ) {
-    return this.md.createResourceGroup(user.tenantId, dto)
+    return this.md.createResourceGroup(user.tenantId, dto, user.sub)
   }
 
   /** `PATCH /admin/master-data/resource-groups/:id` — update a resource group. */
@@ -125,7 +125,7 @@ export class MasterDataAdminController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateResourceGroupSchema)) dto: UpdateResourceGroupRequest,
   ) {
-    return this.md.updateResourceGroup(user.tenantId, id, dto)
+    return this.md.updateResourceGroup(user.tenantId, id, dto, user.sub)
   }
 
   // --- routing ---------------------------------------------------------------
