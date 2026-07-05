@@ -6,11 +6,53 @@
 RG builds PerduraFlow (client-agnostic manufacturing scheduling; demo client Magna Mexico — Saltillo Stamping = Press A + Press B; Ramos Welding = Weld Cell 1/2 + Leak-Test). Stack: Tamagui+Expo+Next+Solito+Zustand+TanStack; NestJS+Drizzle+Postgres; bun/Turborepo. **Propose-then-confirm gate** (Claude Code proposes/builds; RG reviews). Deterministic engine is authoritative; ML predicts/proposes within bounds; LLM explains, never fabricates; human confirms consequential changes; everything auditable (IATF).
 
 ## STATUS ANCHOR
-Engine ~`wi-12`, weights default `aps-w2` (`OBJECTIVE_DEFAULTS` in contracts), migrations through **0018**. Branch in flight: `exception-queue-messaging` — **fully pushed and fast-forwarded into `main` (`origin/main` @ `cd48d85`).** Working tree clean except `.claude/settings.json` (intentionally never committed — "not ours"). The five-condition walk + two-door at-risk remediation are DONE (history below). This session was **Copilot bug-fix + a read-only constraint audit** (no engine/schema changes). **Servers:** API :3010 / web :3011 usually already running (OK to restart).
+Engine ~`wi-12`, weights default `aps-w2` (`OBJECTIVE_DEFAULTS` in contracts), migrations through **0018** (no new migration this session — the `kpi` config group uses code defaults, no DB row). Branch in flight: **`fix/plan-stale-straddle-and-lane-dedup`** — 10 commits, **pushed to `origin`, NOT yet merged to `main`** (`origin/main` still @ `cd48d85`). Working tree clean except `.claude/settings.json` (never committed) + a few untracked docs (`PRODUCTION-READINESS-PLAN.md`, `DEMO-RUN-OF-SHOW.md`, `DEMO-TALK-TRACK.md`). This session built the **902 Performance Dashboard end-to-end + the KPI/Metric Policy config domain (configurable KPI *measures*) + OEE-from-actuals**, plus a planStale fix. **Servers:** API :3010 / web :3011 usually already running (OK to restart).
 
 ---
 
-## ▶ LATEST SESSION (most recent — start here, then the history below for depth)
+## ▶ LATEST SESSION (most recent — start here)
+
+**902 Performance Dashboard (full build) + configurable KPI measures + OEE-from-actuals.** Branch `fix/plan-stale-straddle-and-lane-dedup` (10 commits, pushed, **not merged to main**). The demo is over — this session was post-demo product work.
+
+### 1. planStale straddle fix + one-lane forecast dedup (`3f977cb`)
+The "Plan stale — re-solve" banner false-positived after a clean re-solve. Root cause: an op that **straddles** its wear crossing (starts before, ends after) correctly runs `standard` (the server overlay gates on op start), but the board's `planStale` gated on `plannedEnd > crossing` → flagged it. Fix: gate `planStale` on **`plannedStart >= crossing`** (mirror the server). Also collapsed a lane's per-op forecasts to ONE row in the Exception Queue + board (a lane wears as one tool). [board-screen.tsx](packages/app/features/scheduling/board/board-screen.tsx), [exceptions-screen.tsx](packages/app/features/exceptions/exceptions-screen.tsx).
+
+### 2. Configurability tenet → docs (`4aa3a83`)
+Elevated **"everything configurable, nothing hardcoded (D42/A7)"** to a non-negotiable in `CONFIG-FRAMEWORK-DESIGN.md`: config resolves at the **most-specific *coherent* level** — tenant → plant → (line/resource where coherent); policy stops at plant, physics/display can go lower. Documented Group 3 **KPI/Metric Policy** + Group 4 **Solver Policy** (CP-SAT params). Added **BOM + packaging** to `REMAINING-ITEMS.md` (BOM = spec'd-not-built; packaging = needs-spec). Indexed the tenet in `CLAUDE.md` §2 + `API-ARCHITECTURE.md` §10.
+
+### 3. 902 Performance Dashboard — built end-to-end (`e872d5d`→`fc02820`)
+Followed `docs/902-PERFORMANCE-DASHBOARD-BUILD.md` (5 parts, commit-per-part):
+- **Part 1 — chart primitives** (`e872d5d`): `packages/ui/src/charts/` — line/bar/area/sparkline on `react-native-svg` (web+native, no charting lib), responsive + optional fixed `width`, `ChartFrame` scaffold, pure tested `scale.ts`. **Also fixed Storybook (was broken repo-wide)**: a `codegenNativeComponent` web shim + `.web.js` in vite `resolveExtensions` — unblocks all story verification.
+- **Part 2 — windowed trends** (`e948f82`): additive `computeKpiTrends` on `ActualsRollupService` (parity-safe) + the pure **`isOrderLate` configurable-measure seam** + `kpi-measures.ts` (bucketing).
+- **Part 3 — KPI/Metric Policy config domain** (`3e81597`): a new **`kpi`** group on the existing config cascade (defaults→tenant→plant, audited). Carries the **configurable On-Time MEASURE** (`onTimeToleranceMinutes`) + per-KPI threshold bands. **Proven at runtime**: default tolerance 0 → On-Time byte-identical; plant override → On-Time changes → DELETE → restored; audit rows both ways. `config.groups.ts` + `resolveKpiPolicy` + contracts.
+- **Part 4 — read endpoint** (`9815f9e`): `GET /scheduling/dashboard?plantId=` — tiles (current value + cascade-resolved threshold status) + trends. `computeKpiDashboard`.
+- **Part 5 — screen** (`db16f88`): the dashboard is the **main landing page** — status-colored KpiTiles + a trend chart per KPI. Honest empty states.
+- **Fix** (`fc02820`): narrow-range percent trends repeated y-axis labels ("97% 97% 97%") → ChartFrame dedupes labels + `niceTicks` epsilon-guard + a whole-percent `percentDomain` in the screen.
+
+### 4. OEE from actuals — retire the seeded snapshot (`888475c`)
+"Do we still need the seeded OEE?" → **no.** OEE now computed **from actuals** (`computeOeeFromActuals`, same A·P·Q fold as the per-version scorecard) — a believable measured value (Ramos **0.8296**, real availability/quality losses) that unlocks the **A·P·Q + combined-OEE trends** the dashboard needed. **Cockpit + dashboard both source it** (consistent). Removed dead `computeHistoricalOee`. The seeded `historical_outcome` stays **only** for the scorecard's measured-historical *baseline* comparison (read directly by `plan-comparison.service`). OEE dashboard card = combined-OEE trend + each leg's current % and a sparkline.
+
+**Verification across the session:** typecheck + ESLint + **208 tests** + Next build all green; parity held where required (on-time/throughput byte-identical under default config); OEE intentionally moved 0.7435→0.8296 (demo device retired).
+
+### Decisions made this session (DO NOT re-litigate)
+- **Configurability is a platform non-negotiable** (D42/A7); resolution stops at the most-specific *coherent* level (policy→plant; physics/display→line/resource).
+- **KPI measures are configurable via the config cascade.** On-Time is the proven live example (tolerance). **Ship-date basis deferred** — needs a ship/transit field in `demand` that doesn't exist yet (policy structured to slot it in). Other KPIs ship a single default measure, made configurable "as we build."
+- **OEE is actuals-derived now** (the demo is over; the locked 0.7435 was a demo device). `historical_outcome` retained only for the baseline comparison.
+- **Cost + churn dashboard tiles deferred** — they're version-sequence KPIs, not actuals-windowed (add later).
+- **OEE performance leg reads optimistic (~0.97)** because the simulator models little speed loss — a *sim-realism* knob if OEE should read harder (separate from this work).
+- **Storybook was broken repo-wide** (RN-web/vite); the two infra fixes landed here fix it for everyone.
+
+### Open threads / next candidates
+- **Merge the branch to `main`** (open a PR) when ready — it's pushed but unmerged.
+- Configurable measures for the **other KPIs** (throughput/scrap/adherence/OEE composition) — "confirm as we build."
+- **Cost + churn** dashboard tiles (version-sequence source).
+- **Solver Policy (Group 4) / CP-SAT** build; **BOM + packaging** (REMAINING-ITEMS).
+- Sim-realism for the OEE performance leg (if wanted).
+- `docs/PRODUCTION-READINESS-PLAN.md` is untracked (appeared this session) — review/incorporate.
+
+---
+
+## ▶ PRIOR SESSION — Copilot fix + constraint audit
 
 Three workstreams, all committed + pushed to `main`:
 
