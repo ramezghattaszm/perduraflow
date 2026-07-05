@@ -83,13 +83,13 @@ export class SchedulingRepository {
       .where(and(eq(materialAvailability.tenantId, tenantId), eq(materialAvailability.plantId, plantId)))
   }
 
-  /** Set a component's availability date (scenario launcher) — upsert by (tenant, plant, component). */
-  async setMaterialAvailability(tenantId: string, plantId: string, componentPartId: string, availableAt: Date): Promise<MaterialAvailability | undefined> {
+  /** Set a component's availability date (scenario launcher) — upsert by (tenant, plant, component part_no). */
+  async setMaterialAvailability(tenantId: string, plantId: string, componentPartNo: string, availableAt: Date): Promise<MaterialAvailability | undefined> {
     const existing = await this.db.query.materialAvailability.findFirst({
       where: and(
         eq(materialAvailability.tenantId, tenantId),
         eq(materialAvailability.plantId, plantId),
-        eq(materialAvailability.componentPartId, componentPartId),
+        eq(materialAvailability.componentPartNo, componentPartNo),
       ),
     })
     if (existing) {
@@ -100,7 +100,7 @@ export class SchedulingRepository {
         .returning()
       return row
     }
-    const [row] = await this.db.insert(materialAvailability).values({ tenantId, plantId, componentPartId, availableAt }).returning()
+    const [row] = await this.db.insert(materialAvailability).values({ tenantId, plantId, componentPartNo, availableAt }).returning()
     return row
   }
 

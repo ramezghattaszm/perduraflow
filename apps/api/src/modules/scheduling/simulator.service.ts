@@ -71,9 +71,9 @@ export class SimulatorService {
    * input). Mutates `material_availability` only (no solve/commit); the board detects the
    * gated condition and a re-solve reflects it. Reset = set an early time (on-hand).
    */
-  async setMaterialAvailability(tenantId: string, plantId: string, componentPartId: string, availableAt: Date) {
-    const row = await this.repo.setMaterialAvailability(tenantId, plantId, componentPartId, availableAt)
-    return { componentPartId, availableAt: (row?.availableAt ?? availableAt).toISOString() }
+  async setMaterialAvailability(tenantId: string, plantId: string, componentPartNo: string, availableAt: Date) {
+    const row = await this.repo.setMaterialAvailability(tenantId, plantId, componentPartNo, availableAt)
+    return { componentPartNo, availableAt: (row?.availableAt ?? availableAt).toISOString() }
   }
 
   /**

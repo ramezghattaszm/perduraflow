@@ -1082,7 +1082,7 @@ export function renderActiveScenario(
       case 'wear_remediation':
         return `${c.action} on ${resName(c.resourceId)}`
       case 'material_arrival':
-        return `material ${c.componentPartId} arrives ${c.availableAt}`
+        return `material ${c.componentPartNo} arrives ${c.availableAt}`
       case 'at_risk_remediation':
         return `remediate at-risk order ${orderRef(c.demandLineId)}`
     }

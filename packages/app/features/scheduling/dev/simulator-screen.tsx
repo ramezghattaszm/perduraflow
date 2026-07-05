@@ -124,10 +124,10 @@ export function SimulatorContent() {
   }, [orderId, demand])
   // Default the component to the first available; prefill the time with its current arrival.
   useEffect(() => {
-    if (!matComponent && materials.length > 0) setMatComponent(materials[0]!.componentPartId)
+    if (!matComponent && materials.length > 0) setMatComponent(materials[0]!.componentPartNo)
   }, [materials, matComponent])
   useEffect(() => {
-    const m = materials.find((x) => x.componentPartId === matComponent)
+    const m = materials.find((x) => x.componentPartNo === matComponent)
     if (m) setMatTime(hhmmOf(m.availableAt))
   }, [matComponent, materials])
   // Default the operator to the first at this plant; prefill the percent from its current factor.
@@ -143,7 +143,7 @@ export function SimulatorContent() {
   const versionOptions = committed.map((v) => ({ value: v.id, label: `committed · ${new Date(v.createdAt).toLocaleString()}` }))
   const resourceOptions = resources.map((r) => ({ value: r.id, label: r.name }))
   const orderOptions = demand.map((d) => ({ value: d.demandLineId, label: `${d.demandLineId} · qty ${d.requiredQty}` }))
-  const materialOptions = materials.map((m) => ({ value: m.componentPartId, label: `${m.componentPartNo} · now ${hhmmOf(m.availableAt)}` }))
+  const materialOptions = materials.map((m) => ({ value: m.componentPartNo, label: `${m.componentPartNo} · now ${hhmmOf(m.availableAt)}` }))
   const scenarioOptions: { value: Scenario; label: string }[] = [
     { value: 'wear', label: t('simulator.scenarioWear') },
     { value: 'demand', label: t('simulator.scenarioDemand') },

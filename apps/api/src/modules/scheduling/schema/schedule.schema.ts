@@ -50,6 +50,10 @@ export const scheduleVersion = schedulingSchema.table(
       .notNull()
       .references(() => optimizerRun.id),
     supersedesVersionId: text('supersedes_version_id'),
+    // Master-data resolve-as-of anchor (Layer 0 §4.6): the exact build timestamp this version
+    // resolved part/routing at. A deliberate, recorded anchor — reconstruction replays THIS value,
+    // never re-defaults to now. Null for versions built before Layer 0.
+    masterDataAsof: timestamp('master_data_asof', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -74,6 +78,9 @@ export const scheduledOperation = schedulingSchema.table(
       .notNull()
       .references(() => scheduleVersion.id),
     demandLineId: text('demand_line_id').notNull(),
+    // ALLOWLISTED version-id holder (Layer 0 D-L0-6) — a FROZEN SNAPSHOT of the exact part version
+    // scheduled, never resolved-as-live. Migrating it to part_no would make past schedules re-resolve
+    // to a different version and break reconstructability. Kept as a version id, like `supersedes_id`.
     partId: text('part_id').notNull(),
     routingOperationId: text('routing_operation_id').notNull(),
     resourceId: text('resource_id').notNull(),

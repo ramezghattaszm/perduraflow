@@ -395,16 +395,15 @@ export class MasterDataRepository {
     return this.db.query.routing.findFirst({ where: and(eq(routing.tenantId, tenantId), eq(routing.id, id)) })
   }
 
-  /** The active primary routing for a part (masterdata.read 1.1 — scheduling consumer). */
-  findPrimaryRoutingForPart(tenantId: string, partId: string): Promise<Routing | undefined> {
-    return this.db.query.routing.findFirst({
-      where: and(
-        eq(routing.tenantId, tenantId),
-        eq(routing.partId, partId),
-        eq(routing.isPrimary, true),
-        eq(routing.status, 'active'),
-      ),
-    })
+  /**
+   * @deprecated The active primary routing for a part by version `id` (masterdata.read 1.1). Layer 0
+   * shim: resolves the part's business key then the OPEN primary routing (`part_id` was dropped in
+   * Commit 6). Consumers use `resolveRouting(part_no, { primaryOnly, asOf })`.
+   */
+  async findPrimaryRoutingForPart(tenantId: string, partId: string): Promise<Routing | undefined> {
+    const p = await this.findPart(tenantId, partId)
+    if (!p) return undefined
+    return this.findOpenRouting(tenantId, p.partNo, { primaryOnly: true })
   }
 
   operationsFor(routingId: string): Promise<RoutingOperation[]> {

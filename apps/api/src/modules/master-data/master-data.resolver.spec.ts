@@ -33,7 +33,6 @@ const partRow = (over: Partial<Part> = {}): Part => ({
 const routingRow = (over: Partial<Routing> = {}): Routing => ({
   id: 'r_v1',
   tenantId: 't1',
-  partId: 'p_v1',
   partNo: 'X-1',
   name: 'primary',
   isPrimary: true,

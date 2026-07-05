@@ -707,13 +707,13 @@ export function BoardContent() {
       },
       `wear-${resourceId}`
     )
-  const runMaterialWhatIf = (componentPartId: string, availableAt: string) =>
+  const runMaterialWhatIf = (componentPartNo: string, availableAt: string) =>
     runWhatIf(
       {
-        origin: { type: 'collision', ref: componentPartId },
-        changes: [{ kind: 'material_arrival', componentPartId, availableAt }],
+        origin: { type: 'collision', ref: componentPartNo },
+        changes: [{ kind: 'material_arrival', componentPartNo, availableAt }],
       },
-      `material-${componentPartId}`
+      `material-${componentPartNo}`
     )
 
   // Self-contained bar detail (identity + learned/std + performance). Identity is
@@ -1289,10 +1289,10 @@ export function BoardContent() {
                 )
               })}
               {materialConditions.map((c) => {
-                const open = whatIfOpenFor(`material-${c.componentPartId}`)
+                const open = whatIfOpenFor(`material-${c.componentPartNo}`)
                 return (
                   <ConditionCard
-                    key={`material-${c.componentPartId}`}
+                    key={`material-${c.componentPartNo}`}
                     title={t('whatif:condition.material', {
                       component: c.componentPartNo,
                       time: new Date(c.availableAt).toISOString().slice(11, 16),
@@ -1301,10 +1301,10 @@ export function BoardContent() {
                       count: c.gatedDemandLineIds.length,
                     })}
                     cta={open ? t('whatif:trigger.closeOptions') : t('whatif:trigger.seeOptions')}
-                    loading={whatIf.isPending && whatIfTrigger === `material-${c.componentPartId}`}
+                    loading={whatIf.isPending && whatIfTrigger === `material-${c.componentPartNo}`}
                     disabled={readOnly}
                     onPress={() =>
-                      open ? closeWhatIf() : runMaterialWhatIf(c.componentPartId, c.availableAt)
+                      open ? closeWhatIf() : runMaterialWhatIf(c.componentPartNo, c.availableAt)
                     }
                   />
                 )

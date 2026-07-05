@@ -24,6 +24,7 @@ import {
   type OrgPriority,
   type OrgReadContract,
   type PartDto,
+  type PartVersionDto,
   type PerformanceVarianceDto,
   type ResourceDowntimeDto,
   type ResourceDto,
@@ -235,17 +236,20 @@ export class SchedulingService {
     const partNo = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
     // Per part, the binding gate component = the requirement whose component arrives latest (matches
     // the sequencer's earliestStartMs = max availability). null = no material gate on that part.
+    // Material tables key by the durable part_no (Layer 0). compByPart maps FG part_no → gating
+    // component part_no; the lateness lookup below resolves an op's frozen-snapshot part VERSION id
+    // to its part_no first (via `partNo`), then looks it up here.
     const availAt = new Map<string, number>()
     for (const a of await this.repo.listMaterialAvailability(tenantId, plantId)) {
-      availAt.set(a.componentPartId, Math.max(availAt.get(a.componentPartId) ?? 0, a.availableAt.getTime()))
+      availAt.set(a.componentPartNo, Math.max(availAt.get(a.componentPartNo) ?? 0, a.availableAt.getTime()))
     }
     const compByPart = new Map<string, string>()
     const bestAt = new Map<string, number>()
     for (const r of await this.repo.listMaterialRequirements(tenantId, plantId)) {
-      const at = availAt.get(r.componentPartId) ?? 0
-      if (at >= (bestAt.get(r.partId) ?? -1)) {
-        bestAt.set(r.partId, at)
-        compByPart.set(r.partId, partNo.get(r.componentPartId) ?? r.componentPartId)
+      const at = availAt.get(r.componentPartNo) ?? 0
+      if (at >= (bestAt.get(r.partNo) ?? -1)) {
+        bestAt.set(r.partNo, at)
+        compByPart.set(r.partNo, r.componentPartNo)
       }
     }
     // Downtime windows by id — so a `resource_downtime` root narrates the stored window (kind + reason).
@@ -257,7 +261,7 @@ export class SchedulingService {
     const lk: LatenessLookups = {
       resourceName: (rid) => resName.get(rid) ?? rid,
       partNo: (pid) => partNo.get(pid) ?? pid,
-      materialComponent: (pid) => compByPart.get(pid) ?? null,
+      materialComponent: (pid) => compByPart.get(partNo.get(pid) ?? pid) ?? null,
       downtime: (id) => {
         const d = id ? downtimeById.get(id) : undefined
         return d ? { kind: d.kind, reason: d.reason } : null
@@ -389,10 +393,8 @@ export class SchedulingService {
 
   /** The plant's buy-component availability (§4.8 input) — the scenario launcher dropdown. */
   async listMaterialAvailability(tenantId: string, plantId: string): Promise<MaterialAvailabilityDto[]> {
-    const partNo = new Map((await (await this.resolveMasterData(tenantId)).listParts(tenantId)).map((p) => [p.id, p.partNo]))
     return (await this.repo.listMaterialAvailability(tenantId, plantId)).map((a) => ({
-      componentPartId: a.componentPartId,
-      componentPartNo: partNo.get(a.componentPartId) ?? a.componentPartId,
+      componentPartNo: a.componentPartNo,
       availableAt: a.availableAt.toISOString(),
     }))
   }
@@ -488,22 +490,23 @@ export class SchedulingService {
     if (!version) return []
     const ops = await this.repo.operationsForVersion(version.id)
     const reqs = await this.repo.listMaterialRequirements(tenantId, plantId)
+    // componentPartNo → the FG part_nos that consume it (material tables key by business key, Layer 0).
     const partsByComponent = new Map<string, Set<string>>()
     for (const r of reqs) {
-      const set = partsByComponent.get(r.componentPartId) ?? new Set<string>()
-      set.add(r.partId)
-      partsByComponent.set(r.componentPartId, set)
+      const set = partsByComponent.get(r.componentPartNo) ?? new Set<string>()
+      set.add(r.partNo)
+      partsByComponent.set(r.componentPartNo, set)
     }
+    // Resolve an op's frozen-snapshot part VERSION id to its part_no to match against FG part_nos.
     const partNo = new Map((await (await this.resolveMasterData(tenantId)).listParts(tenantId)).map((p) => [p.id, p.partNo]))
     const conditions: MaterialConditionDto[] = []
     for (const a of avail) {
-      const parts = partsByComponent.get(a.componentPartId)
+      const parts = partsByComponent.get(a.componentPartNo)
       if (!parts) continue
-      const gated = ops.filter((o) => parts.has(o.partId) && o.plannedStart.getTime() < a.availableAt.getTime())
+      const gated = ops.filter((o) => parts.has(partNo.get(o.partId) ?? o.partId) && o.plannedStart.getTime() < a.availableAt.getTime())
       if (gated.length > 0) {
         conditions.push({
-          componentPartId: a.componentPartId,
-          componentPartNo: partNo.get(a.componentPartId) ?? a.componentPartId,
+          componentPartNo: a.componentPartNo,
           availableAt: a.availableAt.toISOString(),
           gatedDemandLineIds: [...new Set(gated.map((o) => o.demandLineId))],
         })
@@ -529,7 +532,6 @@ export class SchedulingService {
     resources: { id: string; name: string; status: string }[]
   }> {
     const md = await this.resolveMasterData(tenantId)
-    const partNo = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
     const resources = (await md.listResources(tenantId))
       .filter((r) => r.plantId === plantId)
       .map((r) => ({ id: r.id, name: r.name, status: r.status }))
@@ -547,7 +549,7 @@ export class SchedulingService {
       }
       // releaseReference is the human-facing order id the planner reads off the board (e.g.
       // GM-830-1142) — exposed so "delay GM-830-1142" resolves, not just the internal demandLineId.
-      orders.push({ demandLineId: d.demandLineId, releaseReference: d.releaseReference, customer, part: partNo.get(d.partId) ?? d.partId, qty: d.requiredQty, firmness: d.firmness, due: d.requiredDate.toISOString() })
+      orders.push({ demandLineId: d.demandLineId, releaseReference: d.releaseReference, customer, part: d.partNo, qty: d.requiredQty, firmness: d.firmness, due: d.requiredDate.toISOString() })
     }
     return { orders, resources }
   }
@@ -561,7 +563,9 @@ export class SchedulingService {
    */
   async solve(tenantId: string, plantId: string): Promise<ScheduleVersionDto> {
     const startedAt = new Date()
-    const ctx = await this.buildBaseContext(tenantId, plantId)
+    // The build anchor (Layer 0 §4.6): part/routing resolve as-of this instant and it is recorded
+    // on the version as `master_data_asof`, so a later reconstruction replays THIS timestamp.
+    const ctx = await this.buildBaseContext(tenantId, plantId, startedAt)
     if (ctx.demand.length === 0) {
       throw new AppException(HttpStatus.BAD_REQUEST, 'No active demand to schedule', ERROR_CODES.NO_DEMAND_TO_SCHEDULE)
     }
@@ -611,6 +615,7 @@ export class SchedulingService {
         horizonStart: new Date(result.horizonStartMs),
         horizonEnd: new Date(result.horizonEndMs),
         optimizerRunId: run.id,
+        masterDataAsof: startedAt,
       },
       result.placements.map((p) => ({
         demandLineId: p.demandLineId,
@@ -744,33 +749,34 @@ export class SchedulingService {
    * Returns the items, an infeasibility reason (the D4 hard gate), the active
    * demand, and resource/part lookups. Does NOT persist anything.
    */
-  async buildBaseContext(tenantId: string, plantId: string): Promise<BaseContext> {
+  async buildBaseContext(tenantId: string, plantId: string, asOf: Date): Promise<BaseContext> {
     const md = await this.resolveMasterData(tenantId)
+    // Master-data resolve-as-of anchor (Layer 0 §4.6): the caller's deliberate, recorded build
+    // timestamp. Part/routing resolve by business key AS OF this instant — never a hidden `now`.
+    const asOfIso = asOf.toISOString()
     const demand = await this.repo.activeDemand(tenantId, plantId)
     const resources = await md.listResources(tenantId)
     const resourceById = new Map(resources.map((r) => [r.id, r]))
     const activeResourceIds = new Set(resources.filter((r) => r.status === 'active').map((r) => r.id))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
-    const partCache = new Map<string, PartDto | null>()
+    const partCache = new Map<string, PartVersionDto | null>() // keyed by part_no
     const priorityCache = new Map<string, number>()
-    // Per-request memo of the per-part primary routing and the per-op resource group. Both are read
-    // inside the per-demand-line loop, but there are only a handful of distinct parts/groups — caching
-    // turns ~(lines + ops) round-trips into ~(parts + groups) and is what makes buildBaseContext fast.
-    const routingCache = new Map<string, Awaited<ReturnType<typeof md.getPrimaryRoutingForPart>>>()
+    // Per-request memo of the per-part primary routing and the per-op resource group, keyed by part_no.
+    // A handful of distinct parts/groups — caching turns ~(lines + ops) round-trips into ~(parts + groups).
+    const routingCache = new Map<string, Awaited<ReturnType<typeof md.resolveRouting>>>()
     const groupCache = new Map<string, Awaited<ReturnType<typeof md.getResourceGroup>>>()
 
-    // Material gate (D36, §4.8): per finished part, the earliest start its consumed
-    // buy-components allow = the latest component availability. Sourced from the interim
-    // material_requirement (BOM-lite; retires when the master-data BOM lands, SKIP-45) and
-    // the material_availability input. Components with no availability row = fully on-hand.
+    // Material gate (D36, §4.8) keyed by the durable part_no (Layer 0): per finished part_no, the
+    // earliest start its consumed buy-components allow = the latest component availability. Sourced from
+    // the interim material_requirement (BOM-lite) + material_availability. No availability row = on-hand.
     const availMs = new Map<string, number>()
     for (const a of await this.repo.listMaterialAvailability(tenantId, plantId)) {
-      availMs.set(a.componentPartId, Math.max(availMs.get(a.componentPartId) ?? 0, a.availableAt.getTime()))
+      availMs.set(a.componentPartNo, Math.max(availMs.get(a.componentPartNo) ?? 0, a.availableAt.getTime()))
     }
     const earliestByPart = new Map<string, number>()
     for (const r of await this.repo.listMaterialRequirements(tenantId, plantId)) {
-      const ms = availMs.get(r.componentPartId)
-      if (ms != null) earliestByPart.set(r.partId, Math.max(earliestByPart.get(r.partId) ?? 0, ms))
+      const ms = availMs.get(r.componentPartNo)
+      if (ms != null) earliestByPart.set(r.partNo, Math.max(earliestByPart.get(r.partNo) ?? 0, ms))
     }
 
     // Order-release floor: PAST-dated demand sits on its own past day; today/future demand floors at
@@ -781,12 +787,14 @@ export class SchedulingService {
     const items: SequencerItem[] = []
     let infeasibleReason: string | null = null
     for (const line of demand) {
-      const part = partCache.get(line.partId) ?? (await md.getPart(tenantId, line.partId))
-      partCache.set(line.partId, part)
-      if (!routingCache.has(line.partId)) routingCache.set(line.partId, await md.getPrimaryRoutingForPart(tenantId, line.partId))
-      const routing = routingCache.get(line.partId)
+      const part = partCache.get(line.partNo) ?? (await md.resolvePart(tenantId, line.partNo, asOfIso))
+      partCache.set(line.partNo, part)
+      if (!routingCache.has(line.partNo)) {
+        routingCache.set(line.partNo, await md.resolveRouting(tenantId, line.partNo, { primaryOnly: true, asOf: asOfIso }))
+      }
+      const routing = routingCache.get(line.partNo)
       if (!part || !routing || routing.operations.length === 0) {
-        infeasibleReason = `Demand ${line.demandLineId}: no active primary routing for part ${line.partId}`
+        infeasibleReason = `Demand ${line.demandLineId}: no active primary routing for part ${line.partNo}`
         break
       }
       const priorityRank = await this.priorityRankFor(tenantId, line.customerId, line.programId, priorityCache)
@@ -800,7 +808,9 @@ export class SchedulingService {
         }
         items.push({
           demandLineId: line.demandLineId,
-          partId: line.partId,
+          // The RESOLVED part version id — a frozen snapshot recorded on the scheduled op (D-L0-6),
+          // never re-resolved as-live. `partNo` is the durable business key the plan reasons over.
+          partId: part.id,
           partNo: part.partNo,
           routingOperationId: op.id,
           opSeq: op.opSeq,
@@ -812,7 +822,7 @@ export class SchedulingService {
           firmness: line.firmness,
           priorityRank,
           eligibleResourceIds: eligible,
-          earliestStartMs: earliestByPart.get(line.partId),
+          earliestStartMs: earliestByPart.get(line.partNo),
           releaseFloorMs: Math.min(todayStartMs, startOfDayUtc(line.requiredDate.getTime())),
         })
       }
@@ -1378,7 +1388,7 @@ export class SchedulingService {
       }
       orders.set(d.demandLineId, {
         demandLineId: d.demandLineId,
-        partNo: partNoById.get(d.partId) ?? d.partId,
+        partNo: d.partNo,
         releaseReference: d.releaseReference,
         customerName,
         priority: await this.priorityFor(tenantId, d.customerId, d.programId, priorityCache),

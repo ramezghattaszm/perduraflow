@@ -135,7 +135,6 @@ export class MasterDataResolver {
     const newVersion: NewRouting = {
       id: generateId(),
       tenantId,
-      partId: prior.partId,
       partNo,
       name: c.name ?? prior.name,
       isPrimary: c.isPrimary ?? prior.isPrimary,

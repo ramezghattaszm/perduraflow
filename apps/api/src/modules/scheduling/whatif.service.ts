@@ -102,7 +102,7 @@ export class WhatIfService {
     baseVersionId: string | undefined,
     userId: string | null,
   ): Promise<WhatIfResultDto> {
-    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
+    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId, new Date())
     if (ctx.infeasibleReason) {
       throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
     }
@@ -206,7 +206,7 @@ export class WhatIfService {
    * @throws WHATIF_INFEASIBLE the base plan can't be scheduled
    */
   async goalSeek(tenantId: string, plantId: string, resourceId: string, userId: string | null): Promise<GoalSeekResult> {
-    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
+    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId, new Date())
     if (ctx.infeasibleReason) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
     const resourceName = ctx.resourceById.get(resourceId)?.name ?? resourceId
     const ceilingHours = (ctx.resourceCalendars.get(resourceId)?.otCeilingMinutes ?? 0) / 60
@@ -284,7 +284,7 @@ export class WhatIfService {
     const changeSet = result.changeSet as ChangeSet
     const plantId = result.plantId
 
-    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
+    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId, new Date())
     if (ctx.infeasibleReason) throw new AppException(HttpStatus.UNPROCESSABLE_ENTITY, ctx.infeasibleReason, ERROR_CODES.WHATIF_INFEASIBLE)
     const baseOverlay = await this.scheduling.buildLearnedOverlay(tenantId, ctx.items)
     const basePlacements = sequence(ctx.items, baseOverlay, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource).placements
@@ -732,7 +732,7 @@ export class WhatIfService {
         case 'wear_remediation':
           return { kind: c.kind, summary: `${c.action} on ${resName(c.resourceId)}`, status: 'applied', note: null }
         case 'material_arrival':
-          return { kind: c.kind, summary: `${c.componentPartId} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
+          return { kind: c.kind, summary: `${c.componentPartNo} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
         case 'at_risk_remediation':
           return { kind: c.kind, summary: `remediate at-risk ${orderRef(c.demandLineId)}`, status: 'applied', note: null }
         case 'overtime': {
@@ -1163,7 +1163,7 @@ function basicLedger(changeSet: ChangeSet): RequestedChange[] {
       case 'wear_remediation':
         return { kind: c.kind, summary: `${c.action} on ${c.resourceId}`, status: 'applied', note: null }
       case 'material_arrival':
-        return { kind: c.kind, summary: `${c.componentPartId} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
+        return { kind: c.kind, summary: `${c.componentPartNo} arrives ${shortDate(c.availableAt)}`, status: 'applied', note: null }
       case 'at_risk_remediation':
         return { kind: c.kind, summary: `remediate at-risk ${c.demandLineId}`, status: 'applied', note: null }
     }

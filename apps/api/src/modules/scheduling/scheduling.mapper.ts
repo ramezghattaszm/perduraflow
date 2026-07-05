@@ -11,7 +11,7 @@ export const toDemandInputDto = (d: DemandInput): DemandInputDto => ({
   id: d.id,
   demandLineId: d.demandLineId,
   releaseReference: d.releaseReference,
-  partId: d.partId,
+  partNo: d.partNo,
   plantId: d.plantId,
   customerId: d.customerId,
   programId: d.programId,

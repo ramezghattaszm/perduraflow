@@ -19,6 +19,9 @@ export const executionActual = learningSchema.table(
     scheduledOperationId: text('scheduled_operation_id').notNull(),
     resourceId: text('resource_id').notNull(),
     routingOperationId: text('routing_operation_id').notNull(),
+    // ALLOWLISTED version-id holder (Layer 0 D-L0-6) — a FROZEN SNAPSHOT of the exact part version
+    // that RAN, never resolved-as-live. Kept as a version id (like `supersedes_id`); migrating it
+    // would falsify which spec a historical actual was recorded against.
     partId: text('part_id').notNull(),
     actualStart: timestamp('actual_start', { withTimezone: true }).notNull(),
     actualEnd: timestamp('actual_end', { withTimezone: true }).notNull(),

@@ -19,7 +19,7 @@ import {
 import { translateError, useTranslation } from '../../../i18n'
 import { useCanConfigure } from '../../../stores/auth.store'
 import { getApiErrorCode } from '../../../utils/error'
-import { useParts, useResourceGroups, useRouting, useRoutingMutations } from '../../../hooks/useMasterData'
+import { useResourceGroups, useRouting, useRoutingMutations } from '../../../hooks/useMasterData'
 import { AdminShell } from '../../shell/admin-shell'
 
 /**
@@ -34,7 +34,6 @@ export function RoutingEditorScreen() {
   const params = useParams() as { id?: string }
   const id = params?.id
   const { data: routing, isLoading } = useRouting(id)
-  const { data: parts = [] } = useParts()
   const { data: groups = [] } = useResourceGroups()
   const { update } = useRoutingMutations()
 
@@ -56,7 +55,7 @@ export function RoutingEditorScreen() {
     )
   }, [routing])
 
-  const partNo = useMemo(() => parts.find((p) => p.id === routing?.partId)?.partNo ?? '—', [parts, routing])
+  const partNo = routing?.partNo ?? '—'
   const groupOptions = groups.map((g) => ({ value: g.id, label: g.name }))
   const changeoverOptions = (['colour', 'material', 'gauge'] as const).map((v) => ({ value: v, label: t(`changeoverKeys.${v}`) }))
   const formError = update.error ? translateError(getApiErrorCode(update.error)) : undefined

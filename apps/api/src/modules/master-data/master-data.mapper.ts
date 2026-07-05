@@ -106,17 +106,16 @@ export const toRoutingOperationDto = (o: RoutingOperation): RoutingOperationDto 
 /** Map a routing row (+ its ordered operations) to its DTO. */
 export const toRoutingDto = (r: Routing, operations: RoutingOperation[]): RoutingDto => ({
   id: r.id,
-  partId: r.partId,
+  partNo: r.partNo,
   name: r.name,
   isPrimary: r.isPrimary,
   status: r.status,
   operations: operations.map(toRoutingOperationDto),
 })
 
-/** Map a routing row (+ ops) to its versioned DTO (Layer 0 `1.4`) — adds part_no + effectivity window. */
+/** Map a routing row (+ ops) to its versioned DTO (Layer 0 `1.4`) — adds revision + effectivity window. */
 export const toRoutingVersionDto = (r: Routing, operations: RoutingOperation[]): RoutingVersionDto => ({
   ...toRoutingDto(r, operations),
-  partNo: r.partNo,
   revision: r.revision,
   effectiveFrom: r.effectiveFrom.toISOString(),
   effectiveTo: r.effectiveTo ? r.effectiveTo.toISOString() : null,

@@ -67,8 +67,8 @@ export interface DemandInputDto {
   id: string
   demandLineId: string
   releaseReference: string | null
-  /** → master-data part (resolved via masterdata.read). */
-  partId: string
+  /** → master-data part by durable business key (Layer 0; resolve-as-of build time via masterdata.read). */
+  partNo: string
   plantId: string
   customerId: string
   programId: string | null
@@ -531,7 +531,7 @@ export interface WorkforceCoverageDto {
 
 /** A buy-component's availability (the §4.8 input) — for the scenario launcher dropdown. */
 export interface MaterialAvailabilityDto {
-  componentPartId: string
+  /** Component by durable business key (Layer 0; the material gate + what-if key off this). */
   componentPartNo: string
   availableAt: string
 }
@@ -541,7 +541,6 @@ export interface MaterialAvailabilityDto {
  * consuming ops (planned before the material arrives). Mirrors the line-down / demand cards.
  */
 export interface MaterialConditionDto {
-  componentPartId: string
   componentPartNo: string
   availableAt: string
   /** Demand lines whose committed ops are gated (start before `availableAt`). */
@@ -663,7 +662,7 @@ export const changeSchema = z.discriminatedUnion('kind', [
   // engine offers the wait / re-sequence-around remediation. `availableAt` is informational.
   z.object({
     kind: z.literal('material_arrival'),
-    componentPartId: z.string().min(1),
+    componentPartNo: z.string().min(1),
     availableAt: z.string().min(1),
   }),
   // Standing at-risk REMEDIATION marker (order-scoped): a firm order is late in the COMMITTED plan

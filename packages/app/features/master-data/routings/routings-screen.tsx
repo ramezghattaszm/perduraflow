@@ -31,22 +31,22 @@ export function RoutingsScreen() {
   const { create } = useRoutingMutations()
 
   const [open, setOpen] = useState(false)
-  const [partId, setPartId] = useState<string | null>(null)
+  const [partNo, setPartNo] = useState<string | null>(null)
   const [name, setName] = useState('')
 
-  const partName = useMemo(() => new Map(parts.map((p) => [p.id, p.partNo])), [parts])
-  const partOptions = parts.map((p) => ({ value: p.id, label: p.partNo }))
+  // Routings reference their part by the durable business key part_no (Layer 0).
+  const partOptions = useMemo(() => parts.map((p) => ({ value: p.partNo, label: p.partNo })), [parts])
   const formError = create.error ? translateError(getApiErrorCode(create.error)) : undefined
 
   const openNew = () => {
-    setPartId(null)
+    setPartNo(null)
     setName('')
     setOpen(true)
   }
   const submit = () => {
-    if (!partId) return
+    if (!partNo) return
     create.mutate(
-      { partId, name, isPrimary: true, operations: [] },
+      { partNo, name, isPrimary: true, operations: [] },
       {
         onSuccess: (r) => {
           setOpen(false)
@@ -77,10 +77,10 @@ export function RoutingsScreen() {
         columns={[
           { key: 'name', label: t('routings.fields.name'), flex: 2, sortable: true },
           {
-            key: 'partId',
+            key: 'partNo',
             label: t('routings.fields.partId'),
             flex: 2,
-            render: (r) => <P size={3}>{partName.get(r.partId) ?? '—'}</P>,
+            render: (r) => <P size={3}>{r.partNo}</P>,
           },
           {
             key: 'operations',
@@ -118,7 +118,7 @@ export function RoutingsScreen() {
         }
       >
         <FormField label={t('routings.fields.partId')} required>
-          <SelectField options={partOptions} value={partId} onChange={setPartId} />
+          <SelectField options={partOptions} value={partNo} onChange={setPartNo} />
         </FormField>
         <AppInput label={t('routings.fields.name')} value={name} onChangeText={setName} />
       </Popup>

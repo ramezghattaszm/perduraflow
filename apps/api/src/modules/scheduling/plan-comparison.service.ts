@@ -51,7 +51,7 @@ export class PlanComparisonService {
 
     // Plan-based path (the engine-lift arm, or measured_historical before a first commit): needs the
     // live engine plan, so build the base context + sequence.
-    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId)
+    const ctx = await this.scheduling.buildBaseContext(tenantId, plantId, new Date())
     const rateByResource = this.rates(ctx.resourceById)
 
     // No demand at all → nothing to compare; honest empty state.

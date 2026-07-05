@@ -338,7 +338,7 @@ export class MasterDataService {
    * @throws AppException INVALID_RESOURCE_GROUP_REFERENCE - an op's group did not resolve
    */
   async createRouting(tenantId: string, dto: CreateRoutingRequest): Promise<RoutingDto> {
-    await this.assertPartExists(tenantId, dto.partId)
+    await this.assertPartNo(tenantId, dto.partNo)
     await this.assertResourceGroupsExist(tenantId, dto.operations.map((o) => o.resourceGroupId))
     const { operations, ...fields } = dto
     const row = await this.repo.createRouting({ ...fields, tenantId }, operations)
@@ -352,7 +352,7 @@ export class MasterDataService {
    * @throws AppException PART_NOT_FOUND / INVALID_RESOURCE_GROUP_REFERENCE
    */
   async updateRouting(tenantId: string, id: string, dto: UpdateRoutingRequest): Promise<RoutingDto> {
-    if (dto.partId) await this.assertPartExists(tenantId, dto.partId)
+    if (dto.partNo) await this.assertPartNo(tenantId, dto.partNo)
     if (dto.operations) {
       await this.assertResourceGroupsExist(tenantId, dto.operations.map((o) => o.resourceGroupId))
     }
@@ -524,9 +524,10 @@ export class MasterDataService {
     }
   }
 
-  private async assertPartExists(tenantId: string, partId: string): Promise<void> {
-    const found = await this.repo.partIdsIn(tenantId, [partId])
-    if (found.length === 0) {
+  /** Validates a part reference by its durable business key — the `part_no` must have an OPEN version. */
+  private async assertPartNo(tenantId: string, partNo: string): Promise<void> {
+    const open = await this.repo.findOpenPart(tenantId, partNo)
+    if (!open) {
       throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
     }
   }

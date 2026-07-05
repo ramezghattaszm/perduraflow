@@ -12,35 +12,29 @@ import {
 import type { ChangeoverAttributeKey, MasterDataStatus } from '@perduraflow/contracts'
 import { generateId } from '../../../db/ulid'
 import { masterDataSchema } from './_schema'
-import { part } from './part.schema'
 import { resourceGroup } from './resource.schema'
 
 /**
- * Routing (5.2, brief §3) — a part's process header. Intra-schema FK to `part` (O2).
+ * Routing (5.2, brief §3) — a part's process header.
  *
- * **Layer 0 — Pattern A (revisioned):** business key `(part_no, name)`; each revision is
- * its own row keyed by `[effective_from, effective_to)`, `effective_to IS NULL` = open/current
- * (a partial unique index enforces one open version per key). `part_no` is denormalized (kept in
- * sync with the routing's part) — `part_id` is retained this layer and dropped with the consumer
- * switch to resolve-by-`part_no` (Commit 6). `supersedes_id` links a version to the one it replaced
- * (self-ref, intra-schema). `part_no`/`revision`/`effective_from` carry DB defaults so existing insert
- * sites (createRouting via `part_id`, the seed) keep compiling untouched; the `''` `part_no` default is
- * a transient placeholder — nothing reads `part_no` until Commit 6, and the seed sets it in Commit 7.
+ * **Layer 0 — Pattern A (revisioned):** the routing references its part by the durable business key
+ * `part_no` (NOT a part version `id`); the pair `(part_no, name)` is the routing identity. Each revision
+ * is its own row keyed by `[effective_from, effective_to)`, `effective_to IS NULL` = open/current (a
+ * partial unique index enforces one open version per key). Consumers resolve via `resolveRouting(part_no,
+ * asOf)`. `supersedes_id` links a version to the one it replaced (self-ref, intra-schema — the one
+ * legitimate id holder). The old `part_id` FK was dropped in Commit 6 with the resolve-by-`part_no` switch.
  */
 export const routing = masterDataSchema.table(
   'routing',
   {
     id: text('id').primaryKey().$defaultFn(generateId),
     tenantId: text('tenant_id').notNull(),
-    partId: text('part_id')
-      .notNull()
-      .references(() => part.id),
-    // Denormalized part business key (Pattern A resolve-by-part_no); backfilled from part_id.
-    partNo: text('part_no').notNull().default(''),
+    // Part business key (Pattern A resolve-by-part_no) — replaces the dropped part_id FK.
+    partNo: text('part_no').notNull(),
     name: text('name').notNull(),
     isPrimary: boolean('is_primary').notNull().default(true),
     status: text('status').$type<MasterDataStatus>().notNull().default('active'),
-    // Layer 0 versioning (Pattern A) — defaults keep insert sites compiling (see part.schema).
+    // Layer 0 versioning (Pattern A) — defaults let a fresh create/seed start at 'A' effective now.
     revision: text('revision').notNull().default('A'),
     effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull().defaultNow(),
     effectiveTo: timestamp('effective_to', { withTimezone: true }),
@@ -50,7 +44,7 @@ export const routing = masterDataSchema.table(
   },
   (t) => ({
     tenantIdx: index('routing_tenant_idx').on(t.tenantId),
-    partIdx: index('routing_part_idx').on(t.partId),
+    partNoIdx: index('routing_part_no_idx').on(t.tenantId, t.partNo),
     // At most one OPEN (current) version per (part_no, name) within a tenant (Pattern A).
     partNoNameOpenUnique: uniqueIndex('routing_tenant_part_no_name_open_unique')
       .on(t.tenantId, t.partNo, t.name)

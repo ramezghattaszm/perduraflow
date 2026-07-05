@@ -162,6 +162,27 @@
       "when": 1783258265308,
       "tag": "0022_lethal_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783262814629,
+      "tag": "0023_petite_silver_surfer",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783262986192,
+      "tag": "0024_tricky_screwball",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783263105305,
+      "tag": "0025_even_terror",
+      "breakpoints": true
     }
   ]
 }

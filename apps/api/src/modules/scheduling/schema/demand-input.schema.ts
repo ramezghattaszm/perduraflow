@@ -5,10 +5,11 @@ import { schedulingSchema } from './_schema'
 
 /**
  * Demand input (§4.1) — **seeded canonical fixture** (SKIP-10): no net-requirements
- * netting, no integration. `required_qty` is pre-netted (D14/D20). `part_id` →
- * master-data (resolved via the bound `masterdata.read`, no FK — O4); `plant_id`/
- * `customer_id`/`program_id` → kernel `org` (text refs). Priority is read from
- * `org` customer/program, not stored here.
+ * netting, no integration. `required_qty` is pre-netted (D14/D20). `part_no` → master-data
+ * by the durable **business key** (Pattern A; a live/forward ref, resolved as-of the schedule
+ * build time via `resolvePart(part_no, asOf)`, never a part version `id`), no FK — O4; `plant_id`/
+ * `customer_id`/`program_id` → kernel `org` (text refs). Priority is read from `org`
+ * customer/program, not stored here.
  */
 export const demandInput = schedulingSchema.table(
   'demand_input',
@@ -17,7 +18,7 @@ export const demandInput = schedulingSchema.table(
     tenantId: text('tenant_id').notNull(),
     demandLineId: text('demand_line_id').notNull(),
     releaseReference: text('release_reference'),
-    partId: text('part_id').notNull(),
+    partNo: text('part_no').notNull(),
     plantId: text('plant_id').notNull(),
     customerId: text('customer_id').notNull(),
     programId: text('program_id'),

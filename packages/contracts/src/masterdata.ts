@@ -160,7 +160,8 @@ export interface RoutingOperationDto {
 
 export interface RoutingDto {
   id: string
-  partId: string
+  /** The part's durable business key (Pattern A resolve-by-part_no; replaced the dropped `partId`). */
+  partNo: string
   name: string
   isPrimary: boolean
   status: MasterDataStatus
@@ -186,7 +187,6 @@ export interface PartVersionDto extends PartDto {
  * === null` = open/current. Window is half-open `[effectiveFrom, effectiveTo)`.
  */
 export interface RoutingVersionDto extends RoutingDto {
-  partNo: string
   revision: string
   effectiveFrom: string
   effectiveTo: string | null
@@ -397,7 +397,7 @@ export type RoutingOperationInput = z.infer<typeof routingOperationInputSchema>
 
 export const createRoutingSchema = z
   .object({
-    partId: z.string().min(1),
+    partNo: z.string().min(1).max(80),
     name: z.string().min(1).max(160),
     isPrimary: z.boolean().default(true),
     operations: z.array(routingOperationInputSchema).default([]),

@@ -384,6 +384,9 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
     ])
 
     // === §3 Parts (10 finished + 1 purchased component for the material gate) =====
+    // Layer 0: routing/demand/material reference parts by the durable `part_no`, so track id → part_no
+    // as parts are created and resolve the business key at each downstream insert.
+    const partNoOf = new Map<string, string>()
     const mkPart = async (v: {
       partNo: string
       description: string
@@ -391,13 +394,16 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       gauge: string
       colour?: string
       partType?: 'finished' | 'component'
-    }): Promise<string> =>
-      (
+    }): Promise<string> => {
+      const id = (
         await db
           .insert(part)
           .values({ tenantId, partType: 'finished', uom: 'EA', colour: null, ...v })
           .returning()
       )[0]!.id
+      partNoOf.set(id, v.partNo)
+      return id
+    }
     // Saltillo (6) — stampings (presses). colour drives the press changeover attribute.
     const sal1001 = await mkPart({
       partNo: 'SAL-1001',
@@ -490,7 +496,7 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
     ): Promise<string> => {
       const [rt] = await db
         .insert(routing)
-        .values({ tenantId, partId, name, isPrimary: true })
+        .values({ tenantId, partNo: partNoOf.get(partId)!, name, isPrimary: true })
         .returning()
       await db.insert(routingOperation).values({
         tenantId,
@@ -842,7 +848,7 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
         tenantId,
         demandLineId: r.line,
         releaseReference: r.line,
-        partId: r.part,
+        partNo: partNoOf.get(r.part)!,
         plantId: r.plant,
         customerId: r.cust,
         programId: r.prog,
@@ -860,14 +866,14 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
     await db.insert(materialRequirement).values({
       tenantId,
       plantId: saltillo!.id,
-      partId: sal1004,
-      componentPartId: coil,
+      partNo: partNoOf.get(sal1004)!,
+      componentPartNo: partNoOf.get(coil)!,
       qtyPerUnit: 1,
     })
     await db.insert(materialAvailability).values({
       tenantId,
       plantId: saltillo!.id,
-      componentPartId: coil,
+      componentPartNo: partNoOf.get(coil)!,
       availableAt: at(MAT_DUE_OFFSET, 14),
       qty: 1_000_000,
     })
