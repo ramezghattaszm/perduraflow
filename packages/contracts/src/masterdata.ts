@@ -39,6 +39,15 @@ export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.4' 
 export const partTypeSchema = z.enum(['finished', 'component', 'raw'])
 export type PartType = z.infer<typeof partTypeSchema>
 
+/**
+ * Make-vs-buy sourcing (Layer 1, MD/§5.1) — the **authoritative** flag (distinct from the descriptive
+ * `part_type`). `make` = produced in-house; `buy` = purchased (the material gate's buy-component). The
+ * global (all-plants) default; a plant may override it in `part_plant` (Layer 1 §4E). Backfilled from the
+ * de-facto signal (a `component_part_no` in `material_requirement` → `buy`, else `make`) at introduction.
+ */
+export const makeBuySchema = z.enum(['make', 'buy'])
+export type MakeBuy = z.infer<typeof makeBuySchema>
+
 export const resourceTypeSchema = z.enum(['line', 'machine', 'cell', 'work_center'])
 export type ResourceType = z.infer<typeof resourceTypeSchema>
 
@@ -327,6 +336,13 @@ export const createPartSchema = z
     material: z.string().max(120).nullable().default(null),
     gauge: z.string().max(120).nullable().default(null),
     colour: z.string().max(120).nullable().default(null),
+    // Layer 1 §4A part-core: sourcing + customer/program refs. All OPTIONAL on the request (existing
+    // admin form unchanged; the make/buy toggle is a follow-up UI). The DB column has NO default —
+    // `createPart` states `makeBuy` explicitly (`?? 'make'`), so every insert is explicit.
+    makeBuy: makeBuySchema.optional(),
+    customerPartNo: z.string().max(80).nullable().optional(),
+    customerId: z.string().nullable().optional(),
+    program: z.string().nullable().optional(),
   })
   .strict()
 export type CreatePartRequest = z.infer<typeof createPartSchema>
@@ -442,6 +458,11 @@ export const partRevisionChangesSchema = z
     gauge: z.string().max(120).nullable(),
     colour: z.string().max(120).nullable(),
     status: masterDataStatusSchema,
+    // Layer 1 §4A engineering fields — copied forward on revise; changeable via a new revision.
+    makeBuy: makeBuySchema,
+    customerPartNo: z.string().max(80).nullable(),
+    customerId: z.string().nullable(),
+    program: z.string().nullable(),
   })
   .partial()
 

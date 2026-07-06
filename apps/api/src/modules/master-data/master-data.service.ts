@@ -103,7 +103,9 @@ export class MasterDataService {
     if (await this.repo.findPartByNo(tenantId, dto.partNo)) {
       throw new AppException(HttpStatus.CONFLICT, 'Part number already exists', ERROR_CODES.DUPLICATE_PART_NO)
     }
-    const row = await this.repo.createPart({ ...dto, tenantId })
+    await this.assertPartOrgRefs(tenantId, dto.customerId, dto.program)
+    // make_buy has no DB default — state it explicitly (a fresh part is 'make' unless specified).
+    const row = await this.repo.createPart({ ...dto, tenantId, makeBuy: dto.makeBuy ?? 'make' })
     await this.events.publish(EVENTS.PART_CREATED, { id: row.id, tenantId, name: row.partNo }, tenantId)
     return toPartDto(row)
   }
@@ -123,6 +125,7 @@ export class MasterDataService {
     if (!target) throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
     const open = await this.repo.findOpenPart(tenantId, target.partNo)
     if (!open) throw new AppException(HttpStatus.NOT_FOUND, 'Part not found', ERROR_CODES.PART_NOT_FOUND)
+    await this.assertPartOrgRefs(tenantId, dto.customerId, dto.program)
     const changes = this.partEditChanges(dto, open)
     if (Object.keys(changes).length === 0) return toPartDto(open) // no-op → write nothing
     const revision = dto.revision ?? this.nextRevision(open.revision)
@@ -540,7 +543,7 @@ export class MasterDataService {
 
   /** The part attributes in `dto` that actually differ from the open version (the revise's `changes`). */
   private partEditChanges(dto: UpdatePartRequest, open: Part): RevisePartRequest['changes'] {
-    const cols = ['description', 'partType', 'uom', 'material', 'gauge', 'colour', 'status'] as const
+    const cols = ['description', 'partType', 'uom', 'material', 'gauge', 'colour', 'status', 'makeBuy', 'customerPartNo', 'customerId', 'program'] as const
     const out: Record<string, unknown> = {}
     for (const c of cols) {
       const v = (dto as Record<string, unknown>)[c]
@@ -591,6 +594,22 @@ export class MasterDataService {
     const { invalid } = await this.org.validateCalendarIds(tenantId, [calendarId])
     if (invalid.length > 0) {
       throw new AppException(HttpStatus.NOT_FOUND, 'Calendar not found', ERROR_CODES.INVALID_CALENDAR_REFERENCE)
+    }
+  }
+
+  /** Validates a part's customer/program refs through org.read 1.2 (O4, Layer 1) — nulls skip. */
+  private async assertPartOrgRefs(tenantId: string, customerId?: string | null, program?: string | null): Promise<void> {
+    if (customerId) {
+      const { invalid } = await this.org.validateCustomerIds(tenantId, [customerId])
+      if (invalid.length > 0) {
+        throw new AppException(HttpStatus.NOT_FOUND, 'Customer not found', ERROR_CODES.INVALID_CUSTOMER_REFERENCE)
+      }
+    }
+    if (program) {
+      const { invalid } = await this.org.validateProgramIds(tenantId, [program])
+      if (invalid.length > 0) {
+        throw new AppException(HttpStatus.NOT_FOUND, 'Program not found', ERROR_CODES.INVALID_PROGRAM_REFERENCE)
+      }
     }
   }
 

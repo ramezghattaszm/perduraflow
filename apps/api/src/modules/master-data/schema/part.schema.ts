@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { type AnyPgColumn, index, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
-import type { MasterDataStatus, PartType } from '@perduraflow/contracts'
+import type { MakeBuy, MasterDataStatus, PartType } from '@perduraflow/contracts'
 import { generateId } from '../../../db/ulid'
 import { masterDataSchema } from './_schema'
 
@@ -31,6 +31,15 @@ export const part = masterDataSchema.table(
     gauge: text('gauge'),
     colour: text('colour'),
     status: text('status').$type<MasterDataStatus>().notNull().default('active'),
+    // Layer 1 §4A part-core. `make_buy` is the authoritative sourcing flag (NOT NULL, NO DB default —
+    // every insert states it, like `part_no`; migration 0026 backfills then drops the transient default).
+    // customer_part_no/customer_id/program are engineering refs (nullable); customer_id/program are kernel
+    // org refs validated at the write path via org.read 1.2 (O4). All ride the part revision (copied
+    // forward on revisePart), never plant-scoped here (plant variance is the part_plant override layer).
+    makeBuy: text('make_buy').$type<MakeBuy>().notNull(),
+    customerPartNo: text('customer_part_no'),
+    customerId: text('customer_id'),
+    program: text('program'),
     // Layer 0 versioning (Pattern A). `revision`/`effective_from` carry DB defaults so a
     // fresh create (and the seed) start at revision 'A' effective now, without every insert
     // site restating them; a revise (Commit 5) supplies them explicitly.

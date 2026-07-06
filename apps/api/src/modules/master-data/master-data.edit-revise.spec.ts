@@ -11,6 +11,7 @@ import type { Part, Routing, RoutingOperation } from './schema'
 const partRow = (over: Partial<Part> = {}): Part => ({
   id: 'p_v1', tenantId: 't1', partNo: 'X-1', description: 'orig', partType: 'component', uom: 'EA',
   material: 'steel', gauge: null, colour: null, status: 'active', revision: 'A',
+  makeBuy: 'make', customerPartNo: null, customerId: null, program: null,
   effectiveFrom: new Date('2026-06-01T00:00:00Z'), effectiveTo: null, supersedesId: null,
   createdAt: new Date('2026-06-01T00:00:00Z'), updatedAt: new Date('2026-06-01T00:00:00Z'), ...over,
 })

@@ -59,6 +59,9 @@ export const ERROR_CODES = {
   INVALID_DOWNTIME_WINDOW: 'INVALID_DOWNTIME_WINDOW',
   // cross-module reference validation via org.read 1.1 (O4)
   INVALID_CALENDAR_REFERENCE: 'INVALID_CALENDAR_REFERENCE',
+  // part customer/program refs validated via org.read 1.2 (O4, Master Data Layer 1)
+  INVALID_CUSTOMER_REFERENCE: 'INVALID_CUSTOMER_REFERENCE',
+  INVALID_PROGRAM_REFERENCE: 'INVALID_PROGRAM_REFERENCE',
   // intra-module reference validation (resource-group members, op targets)
   INVALID_RESOURCE_REFERENCE: 'INVALID_RESOURCE_REFERENCE',
   INVALID_RESOURCE_GROUP_REFERENCE: 'INVALID_RESOURCE_GROUP_REFERENCE',

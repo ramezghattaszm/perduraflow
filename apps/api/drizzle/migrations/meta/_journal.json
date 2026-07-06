@@ -183,6 +183,13 @@
       "when": 1783263105305,
       "tag": "0025_even_terror",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783303569835,
+      "tag": "0026_flashy_salo",
+      "breakpoints": true
     }
   ]
 }

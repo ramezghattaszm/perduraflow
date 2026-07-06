@@ -394,11 +394,14 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       gauge: string
       colour?: string
       partType?: 'finished' | 'component'
+      // Layer 1: authoritative sourcing flag (no DB default — must be stated). Defaults to 'make'; the
+      // seeded buy-component (the coil) passes 'buy' to match the material_requirement backfill.
+      makeBuy?: 'make' | 'buy'
     }): Promise<string> => {
       const id = (
         await db
           .insert(part)
-          .values({ tenantId, partType: 'finished', uom: 'EA', colour: null, ...v })
+          .values({ tenantId, partType: 'finished', uom: 'EA', colour: null, makeBuy: 'make', ...v })
           .returning()
       )[0]!.id
       partNoOf.set(id, v.partNo)
@@ -480,6 +483,7 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       material: 'Steel HSLA',
       gauge: '1.8mm',
       partType: 'component',
+      makeBuy: 'buy', // the one buy-component (matches the material_requirement backfill → 'buy')
     })
 
     // === Routings (std times = the `standard` baseline, D7) =====================

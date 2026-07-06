@@ -38,6 +38,8 @@
   "DUPLICATE_PART_NO": "That part number is already in use.",
   "DUPLICATE_CERTIFICATION_CODE": "That certification code is already in use.",
   "INVALID_REVISION_EFFECTIVE_FROM": "A new revision must take effect after the current version's effective date.",
+  "INVALID_CUSTOMER_REFERENCE": "That customer no longer exists.",
+  "INVALID_PROGRAM_REFERENCE": "That program no longer exists.",
   "SCHEDULE_VERSION_NOT_FOUND": "That schedule version no longer exists.",
   "SCHEDULE_VERSION_NOT_DRAFT": "Only a draft can be discarded — a committed or superseded version is part of the permanent record.",
   "OPTIMIZER_RUN_FAILED": "The scheduling run failed. Please try again.",
