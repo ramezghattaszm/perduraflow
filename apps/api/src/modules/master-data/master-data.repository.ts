@@ -14,6 +14,7 @@ import {
   resourceTypeConfig,
   routing,
   routingOperation,
+  uomConversion,
   type Certification,
   type NewCertification,
   type NewMasterDataAudit,
@@ -24,6 +25,7 @@ import {
   type NewResourceGroup,
   type NewRouting,
   type NewRoutingOperation,
+  type NewUomConversion,
   type Operator,
   type Part,
   type Resource,
@@ -32,6 +34,7 @@ import {
   type ResourceTypeConfig,
   type Routing,
   type RoutingOperation,
+  type UomConversion,
 } from './schema'
 
 /**
@@ -123,6 +126,8 @@ export class MasterDataRepository {
     effectiveFrom: Date
     newVersion: NewPart
     auditRows: NewMasterDataAudit[]
+    /** UoM factor rows to bind to the new version (guarded copy-forward — empty when the base UoM changed). */
+    uomFactors?: NewUomConversion[]
   }): Promise<Part> {
     return this.db.transaction(async (tx) => {
       const closed = await tx
@@ -133,8 +138,32 @@ export class MasterDataRepository {
       if (closed.length === 0) throw new Error('revisePartTx: prior version is not open')
       const [newRow] = await tx.insert(part).values(input.newVersion).returning()
       if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
+      if (input.uomFactors && input.uomFactors.length > 0) await tx.insert(uomConversion).values(input.uomFactors)
       return newRow!
     })
+  }
+
+  // --- uom conversion --------------------------------------------------------
+  /** Factor rows bound to a specific part **version** (`part_id`), sorted by alternate UoM. */
+  listUomConversions(tenantId: string, partId: string): Promise<UomConversion[]> {
+    return this.db
+      .select()
+      .from(uomConversion)
+      .where(and(eq(uomConversion.tenantId, tenantId), eq(uomConversion.partId, partId)))
+      .orderBy(asc(uomConversion.alternateUom))
+  }
+
+  /** Upsert a factor row (unique on tenant + part version + alternate UoM); returns the persisted row. */
+  async upsertUomConversion(row: NewUomConversion): Promise<UomConversion> {
+    const [out] = await this.db
+      .insert(uomConversion)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [uomConversion.tenantId, uomConversion.partId, uomConversion.alternateUom],
+        set: { baseUom: row.baseUom, factor: row.factor },
+      })
+      .returning()
+    return out!
   }
 
   // --- resource --------------------------------------------------------------

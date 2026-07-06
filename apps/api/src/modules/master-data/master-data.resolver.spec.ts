@@ -80,6 +80,7 @@ describe('MasterDataResolver.revisePart', () => {
     } = {}
     const repo = {
       findOpenPart: vi.fn().mockResolvedValue(partRow()),
+      listUomConversions: vi.fn().mockResolvedValue([]),
       revisePartTx: vi.fn(async (input) => {
         tx = input
         return partRow({ id: input.newVersion.id, revision: 'B', material: 'aluminum', effectiveFrom: input.effectiveFrom, supersedesId: 'p_v1' })
@@ -138,6 +139,87 @@ describe('MasterDataResolver.revisePart', () => {
     await expect(
       resolver(repo).revisePart('t1', 'X-9', { revision: 'B', effectiveFrom: '2026-09-01T00:00:00Z', ecnRef: null, changes: {} }, 'u'),
     ).rejects.toBeInstanceOf(AppException)
+  })
+
+  it('copies the prior UoM factors forward (rebound to the new version) when the base uom is unchanged', async () => {
+    let tx: { uomFactors?: Array<Record<string, unknown>>; auditRows?: Array<Record<string, unknown>> } = {}
+    const repo = {
+      findOpenPart: vi.fn().mockResolvedValue(partRow({ uom: 'EA' })),
+      listUomConversions: vi.fn().mockResolvedValue([
+        { id: 'u1', tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: 12 },
+        { id: 'u2', tenantId: 't1', partId: 'p_v1', alternateUom: 'PALLET', baseUom: 'EA', factor: 480 },
+      ]),
+      revisePartTx: vi.fn(async (input) => {
+        tx = input
+        return partRow({ id: input.newVersion.id, revision: 'B', supersedesId: 'p_v1' })
+      }),
+    }
+    // A revise that does NOT change uom (material change only).
+    await resolver(repo).revisePart('t1', 'X-1', { revision: 'B', effectiveFrom: '2026-09-01T00:00:00Z', ecnRef: null, changes: { material: 'aluminum' } }, 'u')
+
+    expect(tx.uomFactors).toHaveLength(2)
+    // Rebound to the new version id, base preserved.
+    expect(tx.uomFactors![0]).toMatchObject({ tenantId: 't1', partId: tx.uomFactors![0]!.partId, alternateUom: 'BOX', baseUom: 'EA', factor: 12 })
+    expect(tx.uomFactors!.every((f) => f.partId === tx.uomFactors![0]!.partId && f.partId !== 'p_v1')).toBe(true)
+    // No factor-drop flag in the audit trail.
+    expect(tx.auditRows![0]!.changedFields).not.toHaveProperty('uomFactors')
+  })
+
+  it('does NOT inherit UoM factors when the revise changes the base uom (guard → dropped + flagged in audit)', async () => {
+    let tx: { uomFactors?: unknown[]; auditRows?: Array<Record<string, unknown>> } = {}
+    const repo = {
+      findOpenPart: vi.fn().mockResolvedValue(partRow({ uom: 'EA' })),
+      listUomConversions: vi.fn().mockResolvedValue([
+        { id: 'u1', tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: 12 },
+      ]),
+      revisePartTx: vi.fn(async (input) => {
+        tx = input
+        return partRow({ id: input.newVersion.id, revision: 'B', uom: 'KG', supersedesId: 'p_v1' })
+      }),
+    }
+    // A revise that CHANGES uom (EA → KG): the prior factors' base no longer holds.
+    await resolver(repo).revisePart('t1', 'X-1', { revision: 'B', effectiveFrom: '2026-09-01T00:00:00Z', ecnRef: null, changes: { uom: 'KG' } }, 'u')
+
+    expect(tx.uomFactors).toEqual([]) // dropped, not silently copied
+    expect(tx.auditRows![0]!.changedFields).toMatchObject({ uomFactors: { old: 1, new: 0 } }) // surfaced for re-examination
+  })
+})
+
+describe('MasterDataResolver UoM factor publication', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('getUomFactors returns the as-of version base uom + its factor rows', async () => {
+    const repo = {
+      findPartAsOf: vi.fn().mockResolvedValue(partRow({ id: 'p_asof', uom: 'EA' })),
+      listUomConversions: vi.fn().mockResolvedValue([
+        { id: 'u1', tenantId: 't1', partId: 'p_asof', alternateUom: 'BOX', baseUom: 'EA', factor: 12 },
+      ]),
+    }
+    const out = await resolver(repo).getUomFactors('t1', 'X-1', '2026-08-01T00:00:00Z')
+    expect(out).toEqual({ baseUom: 'EA', factors: [{ alternateUom: 'BOX', factor: 12 }] })
+    expect(repo.listUomConversions).toHaveBeenCalledWith('t1', 'p_asof')
+  })
+
+  it('getUomFactors returns null when no version resolves as-of', async () => {
+    const repo = { findPartAsOf: vi.fn().mockResolvedValue(undefined), listUomConversions: vi.fn() }
+    expect(await resolver(repo).getUomFactors('t1', 'X-9')).toBeNull()
+    expect(repo.listUomConversions).not.toHaveBeenCalled()
+  })
+
+  it('addUomFactor enforces base_uom = the version uom (never the caller) and upserts', async () => {
+    const repo = {
+      findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })),
+      upsertUomConversion: vi.fn(async (row) => ({ id: 'u1', ...row })),
+    }
+    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12)
+    expect(repo.upsertUomConversion).toHaveBeenCalledWith({ tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: 12 })
+  })
+
+  it('addUomFactor rejects a non-positive factor and an alternate that equals the base', async () => {
+    const repo = { findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })), upsertUomConversion: vi.fn() }
+    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 0)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'EA', 2)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    expect(repo.upsertUomConversion).not.toHaveBeenCalled()
   })
 })
 

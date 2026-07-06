@@ -48,6 +48,26 @@ export type PartType = z.infer<typeof partTypeSchema>
 export const makeBuySchema = z.enum(['make', 'buy'])
 export type MakeBuy = z.infer<typeof makeBuySchema>
 
+/**
+ * Advisory known-UoM set (Layer 1 §4B, D-L1-3) — an **open enum (A12)** realized as plain `text` + this
+ * reference const (NOT a Postgres enum, which is closed). For typeahead / reference; unknown values are
+ * **accepted** (must-ignore, extensible per tenant) — the set is advisory, never a hard gate. `part.uom`
+ * and `uom_conversion.alternate_uom`/`base_uom` are `text` referencing this set.
+ */
+export const KNOWN_UOM = ['EA', 'KG', 'M', 'M2', 'L', 'COIL', 'ROLL', 'SET', 'PR', 'BOX'] as const
+export type KnownUom = (typeof KNOWN_UOM)[number]
+
+/** A published per-part UoM conversion factor (Layer 1 §4B / MD4): `alt_qty × factor = base_qty` (D40). */
+export interface UomFactorDto {
+  alternateUom: string
+  factor: number
+}
+/** `getUomFactors` result — the resolved part version's base UoM + its conversion factors (exposed on the contract in the Commit-6 1.5 bump). */
+export interface UomFactorsDto {
+  baseUom: string
+  factors: UomFactorDto[]
+}
+
 export const resourceTypeSchema = z.enum(['line', 'machine', 'cell', 'work_center'])
 export type ResourceType = z.infer<typeof resourceTypeSchema>
 

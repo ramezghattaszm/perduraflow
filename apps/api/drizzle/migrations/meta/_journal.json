@@ -197,6 +197,13 @@
       "when": 1783307460333,
       "tag": "0027_illegal_boomerang",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783308440629,
+      "tag": "0028_moaning_human_cannonball",
+      "breakpoints": true
     }
   ]
 }

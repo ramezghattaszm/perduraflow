@@ -4,6 +4,8 @@ import type {
   ReviseRoutingRequest,
   RevisePartRequest,
   RoutingVersionDto,
+  UomFactorDto,
+  UomFactorsDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { generateId } from '../../db/ulid'
@@ -15,6 +17,7 @@ import type {
   NewPart,
   NewRouting,
   NewRoutingOperation,
+  NewUomConversion,
   Part,
   Routing,
 } from './schema'
@@ -74,6 +77,40 @@ export class MasterDataResolver {
     return row ? toPartVersionDto(row) : null
   }
 
+  // --- uom factor publication (§4B / MD4) ------------------------------------
+  /**
+   * Publishes the UoM conversion factors for the part **version effective at `asOf`** (default now):
+   * its `uom` as `baseUom` plus the factor rows bound to that version (`alt_qty × factor = base_qty`).
+   * Returns null when no version resolves. Master Data publishes; consumers convert at their own boundary.
+   */
+  async getUomFactors(tenantId: string, partNo: string, asOf?: string): Promise<UomFactorsDto | null> {
+    const at = asOf ? new Date(asOf) : new Date()
+    const version = await this.repo.findPartAsOf(tenantId, partNo, at)
+    if (!version) return null
+    const rows = await this.repo.listUomConversions(tenantId, version.id)
+    return { baseUom: version.uom, factors: rows.map((r) => ({ alternateUom: r.alternateUom, factor: r.factor })) }
+  }
+
+  /**
+   * Publishes (upserts) one UoM factor onto a specific part **version**. The `base_uom` invariant is
+   * enforced here — `base_uom` is taken from the version's own `uom`, never the caller — so a factor can
+   * only ever describe a conversion into the version's base unit.
+   * @throws AppException PART_NOT_FOUND - no such part version
+   * @throws AppException VALIDATION_ERROR - `alternateUom` equals the base UoM, or `factor` is not a positive finite number
+   */
+  async addUomFactor(tenantId: string, partVersionId: string, alternateUom: string, factor: number): Promise<UomFactorDto> {
+    const version = await this.repo.findPart(tenantId, partVersionId)
+    if (!version) throw new AppException(HttpStatus.NOT_FOUND, 'No such part version', ERROR_CODES.PART_NOT_FOUND)
+    if (alternateUom === version.uom) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'alternate_uom must differ from the base uom', ERROR_CODES.VALIDATION_ERROR)
+    }
+    if (!Number.isFinite(factor) || factor <= 0) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'factor must be a positive number', ERROR_CODES.VALIDATION_ERROR)
+    }
+    const row = await this.repo.upsertUomConversion({ tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor })
+    return { alternateUom: row.alternateUom, factor: row.factor }
+  }
+
   /** The routing version effective at `asOf` (default now) for `partNo` (with operations), or null. */
   async resolveRouting(
     tenantId: string,
@@ -129,6 +166,26 @@ export class MasterDataResolver {
     changedFields['revision'] = { old: prior.revision, new: input.revision }
     changedFields['supersedesId'] = { new: prior.id }
 
+    // Guarded copy-forward of UoM factors (§4B / MD4): factors ride the part version, but their invariant
+    // is `base_uom = this version's uom`. If the revise changes `uom`, the prior factors' base no longer
+    // holds — do NOT blindly inherit; drop them so the new version has none and the change is surfaced in
+    // the audit trail for re-examination (never a silent copy). Otherwise rebind each row to the new id.
+    const priorFactors = await this.repo.listUomConversions(tenantId, prior.id)
+    const baseUomUnchanged = newVersion.uom === prior.uom
+    const uomFactors: NewUomConversion[] = baseUomUnchanged
+      ? priorFactors.map((f) => ({
+          tenantId,
+          partId: newVersion.id!,
+          alternateUom: f.alternateUom,
+          baseUom: newVersion.uom,
+          factor: f.factor,
+        }))
+      : []
+    if (priorFactors.length > 0 && !baseUomUnchanged) {
+      // Flag: base UoM changed → factors NOT inherited (re-examine and re-publish against the new base).
+      changedFields['uomFactors'] = { old: priorFactors.length, new: 0 }
+    }
+
     const auditRows = this.reviseAuditRows({
       tenantId,
       entityType: 'part',
@@ -142,7 +199,7 @@ export class MasterDataResolver {
       changedFields,
     })
 
-    const newRow = await this.repo.revisePartTx({ tenantId, priorId: prior.id, effectiveFrom, newVersion, auditRows })
+    const newRow = await this.repo.revisePartTx({ tenantId, priorId: prior.id, effectiveFrom, newVersion, auditRows, uomFactors })
     return toPartVersionDto(newRow)
   }
 
