@@ -200,6 +200,26 @@ export class OrgRepository {
     return rows.map((r) => r.id)
   }
 
+  /** Returns the ids (of the given set) that exist as customers in the tenant (O4, `org.read 1.2`). */
+  async customerIdsIn(tenantId: string, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return []
+    const rows = await this.db
+      .select({ id: customer.id })
+      .from(customer)
+      .where(and(eq(customer.tenantId, tenantId), inArray(customer.id, ids)))
+    return rows.map((r) => r.id)
+  }
+
+  /** Returns the ids (of the given set) that exist as programs in the tenant (O4, `org.read 1.2`). */
+  async programIdsIn(tenantId: string, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return []
+    const rows = await this.db
+      .select({ id: program.id })
+      .from(program)
+      .where(and(eq(program.tenantId, tenantId), inArray(program.id, ids)))
+    return rows.map((r) => r.id)
+  }
+
   async createCalendar(data: NewCalendar): Promise<Calendar> {
     const [row] = await this.db.insert(calendar).values(data).returning()
     return row!

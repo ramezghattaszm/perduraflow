@@ -14,7 +14,12 @@ import { z } from 'zod'
 // `1.1` (phase 1, additive MINOR — api-spec §10.3): adds `validateCalendarIds`
 // and a `priority` field on Customer/Program. Every `1.0` consumer keeps
 // compiling (the phase-0 `auth` consumer is unaffected — A12 must-ignore).
-export const ORG_READ_CONTRACT = { id: 'org.read', version: '1.1' } as const
+// `1.2` (Master-Data Layer 1, additive MINOR): adds `validateCustomerIds` +
+// `validateProgramIds` (mirroring `validateCalendarIds`) so `master-data` can
+// validate a part's `customer_id`/`program` refs at write (O4). Additive — every
+// prior consumer keeps compiling; `org.read` has no per-tenant binding, so nothing
+// pins a version.
+export const ORG_READ_CONTRACT = { id: 'org.read', version: '1.2' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -114,6 +119,16 @@ export interface OrgReadContract {
    * `org.read 1.1` so `master-data` can validate `resource.calendar_id` at write.
    */
   validateCalendarIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
+  /**
+   * Validates that every id resolves to a customer in the tenant (O4). Added in
+   * `org.read 1.2` so `master-data` can validate a part's `customer_id` at write.
+   */
+  validateCustomerIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
+  /**
+   * Validates that every id resolves to a program in the tenant (O4). Added in
+   * `org.read 1.2` so `master-data` can validate a part's `program` ref at write.
+   */
+  validateProgramIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
 }
 
 // --- admin CRUD request schemas (org admin screens) --------------------------

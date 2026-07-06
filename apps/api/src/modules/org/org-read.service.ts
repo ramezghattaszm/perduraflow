@@ -96,4 +96,24 @@ export class OrgReadService implements OrgReadContract {
     const validSet = new Set(valid)
     return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
   }
+
+  /**
+   * Validates cross-module customer references (O4, `org.read 1.2`): `master-data`
+   * calls this before persisting a part's `customer_id`.
+   */
+  async validateCustomerIds(tenantId: string, ids: string[]): Promise<PlantRefValidation> {
+    const valid = await this.repo.customerIdsIn(tenantId, ids)
+    const validSet = new Set(valid)
+    return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
+  }
+
+  /**
+   * Validates cross-module program references (O4, `org.read 1.2`): `master-data`
+   * calls this before persisting a part's `program` ref.
+   */
+  async validateProgramIds(tenantId: string, ids: string[]): Promise<PlantRefValidation> {
+    const valid = await this.repo.programIdsIn(tenantId, ids)
+    const validSet = new Set(valid)
+    return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
+  }
 }
