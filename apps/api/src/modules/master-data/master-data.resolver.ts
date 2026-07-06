@@ -32,6 +32,8 @@ const PART_ATTR_COLS = [
   'customerPartNo',
   'customerId',
   'program',
+  'toolFamily',
+  'sharedAttributes',
 ] as const
 /** Routing header attributes carried across revisions (operations audited via the version's op rows). */
 const ROUTING_ATTR_COLS = ['name', 'isPrimary', 'status'] as const
@@ -111,11 +113,13 @@ export class MasterDataResolver {
       gauge: c.gauge !== undefined ? c.gauge : prior.gauge,
       colour: c.colour !== undefined ? c.colour : prior.colour,
       status: c.status ?? prior.status,
-      // Layer 1 §4A engineering fields — copied forward from the prior version unless the revise changes them.
+      // Layer 1 §4A/§4C engineering fields — copied forward from the prior version unless the revise changes them.
       makeBuy: c.makeBuy ?? prior.makeBuy,
       customerPartNo: c.customerPartNo !== undefined ? c.customerPartNo : prior.customerPartNo,
       customerId: c.customerId !== undefined ? c.customerId : prior.customerId,
       program: c.program !== undefined ? c.program : prior.program,
+      toolFamily: c.toolFamily !== undefined ? c.toolFamily : prior.toolFamily,
+      sharedAttributes: c.sharedAttributes !== undefined ? c.sharedAttributes : prior.sharedAttributes,
       revision: input.revision,
       effectiveFrom,
       effectiveTo: null,

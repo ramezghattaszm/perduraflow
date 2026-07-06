@@ -343,6 +343,9 @@ export const createPartSchema = z
     customerPartNo: z.string().max(80).nullable().optional(),
     customerId: z.string().nullable().optional(),
     program: z.string().nullable().optional(),
+    // Layer 1 §4C physical-attribute completion (engineering fields, ride the revision).
+    toolFamily: z.string().max(120).nullable().optional(),
+    sharedAttributes: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .strict()
 export type CreatePartRequest = z.infer<typeof createPartSchema>
@@ -463,6 +466,9 @@ export const partRevisionChangesSchema = z
     customerPartNo: z.string().max(80).nullable(),
     customerId: z.string().nullable(),
     program: z.string().nullable(),
+    // Layer 1 §4C physical attributes — copied forward on revise.
+    toolFamily: z.string().max(120).nullable(),
+    sharedAttributes: z.record(z.string(), z.unknown()).nullable(),
   })
   .partial()
 

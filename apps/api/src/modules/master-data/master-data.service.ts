@@ -543,7 +543,7 @@ export class MasterDataService {
 
   /** The part attributes in `dto` that actually differ from the open version (the revise's `changes`). */
   private partEditChanges(dto: UpdatePartRequest, open: Part): RevisePartRequest['changes'] {
-    const cols = ['description', 'partType', 'uom', 'material', 'gauge', 'colour', 'status', 'makeBuy', 'customerPartNo', 'customerId', 'program'] as const
+    const cols = ['description', 'partType', 'uom', 'material', 'gauge', 'colour', 'status', 'makeBuy', 'customerPartNo', 'customerId', 'program', 'toolFamily', 'sharedAttributes'] as const
     const out: Record<string, unknown> = {}
     for (const c of cols) {
       const v = (dto as Record<string, unknown>)[c]

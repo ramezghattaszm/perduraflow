@@ -190,6 +190,13 @@
       "when": 1783303569835,
       "tag": "0026_flashy_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783307460333,
+      "tag": "0027_illegal_boomerang",
+      "breakpoints": true
     }
   ]
 }

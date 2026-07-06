@@ -26,6 +26,8 @@ const partRow = (over: Partial<Part> = {}): Part => ({
   customerPartNo: null,
   customerId: null,
   program: null,
+  toolFamily: null,
+  sharedAttributes: null,
   effectiveFrom: new Date('2026-06-01T00:00:00Z'),
   effectiveTo: null,
   supersedesId: null,

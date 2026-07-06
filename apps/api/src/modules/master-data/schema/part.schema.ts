@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { type AnyPgColumn, index, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import { type AnyPgColumn, index, jsonb, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 import type { MakeBuy, MasterDataStatus, PartType } from '@perduraflow/contracts'
 import { generateId } from '../../../db/ulid'
 import { masterDataSchema } from './_schema'
@@ -40,6 +40,11 @@ export const part = masterDataSchema.table(
     customerPartNo: text('customer_part_no'),
     customerId: text('customer_id'),
     program: text('program'),
+    // Layer 1 §4C physical-attribute completion (nullable engineering fields; ride the revision).
+    // `tool_family` links to the Asset domain (§5.5, Layer 2); `shared_attributes` is an extensible
+    // custom-attribute map (MD12). Nothing reads them yet; per-plant overrides land in part_plant (§4E).
+    toolFamily: text('tool_family'),
+    sharedAttributes: jsonb('shared_attributes').$type<Record<string, unknown>>(),
     // Layer 0 versioning (Pattern A). `revision`/`effective_from` carry DB defaults so a
     // fresh create (and the seed) start at revision 'A' effective now, without every insert
     // site restating them; a revise (Commit 5) supplies them explicitly.
