@@ -68,6 +68,16 @@ export interface UomFactorsDto {
   factors: UomFactorDto[]
 }
 
+/**
+ * MD9 part-reference resolution marker — a plant-local (`plant_part_no`) or customer (`customer_part_no`)
+ * reference that does not resolve to a global `part_no` is returned as this **typed** sentinel, never a
+ * null or a guess. There is no exception queue for the unresolved case until Layer 3 (D-MD9).
+ */
+export const UNRESOLVABLE_PART_REF = 'UNRESOLVABLE_PART_REF' as const
+
+/** MD9 resolution result: the resolved global `part_no`, or the typed {@link UNRESOLVABLE_PART_REF} sentinel. */
+export type PartRefResolution = { partNo: string } | typeof UNRESOLVABLE_PART_REF
+
 export const resourceTypeSchema = z.enum(['line', 'machine', 'cell', 'work_center'])
 export type ResourceType = z.infer<typeof resourceTypeSchema>
 

@@ -8,6 +8,7 @@ import {
   operatorQualification,
   part,
   partPlant,
+  plantPartMapping,
   resource,
   resourceDowntime,
   resourceGroup,
@@ -25,12 +26,14 @@ import {
   type NewResourceDowntime,
   type NewResourceGroup,
   type NewPartPlant,
+  type NewPlantPartMapping,
   type NewRouting,
   type NewRoutingOperation,
   type NewUomConversion,
   type Operator,
   type Part,
   type PartPlant,
+  type PlantPartMapping,
   type Resource,
   type ResourceDowntime,
   type ResourceGroup,
@@ -221,6 +224,80 @@ export class MasterDataRepository {
         if (closed.length === 0) throw new Error('revisePartPlantTx: prior override is not open')
       }
       const [newRow] = await tx.insert(partPlant).values(input.newRow).returning()
+      if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
+      return newRow!
+    })
+  }
+
+  // --- plant_part_mapping (plant-local alias → global part, §4D / MD9) --------
+  /**
+   * The mapping effective at `asOf` for `(plant_id, plant_part_no)` — half-open `[effective_from,
+   * effective_to)`. At most one row by construction (partial unique on open + GiST non-overlap).
+   * Undefined when no mapping window covers `asOf`.
+   */
+  findPlantPartMappingAsOf(tenantId: string, plantId: string, plantPartNo: string, asOf: Date): Promise<PlantPartMapping | undefined> {
+    return this.db.query.plantPartMapping.findFirst({
+      where: and(
+        eq(plantPartMapping.tenantId, tenantId),
+        eq(plantPartMapping.plantId, plantId),
+        eq(plantPartMapping.plantPartNo, plantPartNo),
+        lte(plantPartMapping.effectiveFrom, asOf),
+        or(isNull(plantPartMapping.effectiveTo), gt(plantPartMapping.effectiveTo, asOf)),
+      ),
+    })
+  }
+
+  /** The current OPEN mapping (`effective_to IS NULL`) for `(plant_id, plant_part_no)`, or undefined. */
+  findOpenPlantPartMapping(tenantId: string, plantId: string, plantPartNo: string): Promise<PlantPartMapping | undefined> {
+    return this.db.query.plantPartMapping.findFirst({
+      where: and(
+        eq(plantPartMapping.tenantId, tenantId),
+        eq(plantPartMapping.plantId, plantId),
+        eq(plantPartMapping.plantPartNo, plantPartNo),
+        isNull(plantPartMapping.effectiveTo),
+      ),
+    })
+  }
+
+  /**
+   * The part **version** effective at `asOf` bearing the inline customer ref `(customer_id,
+   * customer_part_no)` (MD9 customer resolution), or undefined. The customer fields ride the part
+   * revision, so this is a windowed read of the part table.
+   */
+  findPartByCustomerRefAsOf(tenantId: string, customerId: string, customerPartNo: string, asOf: Date): Promise<Part | undefined> {
+    return this.db.query.part.findFirst({
+      where: and(
+        eq(part.tenantId, tenantId),
+        eq(part.customerId, customerId),
+        eq(part.customerPartNo, customerPartNo),
+        lte(part.effectiveFrom, asOf),
+        or(isNull(part.effectiveTo), gt(part.effectiveTo, asOf)),
+      ),
+    })
+  }
+
+  /**
+   * Transactionally set a plant-local mapping window: when `priorId` is given, close that open window at
+   * `effectiveFrom` (guarded on `effective_to IS NULL`) — a revise; otherwise a fresh create. Always
+   * inserts the new open row and appends audit rows — all atomic.
+   */
+  async revisePlantPartMappingTx(input: {
+    tenantId: string
+    priorId?: string
+    effectiveFrom: Date
+    newRow: NewPlantPartMapping
+    auditRows: NewMasterDataAudit[]
+  }): Promise<PlantPartMapping> {
+    return this.db.transaction(async (tx) => {
+      if (input.priorId) {
+        const closed = await tx
+          .update(plantPartMapping)
+          .set({ effectiveTo: input.effectiveFrom, updatedAt: new Date() })
+          .where(and(eq(plantPartMapping.tenantId, input.tenantId), eq(plantPartMapping.id, input.priorId), isNull(plantPartMapping.effectiveTo)))
+          .returning()
+        if (closed.length === 0) throw new Error('revisePlantPartMappingTx: prior mapping is not open')
+      }
+      const [newRow] = await tx.insert(plantPartMapping).values(input.newRow).returning()
       if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
       return newRow!
     })

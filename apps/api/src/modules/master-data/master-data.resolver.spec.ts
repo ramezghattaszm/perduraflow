@@ -1,3 +1,4 @@
+import { UNRESOLVABLE_PART_REF } from '@perduraflow/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppException } from '../../common/exceptions/app.exception'
 import { toPartVersionDto } from './master-data.mapper'
@@ -332,6 +333,68 @@ describe('MasterDataResolver.revisePartPlant — write path (§4E)', () => {
     expect(tx.auditRows).toHaveLength(2)
     expect(tx.auditRows![0]).toMatchObject({ entityType: 'part_plant', action: 'revise' })
     expect(tx.auditRows![1]).toMatchObject({ entityType: 'part_plant', action: 'supersede', versionId: 'pp_prior' })
+  })
+})
+
+describe('MasterDataResolver — MD9 part-reference resolution (§4D)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('resolvePlantPart returns the global partNo when a mapping window covers as-of', async () => {
+    const repo = {
+      findPlantPartMappingAsOf: vi.fn().mockResolvedValue({ partNo: 'RAM-2001', plantId: 'plant-A', plantPartNo: 'LOCAL-7' }),
+    }
+    const out = await resolver(repo).resolvePlantPart('t1', 'plant-A', 'LOCAL-7', '2026-08-01T00:00:00Z')
+    expect(out).toEqual({ partNo: 'RAM-2001' })
+    expect(repo.findPlantPartMappingAsOf).toHaveBeenCalledWith('t1', 'plant-A', 'LOCAL-7', expect.any(Date))
+  })
+
+  it('resolvePlantPart returns the TYPED UNRESOLVABLE_PART_REF (not null / not a guess) when nothing maps', async () => {
+    const repo = { findPlantPartMappingAsOf: vi.fn().mockResolvedValue(undefined) }
+    const out = await resolver(repo).resolvePlantPart('t1', 'plant-A', 'NOPE')
+    expect(out).toBe(UNRESOLVABLE_PART_REF)
+    expect(out).not.toBeNull()
+  })
+
+  it('resolveCustomerPart resolves via the inline customer_id/customer_part_no part fields as-of', async () => {
+    const repo = {
+      findPartByCustomerRefAsOf: vi.fn().mockResolvedValue(partRow({ partNo: 'RAM-2002', customerId: 'cust-1', customerPartNo: 'CPN-9' })),
+    }
+    const out = await resolver(repo).resolveCustomerPart('t1', 'cust-1', 'CPN-9')
+    expect(out).toEqual({ partNo: 'RAM-2002' })
+    expect(repo.findPartByCustomerRefAsOf).toHaveBeenCalledWith('t1', 'cust-1', 'CPN-9', expect.any(Date))
+  })
+
+  it('resolveCustomerPart returns the typed UNRESOLVABLE_PART_REF when no part bears the customer ref', async () => {
+    const repo = { findPartByCustomerRefAsOf: vi.fn().mockResolvedValue(undefined) }
+    expect(await resolver(repo).resolveCustomerPart('t1', 'cust-1', 'NOPE')).toBe(UNRESOLVABLE_PART_REF)
+  })
+
+  it('revisePlantPartMapping: a fresh mapping writes a create audit; an existing one revises+supersedes', async () => {
+    let tx: { priorId?: string; auditRows?: Array<Record<string, unknown>> } = {}
+    const create = {
+      findOpenPlantPartMapping: vi.fn().mockResolvedValue(undefined),
+      revisePlantPartMappingTx: vi.fn(async (input) => {
+        tx = input
+        return { id: input.newRow.id, ...input.newRow }
+      }),
+    }
+    await resolver(create).revisePlantPartMapping('t1', 'plant-A', 'LOCAL-7', { partNo: 'RAM-2001' }, 'user-1')
+    expect(tx.priorId).toBeUndefined()
+    expect(tx.auditRows).toHaveLength(1)
+    expect(tx.auditRows![0]).toMatchObject({ entityType: 'plant_part_mapping', action: 'create', changedFields: { partNo: { new: 'RAM-2001' } } })
+
+    const revise = {
+      findOpenPlantPartMapping: vi.fn().mockResolvedValue({ id: 'ppm_prior', partNo: 'RAM-2001', plantId: 'plant-A', plantPartNo: 'LOCAL-7', effectiveFrom: new Date('2026-06-01T00:00:00Z') }),
+      revisePlantPartMappingTx: vi.fn(async (input) => {
+        tx = input
+        return { id: input.newRow.id, ...input.newRow }
+      }),
+    }
+    await resolver(revise).revisePlantPartMapping('t1', 'plant-A', 'LOCAL-7', { partNo: 'RAM-2099', effectiveFrom: '2026-09-01T00:00:00Z' }, 'user-1')
+    expect(tx.priorId).toBe('ppm_prior')
+    expect(tx.auditRows).toHaveLength(2)
+    expect(tx.auditRows![0]).toMatchObject({ action: 'revise', changedFields: { partNo: { old: 'RAM-2001', new: 'RAM-2099' } } })
+    expect(tx.auditRows![1]).toMatchObject({ action: 'supersede', versionId: 'ppm_prior' })
   })
 })
 

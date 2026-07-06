@@ -1,12 +1,14 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import type {
-  MakeBuy,
-  PartVersionDto,
-  ReviseRoutingRequest,
-  RevisePartRequest,
-  RoutingVersionDto,
-  UomFactorDto,
-  UomFactorsDto,
+import {
+  UNRESOLVABLE_PART_REF,
+  type MakeBuy,
+  type PartRefResolution,
+  type PartVersionDto,
+  type ReviseRoutingRequest,
+  type RevisePartRequest,
+  type RoutingVersionDto,
+  type UomFactorDto,
+  type UomFactorsDto,
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { generateId } from '../../db/ulid'
@@ -18,11 +20,13 @@ import type {
   NewMasterDataAudit,
   NewPart,
   NewPartPlant,
+  NewPlantPartMapping,
   NewRouting,
   NewRoutingOperation,
   NewUomConversion,
   Part,
   PartPlant,
+  PlantPartMapping,
   Routing,
 } from './schema'
 
@@ -255,6 +259,97 @@ export class MasterDataResolver {
       out[k] = v // override / add; nested objects replace wholesale
     }
     return out
+  }
+
+  // --- MD9 part-reference resolution (§4D) ------------------------------------
+  /**
+   * Resolves a plant-local alias `(plantId, plantPartNo)` to a global `part_no` as-of `asOf` (default now).
+   * Returns the typed {@link UNRESOLVABLE_PART_REF} sentinel when no mapping window covers the instant —
+   * never a null or a guess (D-MD9; the exception queue is Layer 3).
+   */
+  async resolvePlantPart(tenantId: string, plantId: string, plantPartNo: string, asOf?: string): Promise<PartRefResolution> {
+    const at = asOf ? new Date(asOf) : new Date()
+    const mapping = await this.repo.findPlantPartMappingAsOf(tenantId, plantId, plantPartNo, at)
+    return mapping ? { partNo: mapping.partNo } : UNRESOLVABLE_PART_REF
+  }
+
+  /**
+   * Resolves a customer reference `(customerId, customerPartNo)` to a global `part_no` as-of `asOf`
+   * (default now) — queries the inline `customer_id`/`customer_part_no` part fields (they ride the
+   * revision, so this is windowed). Returns {@link UNRESOLVABLE_PART_REF} when nothing matches.
+   */
+  async resolveCustomerPart(tenantId: string, customerId: string, customerPartNo: string, asOf?: string): Promise<PartRefResolution> {
+    const at = asOf ? new Date(asOf) : new Date()
+    const row = await this.repo.findPartByCustomerRefAsOf(tenantId, customerId, customerPartNo, at)
+    return row ? { partNo: row.partNo } : UNRESOLVABLE_PART_REF
+  }
+
+  /**
+   * Sets a plant-local mapping window for `(plantId, plantPartNo) → partNo` — create-or-revise,
+   * transactional + audited. An existing open window is closed at `effectiveFrom` (strictly after its
+   * start) and a new one opened (`revise` + `supersede`); otherwise a fresh window is opened (`create`).
+   * `effectiveFrom` defaults to now. Plant + target-part validity are asserted by the caller (service, O4).
+   * @throws AppException INVALID_REVISION_EFFECTIVE_FROM - explicit `effectiveFrom` not after the open window's
+   */
+  async revisePlantPartMapping(
+    tenantId: string,
+    plantId: string,
+    plantPartNo: string,
+    input: { partNo: string; effectiveFrom?: string },
+    actor: string,
+  ): Promise<PlantPartMapping> {
+    const prior = await this.repo.findOpenPlantPartMapping(tenantId, plantId, plantPartNo)
+    const effectiveFrom = prior
+      ? this.assertAfter(input.effectiveFrom ?? new Date().toISOString(), prior.effectiveFrom)
+      : input.effectiveFrom
+        ? new Date(input.effectiveFrom)
+        : new Date()
+
+    const newRow: NewPlantPartMapping = {
+      id: generateId(),
+      tenantId,
+      plantId,
+      plantPartNo,
+      partNo: input.partNo,
+      effectiveFrom,
+      effectiveTo: null,
+      supersedesId: prior?.id ?? null,
+    }
+
+    let auditRows: NewMasterDataAudit[]
+    if (prior) {
+      const changedFields: Record<string, MasterDataAuditChange> = {}
+      if (prior.partNo !== input.partNo) changedFields['partNo'] = { old: prior.partNo, new: input.partNo }
+      changedFields['supersedesId'] = { new: prior.id }
+      auditRows = this.reviseAuditRows({
+        tenantId,
+        entityType: 'plant_part_mapping',
+        businessKey: plantPartNo,
+        newId: newRow.id!,
+        priorId: prior.id,
+        priorEffectiveFrom: prior.effectiveFrom,
+        effectiveFrom,
+        actor,
+        sourceRef: null,
+        changedFields,
+      })
+    } else {
+      auditRows = [
+        {
+          tenantId,
+          entityType: 'plant_part_mapping',
+          businessKey: plantPartNo,
+          versionId: newRow.id!,
+          action: 'create',
+          actor,
+          sourceRef: null,
+          effectiveFrom,
+          changedFields: { plantId: { new: plantId }, plantPartNo: { new: plantPartNo }, partNo: { new: input.partNo } },
+        },
+      ]
+    }
+
+    return this.repo.revisePlantPartMappingTx({ tenantId, priorId: prior?.id, effectiveFrom, newRow, auditRows })
   }
 
   /** The routing version effective at `asOf` (default now) for `partNo` (with operations), or null. */

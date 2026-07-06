@@ -47,6 +47,7 @@ import {
   type NewMasterDataAudit,
   type Part,
   type PartPlant,
+  type PlantPartMapping,
   type Routing,
   type RoutingOperation,
 } from './schema'
@@ -155,6 +156,27 @@ export class MasterDataService {
     await this.assertPartNo(tenantId, partNo)
     await this.assertPlant(tenantId, plantId)
     return this.resolver.revisePartPlant(tenantId, partNo, plantId, { effectiveFrom, changes }, actor)
+  }
+
+  /**
+   * Sets a plant-local part alias `(plantId, plantPartNo) → partNo` (§4D / MD9) — create-or-revise,
+   * windowed + audited (in the resolver). The kernel `plant_id` (org.read, O4) and the target `part_no`
+   * (its open version) are validated first. Admin transport lands in the Commit-6 CRUD.
+   * @throws AppException INVALID_PLANT_REFERENCE - plant did not resolve
+   * @throws AppException PART_NOT_FOUND - no open version of the target `partNo`
+   * @throws AppException INVALID_REVISION_EFFECTIVE_FROM - explicit `effectiveFrom` not after the open window's
+   */
+  async setPlantPartMapping(
+    tenantId: string,
+    plantId: string,
+    plantPartNo: string,
+    partNo: string,
+    effectiveFrom?: string,
+    actor: string = SYSTEM_ACTOR,
+  ): Promise<PlantPartMapping> {
+    await this.assertPlant(tenantId, plantId)
+    await this.assertPartNo(tenantId, partNo)
+    return this.resolver.revisePlantPartMapping(tenantId, plantId, plantPartNo, { partNo, effectiveFrom }, actor)
   }
 
   // --- resource --------------------------------------------------------------
