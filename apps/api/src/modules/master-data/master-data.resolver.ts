@@ -131,7 +131,7 @@ export class MasterDataResolver {
    * @throws AppException PART_NOT_FOUND - no such part version
    * @throws AppException VALIDATION_ERROR - `alternateUom` equals the base UoM, or `factor` is not a positive finite number
    */
-  async addUomFactor(tenantId: string, partVersionId: string, alternateUom: string, factor: number): Promise<UomFactorDto> {
+  async addUomFactor(tenantId: string, partVersionId: string, alternateUom: string, factor: number, actor = 'system'): Promise<UomFactorDto> {
     const version = await this.repo.findPart(tenantId, partVersionId)
     if (!version) throw new AppException(HttpStatus.NOT_FOUND, 'No such part version', ERROR_CODES.PART_NOT_FOUND)
     if (alternateUom === version.uom) {
@@ -140,7 +140,24 @@ export class MasterDataResolver {
     if (!Number.isFinite(factor) || factor <= 0) {
       throw new AppException(HttpStatus.BAD_REQUEST, 'factor must be a positive number', ERROR_CODES.VALIDATION_ERROR)
     }
-    const row = await this.repo.upsertUomConversion({ tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor })
+    const existing = await this.repo.findUomConversion(tenantId, partVersionId, alternateUom)
+    const auditRow: NewMasterDataAudit = {
+      tenantId,
+      entityType: 'uom_conversion',
+      businessKey: partVersionId,
+      versionId: existing?.id ?? generateId(),
+      action: existing ? 'update' : 'create',
+      actor,
+      sourceRef: null,
+      effectiveFrom: null,
+      changedFields: existing
+        ? { factor: { old: existing.factor, new: factor } }
+        : { alternateUom: { new: alternateUom }, baseUom: { new: version.uom }, factor: { new: factor } },
+    }
+    const row = await this.repo.upsertUomConversionWithAudit(
+      { tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor },
+      auditRow,
+    )
     return { alternateUom: row.alternateUom, factor: row.factor }
   }
 

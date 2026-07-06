@@ -106,8 +106,8 @@ export class MasterDataService {
       throw new AppException(HttpStatus.CONFLICT, 'Part number already exists', ERROR_CODES.DUPLICATE_PART_NO)
     }
     await this.assertPartOrgRefs(tenantId, dto.customerId, dto.program)
-    // make_buy has no DB default — state it explicitly (a fresh part is 'make' unless specified).
-    const row = await this.repo.createPart({ ...dto, tenantId, makeBuy: dto.makeBuy ?? 'make' })
+    // make_buy is a REQUIRED create input (`1.5`) — no app-level default; the admin states it explicitly.
+    const row = await this.repo.createPart({ ...dto, tenantId })
     await this.events.publish(EVENTS.PART_CREATED, { id: row.id, tenantId, name: row.partNo }, tenantId)
     return toPartDto(row)
   }
@@ -177,6 +177,22 @@ export class MasterDataService {
     await this.assertPlant(tenantId, plantId)
     await this.assertPartNo(tenantId, partNo)
     return this.resolver.revisePlantPartMapping(tenantId, plantId, plantPartNo, { partNo, effectiveFrom }, actor)
+  }
+
+  /**
+   * Publishes (upserts) a UoM conversion factor onto a part version (§4B). The `base_uom` invariant and
+   * the positive-factor / alt≠base guards are enforced in the resolver; `actor` is recorded on the audit.
+   * @throws AppException PART_NOT_FOUND - no such part version
+   * @throws AppException VALIDATION_ERROR - `alternateUom` equals the base UoM, or `factor` is not positive
+   */
+  async addUomFactor(
+    tenantId: string,
+    partVersionId: string,
+    alternateUom: string,
+    factor: number,
+    actor: string = SYSTEM_ACTOR,
+  ) {
+    return this.resolver.addUomFactor(tenantId, partVersionId, alternateUom, factor, actor)
   }
 
   // --- resource --------------------------------------------------------------

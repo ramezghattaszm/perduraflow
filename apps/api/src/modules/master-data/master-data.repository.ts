@@ -159,17 +159,34 @@ export class MasterDataRepository {
       .orderBy(asc(uomConversion.alternateUom))
   }
 
-  /** Upsert a factor row (unique on tenant + part version + alternate UoM); returns the persisted row. */
-  async upsertUomConversion(row: NewUomConversion): Promise<UomConversion> {
-    const [out] = await this.db
-      .insert(uomConversion)
-      .values(row)
-      .onConflictDoUpdate({
-        target: [uomConversion.tenantId, uomConversion.partId, uomConversion.alternateUom],
-        set: { baseUom: row.baseUom, factor: row.factor },
-      })
-      .returning()
-    return out!
+  /** The factor row for a `(part version, alternate UoM)`, or undefined (used to label create vs update). */
+  findUomConversion(tenantId: string, partId: string, alternateUom: string): Promise<UomConversion | undefined> {
+    return this.db.query.uomConversion.findFirst({
+      where: and(
+        eq(uomConversion.tenantId, tenantId),
+        eq(uomConversion.partId, partId),
+        eq(uomConversion.alternateUom, alternateUom),
+      ),
+    })
+  }
+
+  /**
+   * Upsert a factor row (unique on tenant + part version + alternate UoM) and append its audit row —
+   * atomic (both commit or roll back together). Returns the persisted row.
+   */
+  async upsertUomConversionWithAudit(row: NewUomConversion, auditRow: NewMasterDataAudit): Promise<UomConversion> {
+    return this.db.transaction(async (tx) => {
+      const [out] = await tx
+        .insert(uomConversion)
+        .values(row)
+        .onConflictDoUpdate({
+          target: [uomConversion.tenantId, uomConversion.partId, uomConversion.alternateUom],
+          set: { baseUom: row.baseUom, factor: row.factor },
+        })
+        .returning()
+      await tx.insert(masterDataAudit).values(auditRow)
+      return out!
+    })
   }
 
   // --- part_plant (per-plant override layer, §4E) ----------------------------

@@ -23,7 +23,11 @@ import type {
   RoutingOperation,
 } from './schema'
 
-/** Map a part row to its `masterdata.read` DTO. */
+/**
+ * Map a part row to its `masterdata.read` DTO (`1.5` — adds the §4A/§4C part-core fields). `uomFactors`
+ * is intentionally LEFT UNSET here (Commit-6 shaping decision B): factors are published only via the
+ * dedicated `getUomFactors` op, never inlined in list/resolve reads, so payloads stay lean.
+ */
 export const toPartDto = (p: Part): PartDto => ({
   id: p.id,
   partNo: p.partNo,
@@ -34,6 +38,12 @@ export const toPartDto = (p: Part): PartDto => ({
   gauge: p.gauge,
   colour: p.colour,
   status: p.status,
+  makeBuy: p.makeBuy,
+  customerPartNo: p.customerPartNo,
+  customerId: p.customerId,
+  program: p.program,
+  toolFamily: p.toolFamily,
+  sharedAttributes: p.sharedAttributes,
 })
 
 /** Map a part row to its versioned DTO (Layer 0 `1.4`) — adds revision + effectivity window (ISO). */

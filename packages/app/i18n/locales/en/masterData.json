@@ -6,13 +6,15 @@
       "partNo": "Part number",
       "description": "Description",
       "partType": "Part type",
+      "makeBuy": "Sourcing",
       "uom": "Base UoM",
       "material": "Material",
       "gauge": "Gauge",
       "colour": "Colour",
       "status": "Status"
     },
-    "types": { "finished": "Finished", "component": "Component", "raw": "Raw" }
+    "types": { "finished": "Finished", "component": "Component", "raw": "Raw" },
+    "makeBuy": { "make": "Make", "buy": "Buy" }
   },
   "resources": {
     "title": "Resources",

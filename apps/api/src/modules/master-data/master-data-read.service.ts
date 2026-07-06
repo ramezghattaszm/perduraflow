@@ -6,8 +6,10 @@ import {
   type MasterDataRefValidation,
   type OperatorDto,
   type PartDto,
+  type PartRefResolution,
   type PartVersionDto,
   type ResourceDowntimeDto,
+  type UomFactorsDto,
   type ResourceDto,
   type ResourceGroupDto,
   type ResourceTypeConfigDto,
@@ -51,9 +53,23 @@ export class MasterDataReadService implements MasterDataReadContract {
 
   // --- Layer 0 resolve-as-of + revise (1.4) — delegate to the resolver -------
   /** Resolves the part version effective at `asOf` (default now) by business key, or null. */
-  resolvePart(tenantId: string, partNo: string, asOf?: string): Promise<PartVersionDto | null> {
-    // Contract stays 1.4 (asOf-only); the plantId-scoped overload is exposed in the Commit-6 1.5 bump.
-    return this.resolver.resolvePart(tenantId, partNo, { asOf })
+  resolvePart(tenantId: string, partNo: string, opts?: { plantId?: string; asOf?: string }): Promise<PartVersionDto | null> {
+    return this.resolver.resolvePart(tenantId, partNo, opts ?? {})
+  }
+
+  /** MD9 (`1.5`): resolves a plant-local alias to a global part_no, or the typed UNRESOLVABLE_PART_REF. */
+  resolvePlantPart(tenantId: string, plantId: string, plantPartNo: string, asOf?: string): Promise<PartRefResolution> {
+    return this.resolver.resolvePlantPart(tenantId, plantId, plantPartNo, asOf)
+  }
+
+  /** MD9 (`1.5`): resolves a customer ref to a global part_no via the inline part fields, or UNRESOLVABLE_PART_REF. */
+  resolveCustomerPart(tenantId: string, customerId: string, customerPartNo: string, asOf?: string): Promise<PartRefResolution> {
+    return this.resolver.resolveCustomerPart(tenantId, customerId, customerPartNo, asOf)
+  }
+
+  /** Publishes the UoM conversion factors (`1.5`, §4B) for the part version effective at `asOf`, or null. */
+  getUomFactors(tenantId: string, partNo: string, asOf?: string): Promise<UomFactorsDto | null> {
+    return this.resolver.getUomFactors(tenantId, partNo, asOf)
   }
 
   /** Full revision history for a `partNo`, oldest first. */

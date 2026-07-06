@@ -1,7 +1,7 @@
 import { UNRESOLVABLE_PART_REF } from '@perduraflow/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppException } from '../../common/exceptions/app.exception'
-import { toPartVersionDto } from './master-data.mapper'
+import { toPartDto, toPartVersionDto } from './master-data.mapper'
 import { MasterDataResolver } from './master-data.resolver'
 import type { Part, PartPlant, Routing, RoutingOperation } from './schema'
 
@@ -227,20 +227,34 @@ describe('MasterDataResolver UoM factor publication', () => {
     expect(repo.listUomConversions).not.toHaveBeenCalled()
   })
 
-  it('addUomFactor enforces base_uom = the version uom (never the caller) and upserts', async () => {
+  it('addUomFactor enforces base_uom = the version uom (never the caller), upserts, and records the actor on a create audit', async () => {
     const repo = {
       findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })),
-      upsertUomConversion: vi.fn(async (row) => ({ id: 'u1', ...row })),
+      findUomConversion: vi.fn().mockResolvedValue(undefined), // no prior → create
+      upsertUomConversionWithAudit: vi.fn(async (row, _audit) => ({ id: 'u1', ...row })),
     }
-    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12)
-    expect(repo.upsertUomConversion).toHaveBeenCalledWith({ tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: 12 })
+    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12, 'user-9')
+    const [row, audit] = repo.upsertUomConversionWithAudit.mock.calls[0]!
+    expect(row).toEqual({ tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: 12 })
+    expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'create', actor: 'user-9', changedFields: { factor: { new: 12 } } })
+  })
+
+  it('addUomFactor labels an existing factor edit as an update audit', async () => {
+    const repo = {
+      findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })),
+      findUomConversion: vi.fn().mockResolvedValue({ id: 'u1', factor: 10 }), // prior exists → update
+      upsertUomConversionWithAudit: vi.fn(async (row, _audit) => ({ id: 'u1', ...row })),
+    }
+    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12, 'user-9')
+    const [, audit] = repo.upsertUomConversionWithAudit.mock.calls[0]!
+    expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'update', versionId: 'u1', changedFields: { factor: { old: 10, new: 12 } } })
   })
 
   it('addUomFactor rejects a non-positive factor and an alternate that equals the base', async () => {
-    const repo = { findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })), upsertUomConversion: vi.fn() }
+    const repo = { findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })), findUomConversion: vi.fn(), upsertUomConversionWithAudit: vi.fn() }
     await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 0)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
     await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'EA', 2)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
-    expect(repo.upsertUomConversion).not.toHaveBeenCalled()
+    expect(repo.upsertUomConversionWithAudit).not.toHaveBeenCalled()
   })
 })
 
@@ -333,6 +347,23 @@ describe('MasterDataResolver.revisePartPlant — write path (§4E)', () => {
     expect(tx.auditRows).toHaveLength(2)
     expect(tx.auditRows![0]).toMatchObject({ entityType: 'part_plant', action: 'revise' })
     expect(tx.auditRows![1]).toMatchObject({ entityType: 'part_plant', action: 'supersede', versionId: 'pp_prior' })
+  })
+})
+
+describe('toPartDto — 1.5 part-core shape + uomFactors shaping (decision B)', () => {
+  it('carries the §4A/§4C part-core fields and leaves uomFactors UNSET (never inlined in reads)', () => {
+    const dto = toPartDto(partRow({ makeBuy: 'buy', customerPartNo: 'CPN-1', customerId: 'cust-1', program: 'PGM', toolFamily: 'TF-A', sharedAttributes: { coating: 'zinc' } }))
+    expect(dto).toMatchObject({
+      makeBuy: 'buy',
+      customerPartNo: 'CPN-1',
+      customerId: 'cust-1',
+      program: 'PGM',
+      toolFamily: 'TF-A',
+      sharedAttributes: { coating: 'zinc' },
+    })
+    // shaping decision B: factors are published only via getUomFactors, never inlined in the DTO
+    expect(dto.uomFactors).toBeUndefined()
+    expect('uomFactors' in dto).toBe(false)
   })
 })
 

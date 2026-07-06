@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Param, Patch, Post, UseGuards } from '@nestjs/common'
 import {
+  addUomFactorSchema,
   createCertificationSchema,
   createOperatorSchema,
   createPartSchema,
@@ -8,12 +9,15 @@ import {
   createResourceSchema,
   createRoutingSchema,
   setOperatorQualificationSchema,
+  setPartPlantOverrideSchema,
+  setPlantPartMappingSchema,
   updateCertificationSchema,
   updateOperatorSchema,
   updatePartSchema,
   updateResourceGroupSchema,
   updateResourceSchema,
   updateRoutingSchema,
+  type AddUomFactorRequest,
   type CreateCertificationRequest,
   type CreateOperatorRequest,
   type CreatePartRequest,
@@ -22,6 +26,8 @@ import {
   type CreateResourceRequest,
   type CreateRoutingRequest,
   type SetOperatorQualificationRequest,
+  type SetPartPlantOverrideRequest,
+  type SetPlantPartMappingRequest,
   type UpdateCertificationRequest,
   type UpdateOperatorRequest,
   type UpdatePartRequest,
@@ -64,6 +70,49 @@ export class MasterDataAdminController {
     @Body(new ZodValidationPipe(updatePartSchema)) dto: UpdatePartRequest,
   ) {
     return this.md.updatePart(user.tenantId, id, dto, user.sub)
+  }
+
+  // --- part_plant / plant_part_mapping / uom factors (Layer 1 §4B/§4D/§4E) ---
+  /**
+   * `POST /admin/master-data/parts/:partNo/plants/:plantId/override` — set a per-plant part override
+   * (§4E). Windowed + audited write (JWT actor recorded); plant validated via org.read (O4).
+   */
+  @Post('parts/:partNo/plants/:plantId/override')
+  setPartPlantOverride(
+    @CurrentUser() user: JwtPayload,
+    @Param('partNo') partNo: string,
+    @Param('plantId') plantId: string,
+    @Body(new ZodValidationPipe(setPartPlantOverrideSchema)) dto: SetPartPlantOverrideRequest,
+  ) {
+    const { effectiveFrom, ...changes } = dto
+    return this.md.setPartPlantOverride(user.tenantId, partNo, plantId, changes, effectiveFrom, user.sub)
+  }
+
+  /**
+   * `POST /admin/master-data/plants/:plantId/part-mappings` — set a plant-local alias `(plantId,
+   * plantPartNo) → partNo` (§4D / MD9). Windowed + audited write (JWT actor recorded); plant + target
+   * part validated (O4).
+   */
+  @Post('plants/:plantId/part-mappings')
+  setPlantPartMapping(
+    @CurrentUser() user: JwtPayload,
+    @Param('plantId') plantId: string,
+    @Body(new ZodValidationPipe(setPlantPartMappingSchema)) dto: SetPlantPartMappingRequest,
+  ) {
+    return this.md.setPlantPartMapping(user.tenantId, plantId, dto.plantPartNo, dto.partNo, dto.effectiveFrom, user.sub)
+  }
+
+  /**
+   * `POST /admin/master-data/part-versions/:versionId/uom-factors` — publish a UoM conversion factor
+   * onto a part version (§4B). Upsert + audited (JWT actor recorded); base_uom taken from the version.
+   */
+  @Post('part-versions/:versionId/uom-factors')
+  addUomFactor(
+    @CurrentUser() user: JwtPayload,
+    @Param('versionId') versionId: string,
+    @Body(new ZodValidationPipe(addUomFactorSchema)) dto: AddUomFactorRequest,
+  ) {
+    return this.md.addUomFactor(user.tenantId, versionId, dto.alternateUom, dto.factor, user.sub)
   }
 
   // --- resource --------------------------------------------------------------

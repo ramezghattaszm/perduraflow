@@ -1,0 +1,1 @@
+ALTER TABLE "master_data"."uom_conversion" ALTER COLUMN "factor" SET DATA TYPE numeric;

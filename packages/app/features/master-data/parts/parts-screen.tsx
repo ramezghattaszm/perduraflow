@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { PartDto, PartType } from '@perduraflow/contracts'
+import type { MakeBuy, PartDto, PartType } from '@perduraflow/contracts'
 import {
   AppButton,
   AppInput,
@@ -33,6 +33,7 @@ export function PartsScreen() {
   const [partNo, setPartNo] = useState('')
   const [description, setDescription] = useState('')
   const [partType, setPartType] = useState<PartType | null>('finished')
+  const [makeBuy, setMakeBuy] = useState<MakeBuy>('make')
   const [uom, setUom] = useState('EA')
   const [material, setMaterial] = useState('')
   const [gauge, setGauge] = useState('')
@@ -42,6 +43,10 @@ export function PartsScreen() {
     value: v,
     label: t(`parts.types.${v}`),
   }))
+  const makeBuyOptions = (['make', 'buy'] as const).map((v) => ({
+    value: v,
+    label: t(`parts.makeBuy.${v}`),
+  }))
   const submitError = create.error ?? update.error
   const formError = submitError ? translateError(getApiErrorCode(submitError)) : undefined
 
@@ -50,6 +55,7 @@ export function PartsScreen() {
     setPartNo('')
     setDescription('')
     setPartType('finished')
+    setMakeBuy('make')
     setUom('EA')
     setMaterial('')
     setGauge('')
@@ -61,6 +67,7 @@ export function PartsScreen() {
     setPartNo(p.partNo)
     setDescription(p.description ?? '')
     setPartType(p.partType)
+    setMakeBuy(p.makeBuy)
     setUom(p.uom)
     setMaterial(p.material ?? '')
     setGauge(p.gauge ?? '')
@@ -73,6 +80,7 @@ export function PartsScreen() {
       partNo,
       description: description.trim() || null,
       partType,
+      makeBuy,
       uom,
       material: material.trim() || null,
       gauge: gauge.trim() || null,
@@ -175,6 +183,13 @@ export function PartsScreen() {
             options={typeOptions}
             value={partType}
             onChange={(v) => setPartType(v as PartType | null)}
+          />
+        </FormField>
+        <FormField label={t('parts.fields.makeBuy')} required>
+          <SelectField
+            options={makeBuyOptions}
+            value={makeBuy}
+            onChange={(v) => setMakeBuy(v as MakeBuy)}
           />
         </FormField>
         <AppInput label={t('parts.fields.uom')} value={uom} onChangeText={setUom} />

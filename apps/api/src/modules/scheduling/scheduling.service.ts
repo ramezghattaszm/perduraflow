@@ -787,7 +787,7 @@ export class SchedulingService {
     const items: SequencerItem[] = []
     let infeasibleReason: string | null = null
     for (const line of demand) {
-      const part = partCache.get(line.partNo) ?? (await md.resolvePart(tenantId, line.partNo, asOfIso))
+      const part = partCache.get(line.partNo) ?? (await md.resolvePart(tenantId, line.partNo, { asOf: asOfIso }))
       partCache.set(line.partNo, part)
       if (!routingCache.has(line.partNo)) {
         routingCache.set(line.partNo, await md.resolveRouting(tenantId, line.partNo, { primaryOnly: true, asOf: asOfIso }))

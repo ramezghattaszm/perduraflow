@@ -32,7 +32,15 @@ import { z } from 'zod'
 // transactional `revisePart`/`reviseRouting`, and `PartVersionDto`/`RoutingVersionDto`. The
 // id-based `getPart`/`getRouting`/`getPrimaryRoutingForPart` are deprecated but retained
 // (D-L0-4, A12 must-ignore). `org.read` untouched (still 1.1).
-export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.4' } as const
+// `1.5` (Layer 1, additive MINOR — api-spec §12.9): completes the part-core surface. `PartDto` gains
+// `makeBuy`/`customerPartNo`/`customerId`/`program`/`toolFamily`/`sharedAttributes` (§4A/§4C) + an
+// OPTIONAL `uomFactors` (populated only by the dedicated `getUomFactors` op — never inlined in list/
+// resolve reads, to keep those payloads and the scheduling resolve loop cheap). New ops:
+// `resolvePlantPart`/`resolveCustomerPart` (MD9 → `PartRefResolution`) and `getUomFactors` (§4B); and
+// `resolvePart` takes an opts bag `{ plantId?, asOf? }` — the optional `plantId` layers the per-plant
+// override (§4E). Every prior consumer keeps compiling (bindings pin major `1`, key on id — no `=1.4`
+// pin exists); id-based Layer-0 ops stay deprecated-but-present. `org.read` untouched (still 1.2).
+export const MASTERDATA_READ_CONTRACT = { id: 'masterdata.read', version: '1.5' } as const
 
 // --- enums -------------------------------------------------------------------
 
@@ -111,13 +119,28 @@ export interface PartDto {
   partNo: string
   description: string | null
   partType: PartType
-  /** Canonical base UoM; single UoM, no conversion (SKIP-02). */
+  /** Canonical base UoM; conversion factors are published via `getUomFactors` (§4B). */
   uom: string
   /** Physical/descriptive attributes (MD11) — the changeover drivers (AS6). */
   material: string | null
   gauge: string | null
   colour: string | null
   status: MasterDataStatus
+  /** Sourcing flag (§4A) — authoritative make-vs-buy (distinct from the descriptive `partType`). */
+  makeBuy: MakeBuy
+  /** Customer/program engineering refs (§4A); `customerId`/`program` are kernel org refs (O4). */
+  customerPartNo: string | null
+  customerId: string | null
+  program: string | null
+  /** Physical-attribute completion (§4C): the tooling-family link + an extensible custom-attribute map (MD12). */
+  toolFamily: string | null
+  sharedAttributes: Record<string, unknown> | null
+  /**
+   * Per-part UoM conversion factors (§4B). **Optional and populated ONLY by the dedicated `getUomFactors`
+   * op** — the read mappers leave it unset in `listParts`/`resolvePart`/`getPart` so a list × factors join
+   * never balloons the payload and the scheduling resolve loop stays cheap (Commit-6 shaping decision B).
+   */
+  uomFactors?: UomFactorDto[]
 }
 
 export interface ResourceDto {
@@ -291,8 +314,28 @@ export interface MasterDataReadContract {
    * for A12 must-ignore; removed in a future MAJOR once all consumers migrate (Commit 6).
    */
   getPart(tenantId: string, id: string): Promise<PartDto | null>
-  /** Resolves the part version effective at `asOf` (default now) by business key `partNo`, or null (`1.4`). */
-  resolvePart(tenantId: string, partNo: string, asOf?: string): Promise<PartVersionDto | null>
+  /**
+   * Resolves the part version effective at `asOf` (default now) by business key `partNo`, or null.
+   * `1.5`: takes an opts bag — an optional `plantId` layers the per-plant override (§4E) onto the
+   * resolved version (a non-null override column wins; `sharedAttributes` shallow key-merges). Omitting
+   * `plantId` returns the pure global version (byte-identical to the `1.4` behavior).
+   */
+  resolvePart(tenantId: string, partNo: string, opts?: { plantId?: string; asOf?: string }): Promise<PartVersionDto | null>
+  /**
+   * MD9 (`1.5`): resolves a plant-local alias `(plantId, plantPartNo)` to a global `part_no` as-of `asOf`
+   * (default now), or the typed {@link UNRESOLVABLE_PART_REF} sentinel — never a null or a guess (§4D).
+   */
+  resolvePlantPart(tenantId: string, plantId: string, plantPartNo: string, asOf?: string): Promise<PartRefResolution>
+  /**
+   * MD9 (`1.5`): resolves a customer reference `(customerId, customerPartNo)` to a global `part_no` as-of
+   * `asOf` (default now) via the inline part fields, or the typed {@link UNRESOLVABLE_PART_REF} sentinel.
+   */
+  resolveCustomerPart(tenantId: string, customerId: string, customerPartNo: string, asOf?: string): Promise<PartRefResolution>
+  /**
+   * Publishes the UoM conversion factors (`1.5`, §4B) for the part version effective at `asOf` (default
+   * now): its `uom` as `baseUom` + the factor rows (`alt_qty × factor = base_qty`). Null if none resolves.
+   */
+  getUomFactors(tenantId: string, partNo: string, asOf?: string): Promise<UomFactorsDto | null>
   /**
    * Reads ONE EXACT part version by its row id (`1.4`, non-deprecated). Legitimate for FROZEN SNAPSHOTS —
    * a `scheduled_operation.part_id` / `execution_actual.part_id` records the precise version scheduled/ran,
@@ -366,10 +409,10 @@ export const createPartSchema = z
     material: z.string().max(120).nullable().default(null),
     gauge: z.string().max(120).nullable().default(null),
     colour: z.string().max(120).nullable().default(null),
-    // Layer 1 §4A part-core: sourcing + customer/program refs. All OPTIONAL on the request (existing
-    // admin form unchanged; the make/buy toggle is a follow-up UI). The DB column has NO default —
-    // `createPart` states `makeBuy` explicitly (`?? 'make'`), so every insert is explicit.
-    makeBuy: makeBuySchema.optional(),
+    // Layer 1 §4A part-core: sourcing + customer/program refs. `makeBuy` is REQUIRED (`1.5`, Commit 6):
+    // the admin must choose make-vs-buy — no app-level default masks an unset value. The customer/program
+    // refs stay optional (nullable) engineering fields.
+    makeBuy: makeBuySchema,
     customerPartNo: z.string().max(80).nullable().optional(),
     customerId: z.string().nullable().optional(),
     program: z.string().nullable().optional(),
@@ -391,6 +434,51 @@ export const updatePartSchema = createPartSchema
   })
   .strict()
 export type UpdatePartRequest = z.infer<typeof updatePartSchema>
+
+/**
+ * Set a per-plant part override (§4E) — `POST /admin/master-data/parts/:partNo/plants/:plantId/override`.
+ * Every overridable column is optional: **`null` = inherit the global** part value; omitting a key on a
+ * revise inherits the prior window's value. `sharedAttributes` shallow key-merges (plant key wins, plant
+ * `null` inherits, nested objects replace wholesale). `effectiveFrom` defaults to now.
+ */
+export const setPartPlantOverrideSchema = z
+  .object({
+    makeBuy: makeBuySchema.nullable().optional(),
+    material: z.string().max(120).nullable().optional(),
+    gauge: z.string().max(120).nullable().optional(),
+    colour: z.string().max(120).nullable().optional(),
+    toolFamily: z.string().max(120).nullable().optional(),
+    sharedAttributes: z.record(z.string(), z.unknown()).nullable().optional(),
+    effectiveFrom: z.string().datetime().optional(),
+  })
+  .strict()
+export type SetPartPlantOverrideRequest = z.infer<typeof setPartPlantOverrideSchema>
+
+/**
+ * Set a plant-local part alias (§4D / MD9) — `POST /admin/master-data/plants/:plantId/part-mappings`.
+ * Maps `(plantId, plantPartNo) → partNo`. `effectiveFrom` defaults to now (create-or-revise, windowed).
+ */
+export const setPlantPartMappingSchema = z
+  .object({
+    plantPartNo: z.string().min(1).max(80),
+    partNo: z.string().min(1).max(80),
+    effectiveFrom: z.string().datetime().optional(),
+  })
+  .strict()
+export type SetPlantPartMappingRequest = z.infer<typeof setPlantPartMappingSchema>
+
+/**
+ * Publish a UoM conversion factor onto a part version (§4B) —
+ * `POST /admin/master-data/part-versions/:versionId/uom-factors`. `base_uom` is taken from the version
+ * itself (not the caller); `alternateUom` must differ from it and `factor` must be positive.
+ */
+export const addUomFactorSchema = z
+  .object({
+    alternateUom: z.string().min(1).max(16),
+    factor: z.number().positive(),
+  })
+  .strict()
+export type AddUomFactorRequest = z.infer<typeof addUomFactorSchema>
 
 export const createResourceSchema = z
   .object({

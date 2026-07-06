@@ -1,4 +1,4 @@
-import { doublePrecision, index, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { index, numeric, text, timestamp, unique } from 'drizzle-orm/pg-core'
 import { generateId } from '../../../db/ulid'
 import { masterDataSchema } from './_schema'
 import { part } from './part.schema'
@@ -22,7 +22,9 @@ export const uomConversion = masterDataSchema.table(
       .references(() => part.id),
     alternateUom: text('alternate_uom').notNull(),
     baseUom: text('base_uom').notNull(),
-    factor: doublePrecision('factor').notNull(),
+    // `numeric` (exact) not `double precision` (binary float) — a conversion factor must round-trip
+    // exactly (§4B rider). The global NUMERIC type-parser (db/pool.ts) returns it as a JS `number`.
+    factor: numeric('factor').notNull().$type<number>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
