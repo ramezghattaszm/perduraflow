@@ -52,7 +52,8 @@ export class MasterDataReadService implements MasterDataReadContract {
   // --- Layer 0 resolve-as-of + revise (1.4) — delegate to the resolver -------
   /** Resolves the part version effective at `asOf` (default now) by business key, or null. */
   resolvePart(tenantId: string, partNo: string, asOf?: string): Promise<PartVersionDto | null> {
-    return this.resolver.resolvePart(tenantId, partNo, asOf)
+    // Contract stays 1.4 (asOf-only); the plantId-scoped overload is exposed in the Commit-6 1.5 bump.
+    return this.resolver.resolvePart(tenantId, partNo, { asOf })
   }
 
   /** Full revision history for a `partNo`, oldest first. */

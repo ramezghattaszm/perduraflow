@@ -13,6 +13,7 @@ import { masterDataSchema } from './_schema'
 /** Which master-data entity a row describes. */
 export const MASTER_DATA_ENTITY_TYPES = [
   'part',
+  'part_plant',
   'routing',
   'resource',
   'resource_group',

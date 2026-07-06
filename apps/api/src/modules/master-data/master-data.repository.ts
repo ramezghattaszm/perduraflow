@@ -7,6 +7,7 @@ import {
   operator,
   operatorQualification,
   part,
+  partPlant,
   resource,
   resourceDowntime,
   resourceGroup,
@@ -23,11 +24,13 @@ import {
   type NewResource,
   type NewResourceDowntime,
   type NewResourceGroup,
+  type NewPartPlant,
   type NewRouting,
   type NewRoutingOperation,
   type NewUomConversion,
   type Operator,
   type Part,
+  type PartPlant,
   type Resource,
   type ResourceDowntime,
   type ResourceGroup,
@@ -164,6 +167,63 @@ export class MasterDataRepository {
       })
       .returning()
     return out!
+  }
+
+  // --- part_plant (per-plant override layer, §4E) ----------------------------
+  /**
+   * The per-plant override effective at `asOf` for `(part_no, plant_id)` — half-open `[effective_from,
+   * effective_to)`, same window predicate as the part read. At most one row by construction (partial
+   * unique on open + GiST non-overlap). Undefined when the plant has no override window covering `asOf`.
+   */
+  findPartPlantAsOf(tenantId: string, partNo: string, plantId: string, asOf: Date): Promise<PartPlant | undefined> {
+    return this.db.query.partPlant.findFirst({
+      where: and(
+        eq(partPlant.tenantId, tenantId),
+        eq(partPlant.partNo, partNo),
+        eq(partPlant.plantId, plantId),
+        lte(partPlant.effectiveFrom, asOf),
+        or(isNull(partPlant.effectiveTo), gt(partPlant.effectiveTo, asOf)),
+      ),
+    })
+  }
+
+  /** The current OPEN override (`effective_to IS NULL`) for `(part_no, plant_id)`, or undefined. */
+  findOpenPartPlant(tenantId: string, partNo: string, plantId: string): Promise<PartPlant | undefined> {
+    return this.db.query.partPlant.findFirst({
+      where: and(
+        eq(partPlant.tenantId, tenantId),
+        eq(partPlant.partNo, partNo),
+        eq(partPlant.plantId, plantId),
+        isNull(partPlant.effectiveTo),
+      ),
+    })
+  }
+
+  /**
+   * Transactionally set a per-plant override window: when `priorId` is given, close that open window at
+   * `effectiveFrom` (guarded on `effective_to IS NULL`, concurrency-safe) — a revise; otherwise a fresh
+   * create. Always inserts the new open row and appends audit rows — all atomic.
+   */
+  async revisePartPlantTx(input: {
+    tenantId: string
+    priorId?: string
+    effectiveFrom: Date
+    newRow: NewPartPlant
+    auditRows: NewMasterDataAudit[]
+  }): Promise<PartPlant> {
+    return this.db.transaction(async (tx) => {
+      if (input.priorId) {
+        const closed = await tx
+          .update(partPlant)
+          .set({ effectiveTo: input.effectiveFrom, updatedAt: new Date() })
+          .where(and(eq(partPlant.tenantId, input.tenantId), eq(partPlant.id, input.priorId), isNull(partPlant.effectiveTo)))
+          .returning()
+        if (closed.length === 0) throw new Error('revisePartPlantTx: prior override is not open')
+      }
+      const [newRow] = await tx.insert(partPlant).values(input.newRow).returning()
+      if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
+      return newRow!
+    })
   }
 
   // --- resource --------------------------------------------------------------

@@ -1,7 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppException } from '../../common/exceptions/app.exception'
+import { toPartVersionDto } from './master-data.mapper'
 import { MasterDataResolver } from './master-data.resolver'
-import type { Part, Routing, RoutingOperation } from './schema'
+import type { Part, PartPlant, Routing, RoutingOperation } from './schema'
+
+const partPlantRow = (over: Partial<PartPlant> = {}): PartPlant => ({
+  id: 'pp1',
+  tenantId: 't1',
+  partNo: 'X-1',
+  plantId: 'plant-A',
+  makeBuy: null,
+  material: null,
+  gauge: null,
+  colour: null,
+  toolFamily: null,
+  sharedAttributes: null,
+  effectiveFrom: new Date('2026-06-01T00:00:00Z'),
+  effectiveTo: null,
+  supersedesId: null,
+  createdAt: new Date('2026-06-01T00:00:00Z'),
+  updatedAt: new Date('2026-06-01T00:00:00Z'),
+  ...over,
+})
 
 /**
  * MasterDataResolver revise logic (Layer 0 §5/§6) — unit level, repo mocked. Proves the
@@ -220,6 +240,98 @@ describe('MasterDataResolver UoM factor publication', () => {
     await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 0)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
     await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'EA', 2)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
     expect(repo.upsertUomConversion).not.toHaveBeenCalled()
+  })
+})
+
+describe('MasterDataResolver.resolvePart — per-plant override layering (§4E)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('without plantId is byte-identical to the pure-global mapping and never touches part_plant (inertness)', async () => {
+    const global = partRow({ material: 'steel', gauge: '1.5', colour: 'red' })
+    const repo = {
+      findPartAsOf: vi.fn().mockResolvedValue(global),
+      findPartPlantAsOf: vi.fn(),
+    }
+    const out = await resolver(repo).resolvePart('t1', 'X-1', { asOf: '2026-08-01T00:00:00Z' })
+    // exact same object the pre-Commit-4 path produced
+    expect(out).toEqual(toPartVersionDto(global))
+    // the override table is not even consulted when no plant scope is given
+    expect(repo.findPartPlantAsOf).not.toHaveBeenCalled()
+  })
+
+  it('with plantId, a non-null override wins on a named field (material); a null override column inherits the global', async () => {
+    const global = partRow({ material: 'steel', gauge: '1.5', colour: 'red' })
+    const repo = {
+      findPartAsOf: vi.fn().mockResolvedValue(global),
+      // override sets material, leaves gauge/colour null (inherit)
+      findPartPlantAsOf: vi.fn().mockResolvedValue(partPlantRow({ material: 'aluminum' })),
+    }
+    const out = await resolver(repo).resolvePart('t1', 'X-1', { plantId: 'plant-A' })
+    expect(out!.material).toBe('aluminum') // override wins
+    expect(out!.gauge).toBe('1.5') // null override → inherit global
+    expect(out!.colour).toBe('red') // null override → inherit global
+    expect(repo.findPartPlantAsOf).toHaveBeenCalledWith('t1', 'X-1', 'plant-A', expect.any(Date))
+  })
+
+  it('with plantId but no override window, returns the pure global', async () => {
+    const global = partRow({ material: 'steel' })
+    const repo = { findPartAsOf: vi.fn().mockResolvedValue(global), findPartPlantAsOf: vi.fn().mockResolvedValue(undefined) }
+    const out = await resolver(repo).resolvePart('t1', 'X-1', { plantId: 'plant-A' })
+    expect(out).toEqual(toPartVersionDto(global))
+  })
+
+  it('shared_attributes shallow key-merges: plant key overrides, global-only key retained, plant null inherits, nested replaces wholesale', () => {
+    const merge = (g: Record<string, unknown> | null, p: Record<string, unknown> | null) =>
+      (resolver({}) as unknown as { mergeSharedAttributes: (a: typeof g, b: typeof p) => unknown }).mergeSharedAttributes(g, p)
+
+    const global = { coating: 'zinc', hardness: 60, spec: { rev: 'A', torque: 10 } }
+    const plant = { coating: 'nickel', tempering: true, hardness: null, spec: { rev: 'B' } }
+    expect(merge(global, plant)).toEqual({
+      coating: 'nickel', // plant overrides
+      hardness: 60, // plant null → inherit global (not deleted)
+      tempering: true, // plant-only key added
+      spec: { rev: 'B' }, // nested object replaced wholesale (no deep merge)
+    })
+    // a null plant map inherits the global map wholesale
+    expect(merge(global, null)).toBe(global)
+    // global null + plant adds keys
+    expect(merge(null, { a: 1 })).toEqual({ a: 1 })
+  })
+})
+
+describe('MasterDataResolver.revisePartPlant — write path (§4E)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('a fresh override (no prior open window) writes a create audit and no supersede/close', async () => {
+    let tx: { priorId?: string; newRow?: Record<string, unknown>; auditRows?: Array<Record<string, unknown>> } = {}
+    const repo = {
+      findOpenPartPlant: vi.fn().mockResolvedValue(undefined),
+      revisePartPlantTx: vi.fn(async (input) => {
+        tx = input
+        return partPlantRow({ id: input.newRow.id, material: input.newRow.material })
+      }),
+    }
+    await resolver(repo).revisePartPlant('t1', 'X-1', 'plant-A', { effectiveFrom: '2026-09-01T00:00:00Z', changes: { material: 'aluminum' } }, 'user-1')
+    expect(tx.priorId).toBeUndefined() // fresh create — nothing to close
+    expect(tx.newRow).toMatchObject({ partNo: 'X-1', plantId: 'plant-A', material: 'aluminum', supersedesId: null })
+    expect(tx.auditRows).toHaveLength(1)
+    expect(tx.auditRows![0]).toMatchObject({ entityType: 'part_plant', action: 'create', changedFields: { plantId: { new: 'plant-A' }, material: { new: 'aluminum' } } })
+  })
+
+  it('revising an existing open override closes it and writes revise+supersede audit', async () => {
+    let tx: { priorId?: string; auditRows?: Array<Record<string, unknown>> } = {}
+    const repo = {
+      findOpenPartPlant: vi.fn().mockResolvedValue(partPlantRow({ id: 'pp_prior', material: 'steel' })),
+      revisePartPlantTx: vi.fn(async (input) => {
+        tx = input
+        return partPlantRow({ id: input.newRow.id })
+      }),
+    }
+    await resolver(repo).revisePartPlant('t1', 'X-1', 'plant-A', { effectiveFrom: '2026-09-01T00:00:00Z', changes: { material: 'aluminum' } }, 'user-1')
+    expect(tx.priorId).toBe('pp_prior')
+    expect(tx.auditRows).toHaveLength(2)
+    expect(tx.auditRows![0]).toMatchObject({ entityType: 'part_plant', action: 'revise' })
+    expect(tx.auditRows![1]).toMatchObject({ entityType: 'part_plant', action: 'supersede', versionId: 'pp_prior' })
   })
 })
 

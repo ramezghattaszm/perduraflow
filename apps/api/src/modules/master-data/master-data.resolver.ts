@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
 import type {
+  MakeBuy,
   PartVersionDto,
   ReviseRoutingRequest,
   RevisePartRequest,
@@ -13,14 +14,30 @@ import { toPartVersionDto, toRoutingVersionDto } from './master-data.mapper'
 import { MasterDataRepository } from './master-data.repository'
 import type {
   MasterDataAuditChange,
+  MasterDataEntityType,
   NewMasterDataAudit,
   NewPart,
+  NewPartPlant,
   NewRouting,
   NewRoutingOperation,
   NewUomConversion,
   Part,
+  PartPlant,
   Routing,
 } from './schema'
+
+/** The overridable fields a per-plant override may set (§4E). `undefined` = leave/inherit prior; `null` = inherit the global part value. */
+export interface PartPlantOverrideChanges {
+  makeBuy?: MakeBuy | null
+  material?: string | null
+  gauge?: string | null
+  colour?: string | null
+  toolFamily?: string | null
+  sharedAttributes?: Record<string, unknown> | null
+}
+
+/** The overridable columns carried on a part_plant window (for audit diffing). */
+const PART_PLANT_OVERRIDE_COLS = ['makeBuy', 'material', 'gauge', 'colour', 'toolFamily', 'sharedAttributes'] as const
 
 /** Part attributes carried across revisions (identity `part_no` excluded). Includes the Layer 1 §4A engineering fields. */
 const PART_ATTR_COLS = [
@@ -59,11 +76,23 @@ export class MasterDataResolver {
   constructor(private readonly repo: MasterDataRepository) {}
 
   // --- resolve-as-of ---------------------------------------------------------
-  /** The part version effective at `asOf` (default now) for `partNo`, or null. */
-  async resolvePart(tenantId: string, partNo: string, asOf?: string): Promise<PartVersionDto | null> {
-    const at = asOf ? new Date(asOf) : new Date()
+  /**
+   * The part version effective at `asOf` (default now) for `partNo`, or null. When `plantId` is given,
+   * the window-containing per-plant override (§4E) is layered on: a non-null override column wins over
+   * the global value; `shared_attributes` shallow key-merges. **When `plantId` is omitted the result is
+   * the pure global version — byte-identical to the pre-override behavior, with no extra query.**
+   */
+  async resolvePart(
+    tenantId: string,
+    partNo: string,
+    opts: { plantId?: string; asOf?: string } = {},
+  ): Promise<PartVersionDto | null> {
+    const at = opts.asOf ? new Date(opts.asOf) : new Date()
     const row = await this.repo.findPartAsOf(tenantId, partNo, at)
-    return row ? toPartVersionDto(row) : null
+    if (!row) return null
+    if (!opts.plantId) return toPartVersionDto(row) // pure global — inert when no plant scope
+    const override = await this.repo.findPartPlantAsOf(tenantId, partNo, opts.plantId, at)
+    return toPartVersionDto(override ? this.applyPartPlantOverride(row, override) : row)
   }
 
   /** Full revision history for `partNo`, oldest first. */
@@ -109,6 +138,123 @@ export class MasterDataResolver {
     }
     const row = await this.repo.upsertUomConversion({ tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor })
     return { alternateUom: row.alternateUom, factor: row.factor }
+  }
+
+  // --- part_plant override write (§4E) ---------------------------------------
+  /**
+   * Sets a per-plant override window for `(partNo, plantId)` — create-or-revise, transactional + audited.
+   * When an open window already exists it is closed at `effectiveFrom` (strictly after its start) and a
+   * new window opened, inheriting the prior override columns unless the `changes` set them (a `revise` +
+   * `supersede` audit pair). Otherwise a fresh window is opened (a `create` audit row). `effectiveFrom`
+   * defaults to now. Plant validity is asserted by the caller (service, via org.read — O4).
+   * @throws AppException INVALID_REVISION_EFFECTIVE_FROM - explicit `effectiveFrom` not after the open window's
+   */
+  async revisePartPlant(
+    tenantId: string,
+    partNo: string,
+    plantId: string,
+    input: { effectiveFrom?: string; changes: PartPlantOverrideChanges },
+    actor: string,
+  ): Promise<PartPlant> {
+    const prior = await this.repo.findOpenPartPlant(tenantId, partNo, plantId)
+    const effectiveFrom = prior
+      ? this.assertAfter(input.effectiveFrom ?? new Date().toISOString(), prior.effectiveFrom)
+      : input.effectiveFrom
+        ? new Date(input.effectiveFrom)
+        : new Date()
+
+    const c = input.changes
+    const pick = <T>(next: T | undefined, priorVal: T | null | undefined): T | null =>
+      next !== undefined ? next : (priorVal ?? null)
+    const newRow: NewPartPlant = {
+      id: generateId(),
+      tenantId,
+      partNo,
+      plantId,
+      makeBuy: pick(c.makeBuy, prior?.makeBuy),
+      material: pick(c.material, prior?.material),
+      gauge: pick(c.gauge, prior?.gauge),
+      colour: pick(c.colour, prior?.colour),
+      toolFamily: pick(c.toolFamily, prior?.toolFamily),
+      sharedAttributes: pick(c.sharedAttributes, prior?.sharedAttributes),
+      effectiveFrom,
+      effectiveTo: null,
+      supersedesId: prior?.id ?? null,
+    }
+
+    let auditRows: NewMasterDataAudit[]
+    if (prior) {
+      const changedFields = this.diffAttrs(prior, newRow, PART_PLANT_OVERRIDE_COLS)
+      changedFields['supersedesId'] = { new: prior.id }
+      auditRows = this.reviseAuditRows({
+        tenantId,
+        entityType: 'part_plant',
+        businessKey: partNo,
+        newId: newRow.id!,
+        priorId: prior.id,
+        priorEffectiveFrom: prior.effectiveFrom,
+        effectiveFrom,
+        actor,
+        sourceRef: null,
+        changedFields,
+      })
+    } else {
+      const changedFields: Record<string, MasterDataAuditChange> = { plantId: { new: plantId } }
+      for (const col of PART_PLANT_OVERRIDE_COLS) {
+        const v = (newRow as Record<string, unknown>)[col] ?? null
+        if (v !== null) changedFields[col] = { new: v }
+      }
+      auditRows = [
+        {
+          tenantId,
+          entityType: 'part_plant',
+          businessKey: partNo,
+          versionId: newRow.id!,
+          action: 'create',
+          actor,
+          sourceRef: null,
+          effectiveFrom,
+          changedFields,
+        },
+      ]
+    }
+
+    return this.repo.revisePartPlantTx({ tenantId, priorId: prior?.id, effectiveFrom, newRow, auditRows })
+  }
+
+  /**
+   * Layers a per-plant override onto the resolved global part version (§4E): a non-null override column
+   * wins over the global; a `null` override column inherits the global. `shared_attributes` shallow
+   * key-merges (see {@link mergeSharedAttributes}). Identity/versioning columns are never overridden.
+   */
+  private applyPartPlantOverride(global: Part, o: PartPlant): Part {
+    return {
+      ...global,
+      makeBuy: o.makeBuy ?? global.makeBuy,
+      material: o.material ?? global.material,
+      gauge: o.gauge ?? global.gauge,
+      colour: o.colour ?? global.colour,
+      toolFamily: o.toolFamily ?? global.toolFamily,
+      sharedAttributes: this.mergeSharedAttributes(global.sharedAttributes, o.sharedAttributes),
+    }
+  }
+
+  /**
+   * Shallow key-merge `{ ...global, ...plant }` for `shared_attributes`: a plant key overrides the global
+   * value; a plant key absent from the global is added; a plant value of `null` **inherits** (not delete);
+   * nested objects replace wholesale (no deep merge). A null plant map inherits the global map wholesale.
+   */
+  private mergeSharedAttributes(
+    global: Record<string, unknown> | null,
+    plant: Record<string, unknown> | null,
+  ): Record<string, unknown> | null {
+    if (plant == null) return global
+    const out: Record<string, unknown> = { ...(global ?? {}) }
+    for (const [k, v] of Object.entries(plant)) {
+      if (v === null) continue // null = inherit, not delete
+      out[k] = v // override / add; nested objects replace wholesale
+    }
+    return out
   }
 
   /** The routing version effective at `asOf` (default now) for `partNo` (with operations), or null. */
@@ -306,7 +452,7 @@ export class MasterDataResolver {
    */
   private reviseAuditRows(p: {
     tenantId: string
-    entityType: 'part' | 'routing'
+    entityType: MasterDataEntityType
     businessKey: string
     newId: string
     priorId: string

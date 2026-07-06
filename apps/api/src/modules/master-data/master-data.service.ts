@@ -39,13 +39,14 @@ import {
   toRoutingDto,
 } from './master-data.mapper'
 import { MasterDataRepository } from './master-data.repository'
-import { MasterDataResolver } from './master-data.resolver'
+import { MasterDataResolver, type PartPlantOverrideChanges } from './master-data.resolver'
 import {
   type MasterDataAuditAction,
   type MasterDataAuditChange,
   type MasterDataEntityType,
   type NewMasterDataAudit,
   type Part,
+  type PartPlant,
   type Routing,
   type RoutingOperation,
 } from './schema'
@@ -131,6 +132,29 @@ export class MasterDataService {
     const revision = dto.revision ?? this.nextRevision(open.revision)
     const effectiveFrom = dto.effectiveFrom ?? new Date().toISOString()
     return this.resolver.revisePart(tenantId, open.partNo, { revision, effectiveFrom, ecnRef: null, changes }, actor)
+  }
+
+  // --- part_plant (per-plant override layer, §4E) ----------------------------
+  /**
+   * Sets a per-plant part override (§4E) — create-or-revise, windowed + audited (in the resolver).
+   * The part (`part_no`) and the kernel `plant_id` are validated first (O4: plant via org.read; the
+   * part by its open version). Admin transport for this lands in the Commit-6 CRUD; the write path +
+   * O4 validation live here now.
+   * @throws AppException PART_NOT_FOUND - no open version of `partNo`
+   * @throws AppException INVALID_PLANT_REFERENCE - plant did not resolve
+   * @throws AppException INVALID_REVISION_EFFECTIVE_FROM - explicit `effectiveFrom` not after the open window's
+   */
+  async setPartPlantOverride(
+    tenantId: string,
+    partNo: string,
+    plantId: string,
+    changes: PartPlantOverrideChanges,
+    effectiveFrom?: string,
+    actor: string = SYSTEM_ACTOR,
+  ): Promise<PartPlant> {
+    await this.assertPartNo(tenantId, partNo)
+    await this.assertPlant(tenantId, plantId)
+    return this.resolver.revisePartPlant(tenantId, partNo, plantId, { effectiveFrom, changes }, actor)
   }
 
   // --- resource --------------------------------------------------------------

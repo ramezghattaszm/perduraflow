@@ -204,6 +204,13 @@
       "when": 1783308440629,
       "tag": "0028_moaning_human_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783309647120,
+      "tag": "0029_lazy_rogue",
+      "breakpoints": true
     }
   ]
 }
