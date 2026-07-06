@@ -131,21 +131,23 @@ export class MasterDataResolver {
    * Publishes (upserts) one UoM factor onto a specific part **version**. The `base_uom` invariant is
    * enforced here — `base_uom` is taken from the version's own `uom`, never the caller — so a factor can
    * only ever describe a conversion into the version's base unit.
+   * `factor` is a **decimal STRING** (never a JS number on the way in) — stored raw into the `numeric`
+   * column, so the write path is exact end-to-end, matching the storage + native-string read (§4B). It
+   * must be a positive decimal literal (validated at the contract edge; re-guarded here for direct callers).
    * @throws AppException PART_NOT_FOUND - no such part version
-   * @throws AppException VALIDATION_ERROR - `alternateUom` equals the base UoM, or `factor` is not a positive finite number
+   * @throws AppException VALIDATION_ERROR - `alternateUom` equals the base UoM, or `factor` is not a positive decimal string
    */
-  async addUomFactor(tenantId: string, partVersionId: string, alternateUom: string, factor: number, actor = 'system'): Promise<UomFactorDto> {
+  async addUomFactor(tenantId: string, partVersionId: string, alternateUom: string, factor: string, actor = 'system'): Promise<UomFactorDto> {
     const version = await this.repo.findPart(tenantId, partVersionId)
     if (!version) throw new AppException(HttpStatus.NOT_FOUND, 'No such part version', ERROR_CODES.PART_NOT_FOUND)
     if (alternateUom === version.uom) {
       throw new AppException(HttpStatus.BAD_REQUEST, 'alternate_uom must differ from the base uom', ERROR_CODES.VALIDATION_ERROR)
     }
-    if (!Number.isFinite(factor) || factor <= 0) {
-      throw new AppException(HttpStatus.BAD_REQUEST, 'factor must be a positive number', ERROR_CODES.VALIDATION_ERROR)
+    // Positive-decimal check on the STRING itself — no JS-number parse, so the submitted digits are never
+    // rounded. A non-negative decimal literal with at least one non-zero digit is > 0.
+    if (!/^\d+(\.\d+)?$/.test(factor) || !/[1-9]/.test(factor)) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'factor must be a positive decimal string', ERROR_CODES.VALIDATION_ERROR)
     }
-    // Store the factor as its exact decimal STRING (the `numeric` column's native form) — no float
-    // round-trip on the write path either. `String(factor)` preserves the submitted value's digits.
-    const factorStr = String(factor)
     const existing = await this.repo.findUomConversion(tenantId, partVersionId, alternateUom)
     const auditRow: NewMasterDataAudit = {
       tenantId,
@@ -157,13 +159,16 @@ export class MasterDataResolver {
       sourceRef: null,
       effectiveFrom: null,
       changedFields: existing
-        ? { factor: { old: existing.factor, new: factorStr } }
-        : { alternateUom: { new: alternateUom }, baseUom: { new: version.uom }, factor: { new: factorStr } },
+        ? { factor: { old: existing.factor, new: factor } }
+        : { alternateUom: { new: alternateUom }, baseUom: { new: version.uom }, factor: { new: factor } },
     }
+    // Store the exact decimal string RAW — no String()/Number() round-trip on the way in.
     const row = await this.repo.upsertUomConversionWithAudit(
-      { tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor: factorStr },
+      { tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor },
       auditRow,
     )
+    // The return DTO narrows to a number at the read boundary (the one documented precision cliff); the
+    // STORED value is exact. Making the DTO itself exact-decimal is the logged future item.
     return { alternateUom: row.alternateUom, factor: Number(row.factor) }
   }
 

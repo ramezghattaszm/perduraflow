@@ -475,7 +475,15 @@ export type SetPlantPartMappingRequest = z.infer<typeof setPlantPartMappingSchem
 export const addUomFactorSchema = z
   .object({
     alternateUom: z.string().min(1).max(16),
-    factor: z.number().positive(),
+    // Exact decimal STRING — NOT `z.number()`. The factor must never pass through a JS `number` on the
+    // way in, so the write path is lossless end-to-end (matching the `numeric` storage + native-string
+    // read; §4B factor-as-string boundary). Must be a positive decimal (a non-negative decimal literal
+    // with at least one non-zero digit); no exponent/sign — a plain conversion factor.
+    factor: z
+      .string()
+      .max(40)
+      .regex(/^\d+(\.\d+)?$/, 'factor must be a non-negative decimal string (no sign or exponent)')
+      .refine((v) => /[1-9]/.test(v), 'factor must be greater than zero'),
   })
   .strict()
 export type AddUomFactorRequest = z.infer<typeof addUomFactorSchema>

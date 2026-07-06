@@ -183,13 +183,13 @@ export class MasterDataService {
    * Publishes (upserts) a UoM conversion factor onto a part version (§4B). The `base_uom` invariant and
    * the positive-factor / alt≠base guards are enforced in the resolver; `actor` is recorded on the audit.
    * @throws AppException PART_NOT_FOUND - no such part version
-   * @throws AppException VALIDATION_ERROR - `alternateUom` equals the base UoM, or `factor` is not positive
+   * @throws AppException VALIDATION_ERROR - `alternateUom` equals the base UoM, or `factor` is not a positive decimal string
    */
   async addUomFactor(
     tenantId: string,
     partVersionId: string,
     alternateUom: string,
-    factor: number,
+    factor: string,
     actor: string = SYSTEM_ACTOR,
   ) {
     return this.resolver.addUomFactor(tenantId, partVersionId, alternateUom, factor, actor)

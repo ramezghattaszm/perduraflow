@@ -236,11 +236,24 @@ describe('MasterDataResolver UoM factor publication', () => {
       findUomConversion: vi.fn().mockResolvedValue(undefined), // no prior → create
       upsertUomConversionWithAudit: vi.fn(async (row, _audit) => ({ id: 'u1', ...row })),
     }
-    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12, 'user-9')
+    // factor submitted as a decimal STRING (never a JS number on the way in) — stored raw
+    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', '12', 'user-9')
     const [row, audit] = repo.upsertUomConversionWithAudit.mock.calls[0]!
-    // factor is stored as its exact decimal STRING (the numeric column's native form)
     expect(row).toEqual({ tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: '12' })
     expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'create', actor: 'user-9', changedFields: { factor: { new: '12' } } })
+  })
+
+  it('addUomFactor stores a high-precision decimal string RAW — the submitted digits are never rounded', async () => {
+    const repo = {
+      findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })),
+      findUomConversion: vi.fn().mockResolvedValue(undefined),
+      upsertUomConversionWithAudit: vi.fn(async (row, _audit) => ({ id: 'u1', ...row })),
+    }
+    const HP = '0.123456789012345678901234567890' // 30 significant digits — would collapse through a JS number
+    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', HP, 'user-9')
+    const [row] = repo.upsertUomConversionWithAudit.mock.calls[0]!
+    expect(row.factor).toBe(HP) // byte-identical, no float round-trip
+    expect(String(Number(HP))).not.toBe(HP) // proof the value would have been lost via a number
   })
 
   it('addUomFactor labels an existing factor edit as an update audit', async () => {
@@ -249,15 +262,17 @@ describe('MasterDataResolver UoM factor publication', () => {
       findUomConversion: vi.fn().mockResolvedValue({ id: 'u1', factor: '10' }), // prior (native string) → update
       upsertUomConversionWithAudit: vi.fn(async (row, _audit) => ({ id: 'u1', ...row })),
     }
-    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12, 'user-9')
+    await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', '12', 'user-9')
     const [, audit] = repo.upsertUomConversionWithAudit.mock.calls[0]!
     expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'update', versionId: 'u1', changedFields: { factor: { old: '10', new: '12' } } })
   })
 
-  it('addUomFactor rejects a non-positive factor and an alternate that equals the base', async () => {
+  it('addUomFactor rejects a non-positive/non-decimal factor and an alternate that equals the base', async () => {
     const repo = { findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })), findUomConversion: vi.fn(), upsertUomConversionWithAudit: vi.fn() }
-    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 0)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
-    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'EA', 2)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', '0')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' }) // zero
+    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', '0.00')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' }) // zero (decimal)
+    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 'abc')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' }) // non-decimal
+    await expect(resolver(repo).addUomFactor('t1', 'p_v1', 'EA', '2')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' }) // alt == base
     expect(repo.upsertUomConversionWithAudit).not.toHaveBeenCalled()
   })
 })
