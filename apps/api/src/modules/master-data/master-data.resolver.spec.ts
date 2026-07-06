@@ -209,15 +209,18 @@ describe('MasterDataResolver.revisePart', () => {
 describe('MasterDataResolver UoM factor publication', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('getUomFactors returns the as-of version base uom + its factor rows', async () => {
+  it('getUomFactors returns the as-of version base uom + factor rows, narrowing the native decimal string to a number at the DTO boundary', async () => {
     const repo = {
       findPartAsOf: vi.fn().mockResolvedValue(partRow({ id: 'p_asof', uom: 'EA' })),
       listUomConversions: vi.fn().mockResolvedValue([
-        { id: 'u1', tenantId: 't1', partId: 'p_asof', alternateUom: 'BOX', baseUom: 'EA', factor: 12 },
+        // `factor` arrives from node-postgres as its native decimal STRING (no global parser)
+        { id: 'u1', tenantId: 't1', partId: 'p_asof', alternateUom: 'BOX', baseUom: 'EA', factor: '12' },
       ]),
     }
     const out = await resolver(repo).getUomFactors('t1', 'X-1', '2026-08-01T00:00:00Z')
+    // the DTO boundary narrows the string to a number (the one documented precision cliff)
     expect(out).toEqual({ baseUom: 'EA', factors: [{ alternateUom: 'BOX', factor: 12 }] })
+    expect(out!.factors[0]!.factor).toBeTypeOf('number')
     expect(repo.listUomConversions).toHaveBeenCalledWith('t1', 'p_asof')
   })
 
@@ -235,19 +238,20 @@ describe('MasterDataResolver UoM factor publication', () => {
     }
     await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12, 'user-9')
     const [row, audit] = repo.upsertUomConversionWithAudit.mock.calls[0]!
-    expect(row).toEqual({ tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: 12 })
-    expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'create', actor: 'user-9', changedFields: { factor: { new: 12 } } })
+    // factor is stored as its exact decimal STRING (the numeric column's native form)
+    expect(row).toEqual({ tenantId: 't1', partId: 'p_v1', alternateUom: 'BOX', baseUom: 'EA', factor: '12' })
+    expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'create', actor: 'user-9', changedFields: { factor: { new: '12' } } })
   })
 
   it('addUomFactor labels an existing factor edit as an update audit', async () => {
     const repo = {
       findPart: vi.fn().mockResolvedValue(partRow({ id: 'p_v1', uom: 'EA' })),
-      findUomConversion: vi.fn().mockResolvedValue({ id: 'u1', factor: 10 }), // prior exists → update
+      findUomConversion: vi.fn().mockResolvedValue({ id: 'u1', factor: '10' }), // prior (native string) → update
       upsertUomConversionWithAudit: vi.fn(async (row, _audit) => ({ id: 'u1', ...row })),
     }
     await resolver(repo).addUomFactor('t1', 'p_v1', 'BOX', 12, 'user-9')
     const [, audit] = repo.upsertUomConversionWithAudit.mock.calls[0]!
-    expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'update', versionId: 'u1', changedFields: { factor: { old: 10, new: 12 } } })
+    expect(audit).toMatchObject({ entityType: 'uom_conversion', action: 'update', versionId: 'u1', changedFields: { factor: { old: '10', new: '12' } } })
   })
 
   it('addUomFactor rejects a non-positive factor and an alternate that equals the base', async () => {

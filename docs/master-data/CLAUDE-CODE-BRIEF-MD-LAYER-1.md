@@ -19,6 +19,15 @@ Confirm before any migration:
 2. **`make_buy` backfill source.** Enumerate the current de-facto buy-components: every `part_no` appearing as `component_part_no` in `scheduling.material_requirement`. List them. This is the exact set that must backfill to `'buy'`; everything else `'make'`. Confirm the list looks right before the migration drops the default.
 - **Report:** the validator answer + the buy-component list. Wait for go.
 
+## Commit 0.5 — `org.read` 1.1 → 1.2 (prerequisite; confirmed)
+Additive MINOR mirroring the `validateCalendarIds` (1.0→1.1) precedent — must land **before** migration `0026`.
+- Add `validateCustomerIds(tenantId, ids)` + `validateProgramIds(tenantId, ids)` to `OrgReadContract`; implement in `OrgReadService` as batch existence checks (mirror `validateCalendarIds`). Data plumbing already exists (`getCustomer`/`getProgram`).
+- Bump `ORG_READ_CONTRACT.version → '1.2'` + changelog; **confirm no consumer pins `=1.1`** (float-minor is the A12 default — should be a non-event, verify).
+- Additive: every existing `org.read` consumer compiles unchanged.
+- **Report:** contract diff; the pin check result.
+
+> **make_buy backfill provenance (log at close-out):** the Commit-0 buy set is derived from `material_requirement` *membership* — a proxy, because the authoritative flag didn't exist until now. This backfill **preserves current demo behavior; it is not production ground truth.** Real make/buy comes from the client's part master on ingestion, not from this seed. **Precondition:** if the material fixture expands before Commit 1, **re-run the Commit-0 enumeration** — a wider seed changes the buy set and a stale backfill would mis-flag components.
+
 ## Commit 1 — `make_buy` + part-core refs (the one careful migration)
 - Add to `master_data.part`: `make_buy text $type<'make'|'buy'> NOT NULL DEFAULT 'make'`, `customer_part_no text NULL`, `customer_id text NULL`, `program text NULL`. (**No `plant_id`** — override layer, Commit 4.)
 - **Backfill** `make_buy`: the Commit-0 buy-component set → `'buy'`; all else `'make'`.
@@ -60,6 +69,7 @@ Confirm before any migration:
 - **Report:** diff; tests — resolvable plant-local + customer refs return the global `partNo`; unresolvable returns the typed result; overlapping-window insert rejected.
 
 ## Commit 6 — contract 1.5 + admin CRUD
+- **Rider (from Commit 1) — `make_buy` required in `createPart`:** drop the app-level `'make'` default; make `make_buy` a **required** input in the create schema (admin must choose). Rationale: an app default silently re-introduces the DB default we deliberately dropped, and a silent `make` on a component mis-routes dependent demand once Layer 2 reads the flag. Primary ingestion supplies it explicitly; the seed already sets it. (If RG opts to keep the `'make'` convenience, this rider is dropped.)
 - `masterdata.read` `1.4 → 1.5` (additive, A12): `PartDto` adds `makeBuy`, `customerPartNo`, `customerId`, `program`, `toolFamily`, `sharedAttributes`, nested `uomFactors?` (**no `plantId` on `PartDto`** — plant-resolution is a `resolvePart` arg; the DTO carries *resolved* values). New ops `resolvePlantPart`/`resolveCustomerPart`/`getUomFactors`; `resolvePart` signature extended (optional `plantId`). Admin CRUD schemas for `uom_conversion`, `part_plant`, `plant_part_mapping`.
 - Deprecated Layer-0 ops stay as-is; `org.read` unchanged (unless Commit-0 forced a minor bump).
 - **Report:** contract diff; existing consumers still compile; changelog line.
@@ -70,7 +80,10 @@ Confirm before any migration:
 - **Schedule check:** `demo:reset` → `db:seed` → build; **demo schedule identical to pre-Layer-1** (consumers still call `resolvePart` without `plantId`; new data doesn't alter the build). Talk-track runs.
 - **Full-DoD sweep:** walk scope §7 line-by-line, pass/fail with evidence.
 - **Docs close-out:** sync repo scope + this brief to decisions taken; close Layer-1 REMAINING-ITEMS with commit shas; log the documented futures (per-plant UoM factors, deep/nested `shared_attributes` merge, multi-customer mapping table).
+- **Factor-as-string boundary (C7 decision).** `uom_conversion.factor` is `numeric` (exact). Do **not** register a global OID-1700 type-parser — let node-postgres return its native decimal STRING so the value survives digit-for-digit to the mapper; narrow to a JS `number` at exactly one place, the `getUomFactors` DTO edge (the documented precision cliff). Confirm `factor` is the only `numeric` column before touching the parser. First-class exact-decimal *computation* is a logged future (REMAINING-ITEMS), not this commit.
 - **Report:** post-reset constraint proof; identical-schedule + talk-track; the §7 DoD sweep; docs/REMAINING-ITEMS close-out done.
+
+> **Built (close-out).** Layer 1 shipped across Commits 0.5–7 (org.read 1.2 `5fb6f10`; C1 `828ec3c`; C2 `61a7cbb`; C3 `835ff5a`; C4 `a1cea20`; C5 `f09074d`; C6 `494dfcc`; C7 this commit — migrations 0026–0031). §7 DoD all green; `resolvePart` without `plantId` byte-identical to Layer 0; demo schedule unchanged (1043 scheduled ops); the digit-for-digit factor-survival proof passed (30-sig-digit round-trip exact as a string). Decisions taken: `make_buy` **required** in `createPart`; uomFactors shaping **B** (via `getUomFactors` only); factor **numeric + native-string transport**. Documented futures logged in `docs/REMAINING-ITEMS.md`.
 
 ---
 

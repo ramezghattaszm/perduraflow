@@ -23,8 +23,10 @@ export const uomConversion = masterDataSchema.table(
     alternateUom: text('alternate_uom').notNull(),
     baseUom: text('base_uom').notNull(),
     // `numeric` (exact) not `double precision` (binary float) — a conversion factor must round-trip
-    // exactly (§4B rider). The global NUMERIC type-parser (db/pool.ts) returns it as a JS `number`.
-    factor: numeric('factor').notNull().$type<number>(),
+    // exactly (§4B rider). Its TS type is the native decimal STRING node-postgres returns (no global
+    // OID-1700 parser — see db/pool.ts): the value stays a string through storage + transport and is
+    // narrowed to a JS number only at the DTO boundary (getUomFactors), the one documented precision cliff.
+    factor: numeric('factor').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

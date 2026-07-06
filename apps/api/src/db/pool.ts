@@ -1,12 +1,14 @@
 import { Global, Module } from '@nestjs/common'
-import { Pool, types } from 'pg'
+import { Pool } from 'pg'
 import { env } from '../config/env'
 
-// Return Postgres `numeric` (OID 1700) as a JS `number`, not the node-postgres default `string`.
-// The one `numeric` column is `uom_conversion.factor` (§4B) — a conversion factor the app treats as a
-// number; exact-decimal STORAGE is the point (vs binary-float `double precision`), and its magnitudes
-// round-trip losslessly through an IEEE double. Register once at module load (global to the pg driver).
-types.setTypeParser(types.builtins.NUMERIC, (value) => Number(value))
+// NOTE (§4B, D-L1 factor-as-string boundary): we deliberately do NOT register a global `numeric`
+// (OID 1700) type-parser. node-postgres returns `numeric` as its native decimal STRING, and we keep
+// it a string all the way to the mapper — the value survives digit-for-digit, with no IEEE-double
+// rounding anywhere in storage or transport. The single, explicit narrowing to a JS `number` happens
+// at the DTO boundary (`MasterDataResolver.getUomFactors`), which is the documented precision cliff;
+// making that computation first-class exact-decimal is a logged future item (docs/REMAINING-ITEMS).
+// A global parser here would silently re-introduce the rounding for every `numeric` column, so it stays off.
 
 /**
  * The single shared `pg` Pool for the deployable (one database). Per-module

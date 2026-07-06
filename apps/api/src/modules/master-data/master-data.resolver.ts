@@ -121,7 +121,10 @@ export class MasterDataResolver {
     const version = await this.repo.findPartAsOf(tenantId, partNo, at)
     if (!version) return null
     const rows = await this.repo.listUomConversions(tenantId, version.id)
-    return { baseUom: version.uom, factors: rows.map((r) => ({ alternateUom: r.alternateUom, factor: r.factor })) }
+    // THE factor-as-string boundary (§4B): `r.factor` is node-postgres' native exact decimal STRING
+    // (no global OID-1700 parser). Narrowing to a JS `number` for the DTO happens here and ONLY here —
+    // the single, documented precision cliff. First-class exact-decimal computation is a logged future item.
+    return { baseUom: version.uom, factors: rows.map((r) => ({ alternateUom: r.alternateUom, factor: Number(r.factor) })) }
   }
 
   /**
@@ -140,6 +143,9 @@ export class MasterDataResolver {
     if (!Number.isFinite(factor) || factor <= 0) {
       throw new AppException(HttpStatus.BAD_REQUEST, 'factor must be a positive number', ERROR_CODES.VALIDATION_ERROR)
     }
+    // Store the factor as its exact decimal STRING (the `numeric` column's native form) — no float
+    // round-trip on the write path either. `String(factor)` preserves the submitted value's digits.
+    const factorStr = String(factor)
     const existing = await this.repo.findUomConversion(tenantId, partVersionId, alternateUom)
     const auditRow: NewMasterDataAudit = {
       tenantId,
@@ -151,14 +157,14 @@ export class MasterDataResolver {
       sourceRef: null,
       effectiveFrom: null,
       changedFields: existing
-        ? { factor: { old: existing.factor, new: factor } }
-        : { alternateUom: { new: alternateUom }, baseUom: { new: version.uom }, factor: { new: factor } },
+        ? { factor: { old: existing.factor, new: factorStr } }
+        : { alternateUom: { new: alternateUom }, baseUom: { new: version.uom }, factor: { new: factorStr } },
     }
     const row = await this.repo.upsertUomConversionWithAudit(
-      { tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor },
+      { tenantId, partId: partVersionId, alternateUom, baseUom: version.uom, factor: factorStr },
       auditRow,
     )
-    return { alternateUom: row.alternateUom, factor: row.factor }
+    return { alternateUom: row.alternateUom, factor: Number(row.factor) }
   }
 
   // --- part_plant override write (§4E) ---------------------------------------

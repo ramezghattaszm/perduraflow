@@ -18,12 +18,15 @@ import {
   operator,
   operatorQualification,
   part,
+  partPlant,
+  plantPartMapping,
   resource,
   resourceGroup,
   resourceGroupMember,
   resourceTypeConfig,
   routing,
   routingOperation,
+  uomConversion,
 } from '../modules/master-data/schema'
 import { contractBinding } from '../modules/binding/schema'
 import {
@@ -397,6 +400,9 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       // Layer 1: authoritative sourcing flag (no DB default — must be stated). Defaults to 'make'; the
       // seeded buy-component (the coil) passes 'buy' to match the material_requirement backfill.
       makeBuy?: 'make' | 'buy'
+      // Layer 1 §4C: extensible custom-attribute map (MD12); one part carries it to exercise the
+      // per-plant shared_attributes key-merge (§4E). Not read by the sequencer.
+      sharedAttributes?: Record<string, unknown>
     }): Promise<string> => {
       const id = (
         await db
@@ -414,6 +420,8 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       material: 'Steel HSLA',
       gauge: '1.4mm',
       colour: 'Bare',
+      // Global custom attributes — the Saltillo part_plant override (§4E, below) merges over these.
+      sharedAttributes: { finish: 'standard', tolerance: '0.10mm' },
     })
     const sal1002 = await mkPart({
       partNo: 'SAL-1002',
@@ -484,6 +492,39 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       gauge: '1.8mm',
       partType: 'component',
       makeBuy: 'buy', // the one buy-component (matches the material_requirement backfill → 'buy')
+    })
+
+    // === Layer 1 §4B/§4D/§4E master-data extensions ============================
+    // Additive reference/override data; the sequencer never reads it (consumers resolve the global
+    // part via `resolvePart` WITHOUT a plantId), so the demo schedule is unchanged. Idempotent by
+    // virtue of the whole seed running only on an empty tenant (reset truncates first).
+    //
+    // One UoM factor on the purchased coil (§4B): 1 COIL = 500 EA (base_uom = the version's uom, EA).
+    // `factor` is the numeric column's native decimal STRING (no global OID-1700 parser).
+    await db.insert(uomConversion).values({
+      tenantId,
+      partId: coil,
+      alternateUom: 'COIL',
+      baseUom: 'EA',
+      factor: '500',
+    })
+    // One plant-local alias per plant (§4D / MD9) → global part_no (resolvePlantPart).
+    await db.insert(plantPartMapping).values([
+      { tenantId, plantId: saltillo!.id, plantPartNo: 'STL-BODY-LH', partNo: 'SAL-1001' },
+      { tenantId, plantId: ramos!.id, plantPartNo: 'RMS-FRONT-LH', partNo: 'RAM-2001' },
+    ])
+    // One per-plant override (§4E) on SAL-1001 at Saltillo — exercises BOTH resolution rules:
+    //  • named fields prefer-plant-else-global: colour overridden ('Painted'); material/gauge left
+    //    null → inherit the global part version.
+    //  • shared_attributes shallow key-merge over the part's global map { finish:'standard',
+    //    tolerance:'0.10mm' } → { finish:'premium' (override), tolerance:'0.10mm' (retained),
+    //    line:'A' (plant-only key added) }.
+    await db.insert(partPlant).values({
+      tenantId,
+      partNo: 'SAL-1001',
+      plantId: saltillo!.id,
+      colour: 'Painted',
+      sharedAttributes: { finish: 'premium', line: 'A' },
     })
 
     // === Routings (std times = the `standard` baseline, D7) =====================
