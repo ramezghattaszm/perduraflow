@@ -2,7 +2,12 @@ import { Module, type Provider } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ThrottlerModule } from '@nestjs/throttler'
-import { MASTERDATA_READ_CONTRACT, type MasterDataReadContract } from '@perduraflow/contracts'
+import {
+  MASTERDATA_READ_CONTRACT,
+  type MasterDataReadContract,
+  REFERENCE_READ_CONTRACT,
+  type ReferenceReadContract,
+} from '@perduraflow/contracts'
 import { PoolModule } from './db/pool'
 import { AuthModule } from './modules/auth/auth.module'
 import { BindingModule } from './modules/binding/binding.module'
@@ -15,6 +20,7 @@ import { LearningModule } from './modules/learning/learning.module'
 import { MasterDataModule } from './modules/master-data/master-data.module'
 import { LlmModule } from './modules/llm/llm.module'
 import { MASTERDATA_READ } from './modules/master-data/master-data-read.service'
+import { REFERENCE_READ } from './modules/config/reference-read.service'
 import { NotifierModule } from './modules/notifier/notifier.module'
 import { OrgModule } from './modules/org/org.module'
 import { SchedulingModule } from './modules/scheduling/scheduling.module'
@@ -29,9 +35,10 @@ import { TenantModule } from './modules/tenant/tenant.module'
  */
 const BINDING_COUNTERPARTS: Provider = {
   provide: 'BINDING_COUNTERPARTS_BOOTSTRAP',
-  inject: [BindingResolver, MASTERDATA_READ],
-  useFactory: (resolver: BindingResolver, masterData: MasterDataReadContract) => {
+  inject: [BindingResolver, MASTERDATA_READ, REFERENCE_READ],
+  useFactory: (resolver: BindingResolver, masterData: MasterDataReadContract, referenceData: ReferenceReadContract) => {
     resolver.register(MASTERDATA_READ_CONTRACT.id, 'platform_module', masterData)
+    resolver.register(REFERENCE_READ_CONTRACT.id, 'platform_module', referenceData)
     return true
   },
 }

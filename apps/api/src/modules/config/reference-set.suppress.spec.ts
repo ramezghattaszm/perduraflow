@@ -37,6 +37,7 @@ function statefulRepo() {
     deactivate: async (id: string) => {
       for (const [kk, r] of store) if (r.id === id) store.set(kk, { ...r, isActive: false })
     },
+    appendAudit: async () => {}, // audit assertions live in reference-set.audit.spec
   }
 }
 const svc = () => new ReferenceSetService(statefulRepo() as never)

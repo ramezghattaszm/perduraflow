@@ -93,11 +93,59 @@ export class ReferenceSetService {
   }
 
   /**
+   * Add or override a member's metadata at a level (a level's sparse contribution). It is an **`add`**
+   * when the key does not yet resolve for this scope (a brand-new value) and an **`override`** when it
+   * already resolves (inherited from a broader level, or previously set here) — the distinction is
+   * recorded on the audit. Adding a key also lifts any tombstone for it at this level. Audited.
+   * @throws AppException VALIDATION_ERROR - unknown set, or the member guard rejects the resulting set.
+   */
+  async setMember(
+    setKey: string,
+    level: 'tenant' | 'plant',
+    scopeId: string,
+    tenantId: string,
+    memberKey: string,
+    metadata: ReferenceMemberMetadata,
+    userId: string | null,
+  ): Promise<ResolvedReferenceSet> {
+    const d = this.descriptorOrThrow(setKey)
+    const plantId = level === 'plant' ? scopeId : undefined
+    // Pre-state: does the key already resolve? → override (metadata change) vs add (new key).
+    const before = await this.resolveReferenceSet(setKey, tenantId, plantId)
+    const prior = before.members.find((m) => m.key === memberKey)
+    const action = prior ? 'override' : 'add'
+
+    const existing = await this.repo.findActive(tenantId, setKey, level, scopeId)
+    const prev = existing?.payload ?? {}
+    const members = { ...(prev.members ?? {}), [memberKey]: metadata }
+    const tombstones = (prev.tombstones ?? []).filter((k) => k !== memberKey) // adding lifts a tombstone
+    const payload = { members, ...(tombstones.length ? { tombstones } : {}) }
+
+    // Optional member guard on the resulting resolved set (mirrors config's group guard).
+    if (d.memberGuard) {
+      const resulting = [...before.members.filter((m) => m.key !== memberKey), { key: memberKey, metadata }]
+      const verdict = d.memberGuard(resulting)
+      if (!verdict.ok) {
+        throw new AppException(HttpStatus.BAD_REQUEST, verdict.warnings.join('; ') || 'Reference-set member guard rejected this change', ERROR_CODES.VALIDATION_ERROR)
+      }
+    }
+
+    const revision = (existing?.revision ?? 0) + 1
+    if (existing) await this.repo.update(existing.id, payload, revision, userId)
+    else await this.repo.insert({ tenantId, setKey, level, scopeId, payload, revision })
+    await this.repo.appendAudit([
+      { tenantId, setKey, level, scopeId, memberKey, action, oldValue: prior?.metadata ?? null, newValue: metadata, revision, changedBy: userId },
+    ])
+
+    return this.resolveReferenceSet(setKey, tenantId, plantId)
+  }
+
+  /**
    * Suppress an inherited member at a level via a tombstone (the resolver then omits it). **Gated by the
    * in-use probe**: the descriptor MUST declare an `inUse` probe (no suppressable set without one — the
    * referential-safety invariant), and if the probe reports the value is still referenced the suppression
    * is rejected with `REFERENCE_VALUE_IN_USE`. `scopeId` is the tenantId (tenant level) or plantId (plant).
-   * Audit lands in Commit 4.
+   * Audited.
    * @throws AppException VALIDATION_ERROR - unknown set, or the set declares no in-use probe (unsuppressable).
    * @throws AppException REFERENCE_VALUE_IN_USE - the member is still referenced (probe returned true).
    */
@@ -118,6 +166,9 @@ export class ReferenceSetService {
       throw new AppException(HttpStatus.CONFLICT, `Cannot suppress '${memberKey}' in ${setKey}: still in use`, ERROR_CODES.REFERENCE_VALUE_IN_USE)
     }
 
+    const plantId = level === 'plant' ? scopeId : undefined
+    const priorMeta = (await this.resolveReferenceSet(setKey, tenantId, plantId)).members.find((m) => m.key === memberKey)?.metadata ?? null
+
     const existing = await this.repo.findActive(tenantId, setKey, level, scopeId)
     const prev = existing?.payload ?? {}
     const tombstones = new Set(prev.tombstones ?? [])
@@ -128,14 +179,17 @@ export class ReferenceSetService {
     const revision = (existing?.revision ?? 0) + 1
     if (existing) await this.repo.update(existing.id, payload, revision, userId)
     else await this.repo.insert({ tenantId, setKey, level, scopeId, payload, revision })
+    await this.repo.appendAudit([
+      { tenantId, setKey, level, scopeId, memberKey, action: 'suppress', oldValue: priorMeta, newValue: null, revision, changedBy: userId },
+    ])
 
-    return this.resolveReferenceSet(setKey, tenantId, level === 'plant' ? scopeId : undefined)
+    return this.resolveReferenceSet(setKey, tenantId, plantId)
   }
 
   /**
    * Restore a suppressed member — remove its tombstone so it cascades from the parent again (the
    * membership analogue of reset-to-parent). Always safe → NO in-use probe. When the level's row is left
-   * empty (no members, no tombstones) it is soft-deleted. Audit lands in Commit 4.
+   * empty (no members, no tombstones) it is soft-deleted. Audited (only when a row actually changed).
    * @throws AppException VALIDATION_ERROR - unknown set.
    */
   async restoreMember(
@@ -148,7 +202,7 @@ export class ReferenceSetService {
   ): Promise<ResolvedReferenceSet> {
     this.descriptorOrThrow(setKey)
     const existing = await this.repo.findActive(tenantId, setKey, level, scopeId)
-    if (existing) {
+    if (existing && (existing.payload?.tombstones ?? []).includes(memberKey)) {
       const prev = existing.payload ?? {}
       const tombstones = (prev.tombstones ?? []).filter((k) => k !== memberKey)
       const members = prev.members ?? {}
@@ -158,6 +212,9 @@ export class ReferenceSetService {
       } else {
         await this.repo.update(existing.id, { members, tombstones }, revision, userId)
       }
+      await this.repo.appendAudit([
+        { tenantId, setKey, level, scopeId, memberKey, action: 'restore', oldValue: null, newValue: null, revision, changedBy: userId },
+      ])
     }
     return this.resolveReferenceSet(setKey, tenantId, level === 'plant' ? scopeId : undefined)
   }

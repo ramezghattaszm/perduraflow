@@ -1,7 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { CONFIG_DB, type ConfigDatabase } from './config.db'
-import { type NewReferenceSetOverride, type ReferenceSetOverride, type ReferenceSetPayload, referenceSetOverride } from './schema'
+import {
+  type NewReferenceSetAudit,
+  type NewReferenceSetOverride,
+  type ReferenceSetOverride,
+  type ReferenceSetPayload,
+  referenceSetAudit,
+  referenceSetOverride,
+} from './schema'
 
 type OverrideLevel = 'tenant' | 'plant'
 
@@ -54,5 +61,10 @@ export class ReferenceSetRepository {
       .update(referenceSetOverride)
       .set({ isActive: false, updatedBy, updatedAt: new Date() })
       .where(eq(referenceSetOverride.id, id))
+  }
+
+  /** Append member-change audit rows (append-only; one row per add/override/suppress/restore). */
+  async appendAudit(rows: NewReferenceSetAudit[]): Promise<void> {
+    if (rows.length > 0) await this.db.insert(referenceSetAudit).values(rows)
   }
 }

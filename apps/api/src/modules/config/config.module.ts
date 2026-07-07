@@ -4,6 +4,8 @@ import { ConfigController } from './config.controller'
 import { configDbProvider } from './config.db'
 import { ConfigRepository } from './config.repository'
 import { ConfigService } from './config.service'
+import { REFERENCE_READ, ReferenceReadService } from './reference-read.service'
+import { ReferenceSetController } from './reference-set.controller'
 import { ReferenceSetRepository } from './reference-set.repository'
 import { ReferenceSetService } from './reference-set.service'
 
@@ -16,7 +18,7 @@ import { ReferenceSetService } from './reference-set.service'
  * scope substrate — the `reference.read` contract + admin CRUD land in a later commit.
  */
 @Module({
-  controllers: [ConfigController],
+  controllers: [ConfigController, ReferenceSetController],
   providers: [
     configDbProvider,
     ConfigRepository,
@@ -25,7 +27,9 @@ import { ReferenceSetService } from './reference-set.service'
     { provide: CONFIG_READ, useExisting: ConfigReadService },
     ReferenceSetRepository,
     ReferenceSetService,
+    ReferenceReadService,
+    { provide: REFERENCE_READ, useExisting: ReferenceReadService },
   ],
-  exports: [CONFIG_READ],
+  exports: [CONFIG_READ, REFERENCE_READ],
 })
 export class ConfigModule {}

@@ -232,6 +232,13 @@
       "when": 1783425432058,
       "tag": "0032_wandering_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783427020918,
+      "tag": "0033_new_the_renegades",
+      "breakpoints": true
     }
   ]
 }
