@@ -239,6 +239,13 @@
       "when": 1783427020918,
       "tag": "0033_new_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1783442272995,
+      "tag": "0034_fast_electro",
+      "breakpoints": true
     }
   ]
 }

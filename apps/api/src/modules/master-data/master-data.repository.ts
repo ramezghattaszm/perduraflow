@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, desc, eq, gt, inArray, isNull, lte, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or } from 'drizzle-orm'
 import { MASTERDATA_DB, type MasterDataDatabase } from './master-data.db'
 import {
+  bom,
+  bomComponent,
   certification,
   masterDataAudit,
   operator,
@@ -17,7 +19,11 @@ import {
   routing,
   routingOperation,
   uomConversion,
+  type Bom,
+  type BomComponent,
   type Certification,
+  type NewBom,
+  type NewBomComponent,
   type NewCertification,
   type NewMasterDataAudit,
   type NewOperator,
@@ -682,6 +688,115 @@ export class MasterDataRepository {
       }
       if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
       return newRow!
+    })
+  }
+
+  // --- bom (Layer 2 §4a — version header + edge children) --------------------
+  /** The current open DRAFT BOM for a `parent_part_no`, or undefined (at most one). */
+  findOpenDraftBom(tenantId: string, parentPartNo: string): Promise<Bom | undefined> {
+    return this.db.query.bom.findFirst({
+      where: and(eq(bom.tenantId, tenantId), eq(bom.parentPartNo, parentPartNo), eq(bom.status, 'draft')),
+    })
+  }
+
+  /** The current OPEN published BOM (`status='published' AND effective_to IS NULL`) for a parent, or undefined. */
+  findOpenPublishedBom(tenantId: string, parentPartNo: string): Promise<Bom | undefined> {
+    return this.db.query.bom.findFirst({
+      where: and(eq(bom.tenantId, tenantId), eq(bom.parentPartNo, parentPartNo), eq(bom.status, 'published'), isNull(bom.effectiveTo)),
+    })
+  }
+
+  /**
+   * The BOM version effective at `asOf` for a parent — half-open `[effective_from, effective_to)` over the
+   * NON-DRAFT versions (published + superseded), so a historical `asOf` reconstructs the version that WAS
+   * live then even after it was superseded (mirrors Layer-0 part/routing resolve-as-of). Drafts carry no
+   * window (`effective_from` null) so they never match. At most one row by construction (GiST non-overlap).
+   */
+  findBomAsOf(tenantId: string, parentPartNo: string, asOf: Date): Promise<Bom | undefined> {
+    return this.db.query.bom.findFirst({
+      where: and(
+        eq(bom.tenantId, tenantId),
+        eq(bom.parentPartNo, parentPartNo),
+        ne(bom.status, 'draft'),
+        lte(bom.effectiveFrom, asOf),
+        or(isNull(bom.effectiveTo), gt(bom.effectiveTo, asOf)),
+      ),
+    })
+  }
+
+  /** The edge rows (direct components) of a BOM version, sorted by component. */
+  bomComponentsFor(bomId: string): Promise<BomComponent[]> {
+    return this.db
+      .select()
+      .from(bomComponent)
+      .where(eq(bomComponent.bomId, bomId))
+      .orderBy(asc(bomComponent.componentPartNo))
+  }
+
+  /**
+   * Author/update the DRAFT BOM for a parent, transactionally: upsert the draft header (insert a new draft,
+   * or update the existing one's revision), REPLACE its edge rows, append audit — all atomic. Drafts carry
+   * no window (mirrors {@link reviseRoutingTx}'s child-copy, minus the effectivity close).
+   */
+  async reviseBomTx(input: {
+    tenantId: string
+    draftId?: string
+    header: NewBom
+    components: Omit<NewBomComponent, 'bomId'>[]
+    auditRows: NewMasterDataAudit[]
+  }): Promise<Bom> {
+    return this.db.transaction(async (tx) => {
+      let draft: Bom
+      if (input.draftId) {
+        const [updated] = await tx
+          .update(bom)
+          .set({ revision: input.header.revision, updatedAt: new Date() })
+          .where(and(eq(bom.tenantId, input.tenantId), eq(bom.id, input.draftId), eq(bom.status, 'draft')))
+          .returning()
+        if (!updated) throw new Error('reviseBomTx: draft not found or not a draft')
+        draft = updated
+        await tx.delete(bomComponent).where(eq(bomComponent.bomId, draft.id))
+      } else {
+        const [inserted] = await tx.insert(bom).values(input.header).returning()
+        draft = inserted!
+      }
+      if (input.components.length > 0) {
+        await tx.insert(bomComponent).values(input.components.map((c) => ({ ...c, bomId: draft.id })))
+      }
+      if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
+      return draft
+    })
+  }
+
+  /**
+   * Publish a draft transactionally: close the prior open published version at `effectiveFrom` (status →
+   * `superseded`, guarded on `published AND effective_to IS NULL`) when one exists, flip the draft →
+   * `published` with an open window + `supersedes_id`, append audit — all atomic.
+   */
+  async publishBomTx(input: {
+    tenantId: string
+    draftId: string
+    priorPublishedId?: string
+    effectiveFrom: Date
+    auditRows: NewMasterDataAudit[]
+  }): Promise<Bom> {
+    return this.db.transaction(async (tx) => {
+      if (input.priorPublishedId) {
+        const closed = await tx
+          .update(bom)
+          .set({ status: 'superseded', effectiveTo: input.effectiveFrom, updatedAt: new Date() })
+          .where(and(eq(bom.tenantId, input.tenantId), eq(bom.id, input.priorPublishedId), eq(bom.status, 'published'), isNull(bom.effectiveTo)))
+          .returning()
+        if (closed.length === 0) throw new Error('publishBomTx: prior published version is not open')
+      }
+      const [published] = await tx
+        .update(bom)
+        .set({ status: 'published', effectiveFrom: input.effectiveFrom, effectiveTo: null, supersedesId: input.priorPublishedId ?? null, updatedAt: new Date() })
+        .where(and(eq(bom.tenantId, input.tenantId), eq(bom.id, input.draftId), eq(bom.status, 'draft')))
+        .returning()
+      if (!published) throw new Error('publishBomTx: draft not found or not a draft')
+      if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
+      return published
     })
   }
 

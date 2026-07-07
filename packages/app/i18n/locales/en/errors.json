@@ -39,6 +39,7 @@
   "DUPLICATE_PART_NO": "That part number is already in use.",
   "DUPLICATE_CERTIFICATION_CODE": "That certification code is already in use.",
   "INVALID_REVISION_EFFECTIVE_FROM": "A new revision must take effect after the current version's effective date.",
+  "BOM_NOT_FOUND": "There is no BOM draft to publish for this part.",
   "INVALID_CUSTOMER_REFERENCE": "That customer no longer exists.",
   "INVALID_PROGRAM_REFERENCE": "That program no longer exists.",
   "SCHEDULE_VERSION_NOT_FOUND": "That schedule version no longer exists.",

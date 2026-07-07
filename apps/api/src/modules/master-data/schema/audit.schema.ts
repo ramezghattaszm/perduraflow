@@ -16,6 +16,7 @@ export const MASTER_DATA_ENTITY_TYPES = [
   'part_plant',
   'plant_part_mapping',
   'uom_conversion',
+  'bom',
   'routing',
   'resource',
   'resource_group',

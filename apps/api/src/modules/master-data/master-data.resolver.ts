@@ -15,8 +15,12 @@ import { generateId } from '../../db/ulid'
 import { toPartVersionDto, toRoutingVersionDto } from './master-data.mapper'
 import { MasterDataRepository } from './master-data.repository'
 import type {
+  Bom,
+  BomComponent,
   MasterDataAuditChange,
   MasterDataEntityType,
+  NewBom,
+  NewBomComponent,
   NewMasterDataAudit,
   NewPart,
   NewPartPlant,
@@ -29,6 +33,25 @@ import type {
   PlantPartMapping,
   Routing,
 } from './schema'
+
+/** One draft edge input for {@link MasterDataResolver.reviseBom}. `qtyPer`/`scrapPct` are exact decimal STRINGS (numeric). */
+export interface BomComponentInput {
+  componentPartNo: string
+  qtyPer: string
+  scrapPct?: string | null
+}
+
+/** Author/update input for a draft BOM. */
+export interface ReviseBomInput {
+  revision?: string
+  components: BomComponentInput[]
+}
+
+/** A resolved BOM version + its edges (the read shape until the `bom.read` DTOs land in 2a.2). */
+export interface ResolvedBom {
+  bom: Bom
+  components: BomComponent[]
+}
 
 /** The overridable fields a per-plant override may set (§4E). `undefined` = leave/inherit prior; `null` = inherit the global part value. */
 export interface PartPlantOverrideChanges {
@@ -537,6 +560,109 @@ export class MasterDataResolver {
 
     const newRow = await this.repo.reviseRoutingTx({ tenantId, priorId: prior.id, effectiveFrom, newVersion, operations, auditRows })
     return toRoutingVersionDto(newRow, await this.repo.operationsFor(newRow.id))
+  }
+
+  // --- bom draft/publish (Layer 2 §4a.2, D-L2-2) -----------------------------
+  /**
+   * Author/update the DRAFT BOM for a parent — create the one open draft or replace the existing draft's
+   * edges (transactional, audited). Drafts carry NO window and are invisible to {@link resolveBom}. The
+   * one-open-draft invariant is upheld by upserting the single draft (and enforced at the DB by a partial
+   * unique index). `qtyPer`/`scrapPct` are stored as their exact decimal strings (`numeric`).
+   */
+  async reviseBom(tenantId: string, parentPartNo: string, input: ReviseBomInput, actor: string): Promise<Bom> {
+    const existing = await this.repo.findOpenDraftBom(tenantId, parentPartNo)
+    const revision = input.revision ?? existing?.revision ?? 'A'
+    const header: NewBom = existing
+      ? { id: existing.id, tenantId, parentPartNo, revision, status: 'draft' }
+      : { id: generateId(), tenantId, parentPartNo, revision, status: 'draft', effectiveFrom: null, effectiveTo: null }
+    const components: Omit<NewBomComponent, 'bomId'>[] = input.components.map((c) => ({
+      tenantId,
+      componentPartNo: c.componentPartNo,
+      qtyPer: c.qtyPer,
+      scrapPct: c.scrapPct ?? null,
+    }))
+    const versionId = header.id!
+    const auditRows: NewMasterDataAudit[] = [
+      {
+        tenantId,
+        entityType: 'bom',
+        businessKey: parentPartNo,
+        versionId,
+        action: existing ? 'update' : 'create',
+        actor,
+        sourceRef: null,
+        effectiveFrom: null,
+        changedFields: { revision: { new: revision }, components: { new: components.length } },
+      },
+    ]
+    return this.repo.reviseBomTx({ tenantId, draftId: existing?.id, header, components, auditRows })
+  }
+
+  /**
+   * Publish the open draft for a parent as-of `effectiveFrom`: run the integrity gate (blocking), close the
+   * prior open published version (→ superseded), flip the draft → published with an open window +
+   * `supersedes_id`, write audit — all atomic. The one-open-published invariant is upheld by closing the
+   * prior (and enforced at the DB by a partial unique index + GiST non-overlap on non-draft windows).
+   * @throws AppException BOM_NOT_FOUND - no open draft to publish
+   * @throws AppException INVALID_REVISION_EFFECTIVE_FROM - `effectiveFrom` not strictly after the prior published's
+   */
+  async publishBom(tenantId: string, parentPartNo: string, effectiveFromIso: string, actor: string): Promise<Bom> {
+    const draft = await this.repo.findOpenDraftBom(tenantId, parentPartNo)
+    if (!draft) throw new AppException(HttpStatus.NOT_FOUND, 'No open BOM draft to publish', ERROR_CODES.BOM_NOT_FOUND)
+
+    // Integrity gate (D-L2-6) — BLOCKING on publish. Placeholder in 2a.1 (components-exist / acyclic /
+    // effectivity-consistency / make-buy coherence land in 2a.2); the seam is here so publish can't skip it.
+    await this.assertBomPublishable(tenantId, draft.id)
+
+    const prior = await this.repo.findOpenPublishedBom(tenantId, parentPartNo)
+    const effectiveFrom = prior
+      ? this.assertAfter(effectiveFromIso, prior.effectiveFrom!)
+      : new Date(effectiveFromIso)
+
+    const auditRows: NewMasterDataAudit[] = [
+      {
+        tenantId,
+        entityType: 'bom',
+        businessKey: parentPartNo,
+        versionId: draft.id,
+        action: 'revise', // the draft opens its effectivity window (becomes the live version)
+        actor,
+        sourceRef: null,
+        effectiveFrom,
+        changedFields: { status: { old: 'draft', new: 'published' }, ...(prior ? { supersedesId: { new: prior.id } } : {}) },
+      },
+    ]
+    if (prior) {
+      auditRows.push({
+        tenantId,
+        entityType: 'bom',
+        businessKey: parentPartNo,
+        versionId: prior.id,
+        action: 'supersede',
+        actor,
+        sourceRef: null,
+        effectiveFrom: prior.effectiveFrom,
+        changedFields: { status: { old: 'published', new: 'superseded' }, effectiveTo: { old: null, new: effectiveFrom.toISOString() } },
+      })
+    }
+    return this.repo.publishBomTx({ tenantId, draftId: draft.id, priorPublishedId: prior?.id, effectiveFrom, auditRows })
+  }
+
+  /**
+   * The BOM version effective at `asOf` (default now) for a parent + its edges, or null. Returns the open
+   * published version for `asOf = now`, or a superseded version whose closed window contains a historical
+   * `asOf` (reconstruction). Drafts never resolve (no window).
+   */
+  async resolveBom(tenantId: string, parentPartNo: string, asOf?: string): Promise<ResolvedBom | null> {
+    const at = asOf ? new Date(asOf) : new Date()
+    const version = await this.repo.findBomAsOf(tenantId, parentPartNo, at)
+    if (!version) return null
+    return { bom: version, components: await this.repo.bomComponentsFor(version.id) }
+  }
+
+  /** Integrity gate seam (D-L2-6) — blocking on publish. Placeholder until 2a.2 (components-exist / acyclic / etc.). */
+  private async assertBomPublishable(_tenantId: string, _draftId: string): Promise<void> {
+    // 2a.2: run validateBomIntegrity and throw INVALID_BOM on failure. No-op placeholder for 2a.1.
   }
 
   // --- internals -------------------------------------------------------------
