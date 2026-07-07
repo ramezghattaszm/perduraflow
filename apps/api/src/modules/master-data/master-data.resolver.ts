@@ -47,10 +47,47 @@ export interface ReviseBomInput {
   components: BomComponentInput[]
 }
 
-/** A resolved BOM version + its edges (the read shape until the `bom.read` DTOs land in 2a.2). */
+/** A resolved BOM version + its edges (the read shape until the `bom.read` DTOs land). */
 export interface ResolvedBom {
   bom: Bom
   components: BomComponent[]
+}
+
+/** One node of a BOM explosion — a component occurrence at a depth. **Topology only — no quantities.** */
+export interface BomExplosionNode {
+  partNo: string
+  /** Depth: the root's direct components are `1`, their components `2`, … (derived by the walk). */
+  level: number
+  /** The immediate parent of this occurrence in the explosion. */
+  parentPartNo: string
+  /** No further BOM as-of (a buy/leaf component) — the branch terminates here. */
+  isLeaf: boolean
+  /** This occurrence closed a cycle (it re-entered an ancestor); the walk terminated here, never recursed. */
+  cyclic?: boolean
+}
+
+/** A detected BOM cycle — the ancestor path that closed back on itself (a structured finding, not a hang). */
+export interface BomCycle {
+  path: string[]
+}
+
+/** The multi-level explosion of a BOM (topology + any cycle findings). */
+export interface BomExplosion {
+  parentPartNo: string
+  nodes: BomExplosionNode[]
+  cycles: BomCycle[]
+}
+
+/** One where-used occurrence — `partNo` consumes `childPartNo`; `level` steps up (1 = direct parent). */
+export interface WhereUsedParent {
+  partNo: string
+  level: number
+  childPartNo: string
+}
+
+export interface WhereUsedResult {
+  componentPartNo: string
+  parents: WhereUsedParent[]
 }
 
 /** The overridable fields a per-plant override may set (§4E). `undefined` = leave/inherit prior; `null` = inherit the global part value. */
@@ -660,9 +697,63 @@ export class MasterDataResolver {
     return { bom: version, components: await this.repo.bomComponentsFor(version.id) }
   }
 
-  /** Integrity gate seam (D-L2-6) — blocking on publish. Placeholder until 2a.2 (components-exist / acyclic / etc.). */
+  /**
+   * Multi-level BOM explosion (Layer 2 §4a.2, D-L2-1) — recursively resolves each component's OWN published
+   * BOM as-of and derives its `level` (root's direct components = 1). A component with no resolvable BOM
+   * (buy/leaf) terminates the branch. **Cycle-safe:** the ancestor path is tracked per branch; a component
+   * that re-enters its own ancestry is recorded as a structured {@link BomCycle} finding and terminates
+   * that branch — never an infinite loop. **Topology only — no quantities.** As-of resolution runs at EACH
+   * level (a historical `asOf` reconstructs the tree that was live then, not just the root).
+   */
+  async explodeBom(tenantId: string, parentPartNo: string, asOf?: string): Promise<BomExplosion> {
+    const at = asOf ? new Date(asOf) : new Date()
+    const nodes: BomExplosionNode[] = []
+    const cycles: BomCycle[] = []
+    // Returns whether `partNo` had a resolvable BOM (so the caller can mark leaves). `path` = the ancestor
+    // chain INCLUDING `partNo`, used for cycle detection (a diamond re-uses a node but is not a cycle).
+    const explode = async (partNo: string, level: number, path: Set<string>): Promise<boolean> => {
+      const version = await this.repo.findBomAsOf(tenantId, partNo, at)
+      if (!version) return false // buy/leaf — no published BOM as-of
+      for (const edge of await this.repo.bomComponentsFor(version.id)) {
+        const comp = edge.componentPartNo
+        if (path.has(comp)) {
+          cycles.push({ path: [...path, comp] })
+          nodes.push({ partNo: comp, level, parentPartNo: partNo, isLeaf: true, cyclic: true })
+          continue // terminate this branch — never recurse into the cycle
+        }
+        const node: BomExplosionNode = { partNo: comp, level, parentPartNo: partNo, isLeaf: true }
+        nodes.push(node)
+        const childHadBom = await explode(comp, level + 1, new Set([...path, comp]))
+        node.isLeaf = !childHadBom
+      }
+      return true
+    }
+    await explode(parentPartNo, 1, new Set([parentPartNo]))
+    return { parentPartNo, nodes, cycles }
+  }
+
+  /**
+   * Where-used (Layer 2 §4a.2) — the parents that consume `componentPartNo`, traversing UP the structure
+   * as-of: direct parents (`level` 1), then their parents (`level` 2), … Cycle-safe (an ancestor is never
+   * re-ascended). **Topology only — no quantities.**
+   */
+  async whereUsed(tenantId: string, componentPartNo: string, asOf?: string): Promise<WhereUsedResult> {
+    const at = asOf ? new Date(asOf) : new Date()
+    const parents: WhereUsedParent[] = []
+    const walkUp = async (comp: string, level: number, path: Set<string>): Promise<void> => {
+      for (const parent of await this.repo.findBomParentsOf(tenantId, comp, at)) {
+        if (path.has(parent)) continue // cycle — stop
+        parents.push({ partNo: parent, level, childPartNo: comp })
+        await walkUp(parent, level + 1, new Set([...path, parent]))
+      }
+    }
+    await walkUp(componentPartNo, 1, new Set([componentPartNo]))
+    return { componentPartNo, parents }
+  }
+
+  /** Integrity gate seam (D-L2-6) — blocking on publish. Placeholder until 2a.3 (components-exist / acyclic / etc.). */
   private async assertBomPublishable(_tenantId: string, _draftId: string): Promise<void> {
-    // 2a.2: run validateBomIntegrity and throw INVALID_BOM on failure. No-op placeholder for 2a.1.
+    // 2a.3: run validateBomIntegrity and throw INVALID_BOM on failure. No-op placeholder for now.
   }
 
   // --- internals -------------------------------------------------------------

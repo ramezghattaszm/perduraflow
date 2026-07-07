@@ -734,6 +734,29 @@ export class MasterDataRepository {
   }
 
   /**
+   * The DISTINCT parent `part_no`s whose BOM version effective at `asOf` (non-draft, window-contained)
+   * has a direct edge to `componentPartNo` — the where-used lookup (one level up). Intra-module join on
+   * `bom_component → bom`. Sorted for determinism.
+   */
+  async findBomParentsOf(tenantId: string, componentPartNo: string, asOf: Date): Promise<string[]> {
+    const rows = await this.db
+      .selectDistinct({ parentPartNo: bom.parentPartNo })
+      .from(bomComponent)
+      .innerJoin(bom, eq(bomComponent.bomId, bom.id))
+      .where(
+        and(
+          eq(bom.tenantId, tenantId),
+          eq(bomComponent.componentPartNo, componentPartNo),
+          ne(bom.status, 'draft'),
+          lte(bom.effectiveFrom, asOf),
+          or(isNull(bom.effectiveTo), gt(bom.effectiveTo, asOf)),
+        ),
+      )
+      .orderBy(asc(bom.parentPartNo))
+    return rows.map((r) => r.parentPartNo)
+  }
+
+  /**
    * Author/update the DRAFT BOM for a parent, transactionally: upsert the draft header (insert a new draft,
    * or update the existing one's revision), REPLACE its edge rows, append audit — all atomic. Drafts carry
    * no window (mirrors {@link reviseRoutingTx}'s child-copy, minus the effectivity close).
