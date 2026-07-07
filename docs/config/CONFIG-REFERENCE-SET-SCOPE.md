@@ -80,15 +80,15 @@ Refactor config's `resolve()` into:
 
 ---
 
-## 8. Definition of done
+## 8. Definition of done — ALL GREEN (built + verified; close-out Commit 5)
 
-- [ ] Shared scope-path walker extracted; **four live config groups byte-identical (values + provenance + determinism tokens)** — the inertness proof passes.
-- [ ] Reference-set descriptor + storage + membership fold built; `replace` and `merge` modes; sparse per-level payload.
-- [ ] Suppression via tombstone; **in-use probe gate** rejects suppressing a referenced value (`REFERENCE_VALUE_IN_USE`).
-- [ ] `reference.read 1.0` + guarded admin CRUD + member-level audit (reusing `config_audit`).
-- [ ] Ladder realized `global→tenant→plant`; walk is ladder-driven (future rung additive); no speculative rung built.
-- [ ] `resource_type_config`/`part_plant` untouched (reconcile-later); behavioral enums untouched.
-- [ ] `demo:reset` green; existing config-driven behavior (objective weights, reporting, autonomy, KPI) unchanged end-to-end.
+- [x] Shared scope-path walker extracted (`scope-path.ts` `walkScopePath` + `scopePath`/`scalarFold`); **four live config groups byte-identical (values + provenance + determinism tokens)** — the inertness A/B proof passed **same SHA-256** across global-only / tenant-override / plant-override / mixed-provenance (tokens `aps-w2`/`obj:t3`/`obj:p7`), re-proven after C2 touched the walker. Locked by `config.resolve.spec`. *(C1 `a74c73a`.)*
+- [x] Reference-set descriptor + storage + membership fold built (`config.refsets.ts`, `reference_set_override` migration 0032, `ReferenceSetService.membershipFold`); `replace` and `merge` modes; sparse per-level payload (`{ members, tombstones }`) — the config_override payload held member metadata cleanly (no dedicated normalized table). *(C2 `24cd088`.)*
+- [x] Suppression via tombstone (membershipFold omits suppressed keys); **in-use probe gate** rejects suppressing a referenced value (`REFERENCE_VALUE_IN_USE`); a set with no probe is unsuppressable (safety invariant); probe invoked only on suppress. *(C3 `54ac178`.)*
+- [x] `reference.read 1.0` + guarded admin CRUD (`ReferenceSetController`: reads auth-only, mutations `ConfigureGuard` + `assertScope`) + member-level audit (`reference_set_audit`, config_audit shape, one row per add/override/suppress/restore, `changedBy` = JWT sub), migration 0033; registered at the composition root, resolved through the binding. *(C4 `f4e1214`.)*
+- [x] Ladder realized `global→tenant→plant`; walk is ladder-driven (`SCOPE_LADDER` — a future rung is an additive entry + fetch); no speculative rung built.
+- [x] `resource_type_config`/`part_plant` untouched (reconcile-later, logged in REMAINING-ITEMS); behavioral enums (`make_buy`, status) untouched.
+- [x] `demo:reset` green (config now in the reset truncation; test-set tenant override + tombstone seeded → resolves `[a,b,d]` end-to-end through a real reset); existing config-driven behavior unchanged end-to-end (autonomy 0.85, reporting 14, objective `aps-w2`/weights, KPI tolerance 0); demo schedule unchanged (1043 ops). *(C5 — this commit.)*
 
 ---
 

@@ -23,7 +23,10 @@ import { seed } from './seed'
  * If the API is unreachable, the data baseline is still restored and the schedule
  * appears on the planner's first Re-solve (cold, until the next reset with the API up).
  */
-const APP_SCHEMAS = ['tenant', 'auth', 'org', 'master_data', 'binding', 'scheduling', 'learning']
+// `config` is truncated too (it has demo seed data — the autonomy override + the reference-set overrides —
+// and no cross-schema FK, so it re-seeds cleanly). Previously omitted, which left orphaned config rows
+// accumulating across resets (harmless only because each reset mints a fresh tenant); now it resets clean.
+const APP_SCHEMAS = ['tenant', 'auth', 'org', 'master_data', 'binding', 'scheduling', 'learning', 'config']
 const API = `http://localhost:${env.PORT}/api/v1`
 const ADMIN = { email: 'admin@perduraflow.test', password: 'Password123' }
 

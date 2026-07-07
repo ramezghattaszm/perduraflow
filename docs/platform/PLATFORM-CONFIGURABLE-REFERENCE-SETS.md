@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Type** | Standing platform-architecture decision (cross-cutting; governs all modules) |
-| **Status** | Proposed — sign-off gates the config reference-set enhancement (`docs/config/`), whose first consumer is `asset_type` (Layer 2b) |
+| **Status** | **Accepted — substrate BUILT** (config reference-set enhancement, Commits 1–5, migrations 0032/0033; §8 DoD all green). Two test-only sets exist; the first real consumer `asset_type` registers in Layer 2b (descriptor + in-use probe together). Reconcile-later precursors logged in `docs/REMAINING-ITEMS.md`. |
 | **Ownership** | **The mechanism lives in the `config` module** (it already owns scope-resolved tenant configuration). Domain modules own set *descriptors* and are *consumers*. |
 | **Companion decisions** | Exact-decimal computation (net-requirements trigger); this is the 2nd standing platform decision |
 | **Home** | `docs/platform/` |

@@ -36,7 +36,7 @@ import {
   materialRequirement,
   resourceOperatorAssignment,
 } from '../modules/scheduling/schema'
-import { configOverride } from '../modules/config/schema'
+import { configOverride, referenceSetOverride } from '../modules/config/schema'
 
 /**
  * Phase-0 seed (install-and-go defaults, D48) + the Magna-Coahuila demo scenario
@@ -710,10 +710,11 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       },
     ])
 
-    // binding: masterdata.read → platform_module (the per-tenant counterpart)
-    await db
-      .insert(contractBinding)
-      .values({ tenantId, contractId: 'masterdata.read', major: '1', mode: 'platform_module' })
+    // binding: masterdata.read + reference.read → platform_module (the per-tenant counterparts, O7)
+    await db.insert(contractBinding).values([
+      { tenantId, contractId: 'masterdata.read', major: '1', mode: 'platform_module' },
+      { tenantId, contractId: 'reference.read', major: '1', mode: 'platform_module' },
+    ])
 
     // === §5 Demand — back-solved to the utilization targets (rolling window) ====
     // Available regular = 1,200 min/day × 5 = 6,000 min/wk per resource. Targets: Press A 85%,
@@ -988,6 +989,18 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       level: 'tenant',
       scopeId: tenantId,
       payload: { tier1AutoThreshold: 0.85 },
+      revision: 1,
+    })
+
+    // Reference-set demo (test-only `__test_refset`, NO asset_type): a tenant-level override that
+    // exercises the fold end-to-end through a real reset — ADDS a member ('d') and SUPPRESSES an
+    // inherited platform default ('c') via a tombstone. Resolves platform [a,b,c] → tenant → [a,b,d].
+    await db.insert(referenceSetOverride).values({
+      tenantId,
+      setKey: '__test_refset',
+      level: 'tenant',
+      scopeId: tenantId,
+      payload: { members: { d: { label: 'Delta (tenant)' } }, tombstones: ['c'] },
       revision: 1,
     })
 
