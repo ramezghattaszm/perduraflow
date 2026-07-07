@@ -10,6 +10,7 @@ import {
 import { AppException } from '../../common/exceptions/app.exception'
 import { getGroupDescriptor } from './config.groups'
 import { ConfigRepository } from './config.repository'
+import { SCOPE_LADDER, type ScopeLevelRow, walkScopePath } from './scope-path'
 import type { ConfigOverride } from './schema'
 
 /** A resolved group: the effective values + the level each field resolved from. */
@@ -20,19 +21,8 @@ export interface ResolvedConfig<T extends Record<string, ConfigValue> = Record<s
   revisions: { tenant: number | null; plant: number | null }
 }
 
-/** One rung of a resolved scope path: the level and its stored override row (undefined = no override / the global floor). */
-export interface ScopeLevelRow {
-  level: ConfigLevel
-  row: ConfigOverride | undefined
-}
-
-/**
- * The realized scope ladder, broadest → narrowest. `global` is the in-code descriptor default (never a
- * stored row); `tenant`/`plant` are stored overrides. Ladder-driven so a future rung (e.g. `line`) is an
- * additive entry here + a fetch in {@link ConfigService.scopePath} — never a reshape of the fold. Only the
- * rungs with a real containment entity are realized today (platform doc §3.1/§3.4): `global→tenant→plant`.
- */
-const SCOPE_LADDER = ['global', 'tenant', 'plant'] as const
+/** A config scope-path rung: the level + its stored config-override row (specialization of the shared {@link ScopeLevelRow}). */
+type ConfigScopeRow = ScopeLevelRow<ConfigOverride>
 
 /**
  * Config framework service (CONFIG-FRAMEWORK-DESIGN). The generic resolve → cascade → reset →
@@ -60,18 +50,11 @@ export class ConfigService {
    * descriptor default is the floor); `plant` is only walked when a `plantId` is in context. This is
    * the ONE place the ladder is walked — a fold (scalar or, later, membership) plugs on top of it.
    */
-  private async scopePath(group: ConfigGroupKey, tenantId: string, plantId?: string): Promise<ScopeLevelRow[]> {
-    const path: ScopeLevelRow[] = []
-    for (const level of SCOPE_LADDER) {
-      if (level === 'global') {
-        path.push({ level, row: undefined }) // the in-code descriptor default — never stored
-      } else if (level === 'tenant') {
-        path.push({ level, row: await this.repo.findActive(tenantId, group, 'tenant', tenantId) })
-      } else if (level === 'plant' && plantId) {
-        path.push({ level, row: await this.repo.findActive(tenantId, group, 'plant', plantId) })
-      }
-    }
-    return path
+  private scopePath(group: ConfigGroupKey, tenantId: string, plantId?: string): Promise<ConfigScopeRow[]> {
+    // Config groups walk the full ladder; `plant` is skipped when no plantId is in context (autonomy).
+    return walkScopePath<ConfigOverride>(tenantId, plantId, SCOPE_LADDER, (level, scopeId) =>
+      this.repo.findActive(tenantId, group, level, scopeId),
+    )
   }
 
   /**
@@ -81,7 +64,7 @@ export class ConfigService {
    * override revisions. Behavior is byte-identical to the prior two-fetch `resolve()`.
    */
   private scalarFold<T extends Record<string, ConfigValue> = Record<string, ConfigValue>>(
-    path: ScopeLevelRow[],
+    path: ConfigScopeRow[],
     d: ReturnType<ConfigService['descriptorOrThrow']>,
   ): ResolvedConfig<T> {
     const values: Record<string, ConfigValue> = {}
