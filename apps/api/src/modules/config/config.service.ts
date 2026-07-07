@@ -20,6 +20,20 @@ export interface ResolvedConfig<T extends Record<string, ConfigValue> = Record<s
   revisions: { tenant: number | null; plant: number | null }
 }
 
+/** One rung of a resolved scope path: the level and its stored override row (undefined = no override / the global floor). */
+export interface ScopeLevelRow {
+  level: ConfigLevel
+  row: ConfigOverride | undefined
+}
+
+/**
+ * The realized scope ladder, broadest → narrowest. `global` is the in-code descriptor default (never a
+ * stored row); `tenant`/`plant` are stored overrides. Ladder-driven so a future rung (e.g. `line`) is an
+ * additive entry here + a fetch in {@link ConfigService.scopePath} — never a reshape of the fold. Only the
+ * rungs with a real containment entity are realized today (platform doc §3.1/§3.4): `global→tenant→plant`.
+ */
+const SCOPE_LADDER = ['global', 'tenant', 'plant'] as const
+
 /**
  * Config framework service (CONFIG-FRAMEWORK-DESIGN). The generic resolve → cascade → reset →
  * audit mechanism every setting group plugs into. Resolution is **plant → tenant → global** per
@@ -41,8 +55,62 @@ export class ConfigService {
   }
 
   /**
+   * The ordered scope path for a context — the stored override row at each realized ladder rung
+   * (broadest → narrowest), driven by {@link SCOPE_LADDER}. `global` carries no stored row (the
+   * descriptor default is the floor); `plant` is only walked when a `plantId` is in context. This is
+   * the ONE place the ladder is walked — a fold (scalar or, later, membership) plugs on top of it.
+   */
+  private async scopePath(group: ConfigGroupKey, tenantId: string, plantId?: string): Promise<ScopeLevelRow[]> {
+    const path: ScopeLevelRow[] = []
+    for (const level of SCOPE_LADDER) {
+      if (level === 'global') {
+        path.push({ level, row: undefined }) // the in-code descriptor default — never stored
+      } else if (level === 'tenant') {
+        path.push({ level, row: await this.repo.findActive(tenantId, group, 'tenant', tenantId) })
+      } else if (level === 'plant' && plantId) {
+        path.push({ level, row: await this.repo.findActive(tenantId, group, 'plant', plantId) })
+      }
+    }
+    return path
+  }
+
+  /**
+   * The scalar-field fold — the EXISTING config resolution, pure-extracted: per field, the most-specific
+   * level that supplies a value wins (walking broadest → narrowest, a defined value at a deeper rung
+   * overrides), else the descriptor default (`global`). Records per-field provenance and the per-level
+   * override revisions. Behavior is byte-identical to the prior two-fetch `resolve()`.
+   */
+  private scalarFold<T extends Record<string, ConfigValue> = Record<string, ConfigValue>>(
+    path: ScopeLevelRow[],
+    d: ReturnType<ConfigService['descriptorOrThrow']>,
+  ): ResolvedConfig<T> {
+    const values: Record<string, ConfigValue> = {}
+    const provenance: Record<string, ConfigLevel> = {}
+    for (const f of d.fields) {
+      let value: ConfigValue = d.defaults[f.key]!
+      let from: ConfigLevel = 'global'
+      for (const { level, row } of path) {
+        const v = row?.payload?.[f.key]
+        if (v !== undefined) {
+          value = v
+          from = level
+        }
+      }
+      values[f.key] = value
+      provenance[f.key] = from
+    }
+    const byLevel = new Map(path.map((p) => [p.level, p.row]))
+    return {
+      values: values as T,
+      provenance,
+      revisions: { tenant: byLevel.get('tenant')?.revision ?? null, plant: byLevel.get('plant')?.revision ?? null },
+    }
+  }
+
+  /**
    * Resolve a group's effective settings for a tenant (+ optional plant), with per-field
-   * provenance. Cascade: plant override → tenant override → global default.
+   * provenance. Cascade: plant override → tenant override → global default. Now a {@link scalarFold}
+   * over the shared {@link scopePath} — behavior unchanged from the prior hardcoded two-fetch resolve.
    * @throws AppException VALIDATION_ERROR - the group is not registered.
    */
   async resolve<T extends Record<string, ConfigValue> = Record<string, ConfigValue>>(
@@ -51,30 +119,8 @@ export class ConfigService {
     plantId?: string,
   ): Promise<ResolvedConfig<T>> {
     const d = this.descriptorOrThrow(group)
-    const tenantRow = await this.repo.findActive(tenantId, group, 'tenant', tenantId)
-    const plantRow = plantId ? await this.repo.findActive(tenantId, group, 'plant', plantId) : undefined
-
-    const values: Record<string, ConfigValue> = {}
-    const provenance: Record<string, ConfigLevel> = {}
-    for (const f of d.fields) {
-      const plantV = plantRow?.payload?.[f.key]
-      const tenantV = tenantRow?.payload?.[f.key]
-      if (plantV !== undefined) {
-        values[f.key] = plantV
-        provenance[f.key] = 'plant'
-      } else if (tenantV !== undefined) {
-        values[f.key] = tenantV
-        provenance[f.key] = 'tenant'
-      } else {
-        values[f.key] = d.defaults[f.key]!
-        provenance[f.key] = 'global'
-      }
-    }
-    return {
-      values: values as T,
-      provenance,
-      revisions: { tenant: tenantRow?.revision ?? null, plant: plantRow?.revision ?? null },
-    }
+    const path = await this.scopePath(group, tenantId, plantId)
+    return this.scalarFold<T>(path, d)
   }
 
   /** The config UI view of a group — per-field cascade columns (global/tenant/plant) + provenance. */
