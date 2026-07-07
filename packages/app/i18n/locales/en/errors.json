@@ -35,6 +35,7 @@
   "INVALID_CALENDAR_REFERENCE": "The selected calendar no longer exists.",
   "INVALID_RESOURCE_REFERENCE": "One or more selected resources no longer exist.",
   "INVALID_RESOURCE_GROUP_REFERENCE": "One or more selected resource groups no longer exist.",
+  "REFERENCE_VALUE_IN_USE": "That value can't be suppressed while it's still in use.",
   "DUPLICATE_PART_NO": "That part number is already in use.",
   "DUPLICATE_CERTIFICATION_CODE": "That certification code is already in use.",
   "INVALID_REVISION_EFFECTIVE_FROM": "A new revision must take effect after the current version's effective date.",

@@ -1,14 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { CONFIG_DB, type ConfigDatabase } from './config.db'
-import { type ReferenceSetOverride, referenceSetOverride } from './schema'
+import { type NewReferenceSetOverride, type ReferenceSetOverride, type ReferenceSetPayload, referenceSetOverride } from './schema'
 
 type OverrideLevel = 'tenant' | 'plant'
 
 /**
  * Drizzle queries for the reference-set store (`reference_set_override`, config schema, O2). Mirrors
- * {@link ConfigRepository}'s access pattern on the config-override shape. Commit 2 needs only the active-row
- * read the membership fold walks; add/override/suppress writes + audit land in Commits 3–4.
+ * {@link ConfigRepository}'s access pattern on the config-override shape: the active-row read the fold
+ * walks, plus the sparse-payload upsert/soft-delete the suppression/restore write path uses.
  */
 @Injectable()
 export class ReferenceSetRepository {
@@ -30,5 +30,29 @@ export class ReferenceSetRepository {
         eq(referenceSetOverride.isActive, true),
       ),
     })
+  }
+
+  /** Insert a fresh active override (revision 1 by default). */
+  async insert(data: NewReferenceSetOverride): Promise<ReferenceSetOverride> {
+    const [row] = await this.db.insert(referenceSetOverride).values(data).returning()
+    return row!
+  }
+
+  /** Replace an active override's payload, bumping its revision. */
+  async update(id: string, payload: ReferenceSetPayload, revision: number, updatedBy: string | null): Promise<ReferenceSetOverride> {
+    const [row] = await this.db
+      .update(referenceSetOverride)
+      .set({ payload, revision, updatedBy, updatedAt: new Date() })
+      .where(eq(referenceSetOverride.id, id))
+      .returning()
+    return row!
+  }
+
+  /** Soft-delete an override (the level's whole contribution reset to parent). */
+  async deactivate(id: string, updatedBy: string | null): Promise<void> {
+    await this.db
+      .update(referenceSetOverride)
+      .set({ isActive: false, updatedBy, updatedAt: new Date() })
+      .where(eq(referenceSetOverride.id, id))
   }
 }

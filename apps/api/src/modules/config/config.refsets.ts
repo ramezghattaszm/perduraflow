@@ -36,9 +36,25 @@ export interface ReferenceSetDescriptor {
 }
 
 /**
+ * TEST-ONLY controllable in-use probe state for {@link TEST_REFSET}. The suppression spec toggles
+ * `inUseKeys` to exercise BOTH gate branches (rejected vs allowed), and reads `calls` to assert the probe
+ * is invoked ONLY on the suppress path. A real set (`asset_type`, 2b) implements a real probe over its
+ * consumer's data instead. Entry format: `${tenantId}:${memberKey}`.
+ */
+export const __testInUseProbe = {
+  inUseKeys: new Set<string>(),
+  calls: [] as { tenantId: string; memberKey: string }[],
+  reset(): void {
+    this.inUseKeys.clear()
+    this.calls.length = 0
+  },
+}
+
+/**
  * TEST-ONLY reference set — a `replace`/list set exercising the substrate with NO domain consumer
- * (the `__` prefix marks it internal). `asset_type` is NOT built here — it registers in Layer 2b with
- * its in-use probe. Defaults `[a, b, c]`, declared depth `{global, tenant}`.
+ * (the `__` prefix marks it internal). Registers a controllable in-use probe ({@link __testInUseProbe})
+ * so the suppression gate can be exercised. `asset_type` is NOT built here — it registers in Layer 2b with
+ * its real probe. Defaults `[a, b, c]`, declared depth `{global, tenant}`.
  */
 const TEST_REFSET: ReferenceSetDescriptor = {
   setKey: '__test_refset',
@@ -49,6 +65,10 @@ const TEST_REFSET: ReferenceSetDescriptor = {
   ],
   declaredLevels: ['global', 'tenant'],
   resolutionMode: 'replace',
+  inUse: async (tenantId, memberKey) => {
+    __testInUseProbe.calls.push({ tenantId, memberKey })
+    return __testInUseProbe.inUseKeys.has(`${tenantId}:${memberKey}`)
+  },
 }
 
 /**

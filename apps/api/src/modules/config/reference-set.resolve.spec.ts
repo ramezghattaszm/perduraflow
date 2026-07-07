@@ -56,6 +56,11 @@ describe('ReferenceSetService.resolveReferenceSet — membership fold', () => {
     expect(keys(r.members)).toEqual(['a', 'b', 'c']) // plant rung not declared → z not folded in
   })
 
+  it('a tombstone in a level payload omits the inherited member from the resolved set (Commit-3 fold)', async () => {
+    const r = await svc({ '__test_refset:tenant:T1': { payload: { tombstones: ['a'] } } }).resolveReferenceSet('__test_refset', T)
+    expect(keys(r.members)).toEqual(['b', 'c']) // 'a' suppressed
+  })
+
   it('rejects an unknown/unregistered set', async () => {
     await expect(svc().resolveReferenceSet('__nope', T)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
   })

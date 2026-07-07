@@ -65,6 +65,8 @@ export const ERROR_CODES = {
   // intra-module reference validation (resource-group members, op targets)
   INVALID_RESOURCE_REFERENCE: 'INVALID_RESOURCE_REFERENCE',
   INVALID_RESOURCE_GROUP_REFERENCE: 'INVALID_RESOURCE_GROUP_REFERENCE',
+  // config reference-set suppression gate (a tombstone rejected because the value is still referenced)
+  REFERENCE_VALUE_IN_USE: 'REFERENCE_VALUE_IN_USE',
   // unique business-key conflicts within a tenant scope
   DUPLICATE_PART_NO: 'DUPLICATE_PART_NO',
   DUPLICATE_CERTIFICATION_CODE: 'DUPLICATE_CERTIFICATION_CODE',

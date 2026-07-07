@@ -60,27 +60,105 @@ export class ReferenceSetService {
    * - **merge** (map-like sets): a level's member metadata is SHALLOW key-merged onto the inherited
    *   metadata (per-key; the N-level generalization of Layer-1's two-level `shared_attributes` merge).
    *
-   * Either way the resolved membership is the UNION of member keys across the path. Returns members sorted
-   * by key (deterministic). **Tombstone suppression is Commit 3** (this fold does not yet omit any key).
+   * Either way the resolved membership is the UNION of member keys across the path. A level may also
+   * **suppress** an inherited key via a tombstone (applied AFTER that level's contributions), removing it
+   * from the resolved set — the membership analogue of config's reset-to-parent; a more-specific level
+   * re-adding the key overrides the suppression (most-specific-wins). Returns members sorted by key.
    */
   private membershipFold(path: RefScopeRow[], d: ReferenceSetDescriptor): ReferenceSetMember[] {
     const merged = new Map<string, ReferenceMemberMetadata>()
     for (const m of d.platformDefaults) merged.set(m.key, { ...(m.metadata ?? {}) })
 
     for (const { row } of path) {
-      const members = row?.payload?.members
-      if (!members) continue
-      for (const [key, metadata] of Object.entries(members)) {
-        if (d.resolutionMode === 'merge') {
-          merged.set(key, { ...(merged.get(key) ?? {}), ...metadata }) // shallow per-key merge up the path
-        } else {
-          merged.set(key, { ...metadata }) // replace: most-specific wins wholesale
+      const payload = row?.payload
+      if (!payload) continue
+      if (payload.members) {
+        for (const [key, metadata] of Object.entries(payload.members)) {
+          if (d.resolutionMode === 'merge') {
+            merged.set(key, { ...(merged.get(key) ?? {}), ...metadata }) // shallow per-key merge up the path
+          } else {
+            merged.set(key, { ...metadata }) // replace: most-specific wins wholesale
+          }
         }
+      }
+      // Suppression: a tombstone hides an inherited member (applied after this level's adds/overrides).
+      if (payload.tombstones) {
+        for (const key of payload.tombstones) merged.delete(key)
       }
     }
 
     return [...merged.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, metadata]) => ({ key, metadata }))
+  }
+
+  /**
+   * Suppress an inherited member at a level via a tombstone (the resolver then omits it). **Gated by the
+   * in-use probe**: the descriptor MUST declare an `inUse` probe (no suppressable set without one — the
+   * referential-safety invariant), and if the probe reports the value is still referenced the suppression
+   * is rejected with `REFERENCE_VALUE_IN_USE`. `scopeId` is the tenantId (tenant level) or plantId (plant).
+   * Audit lands in Commit 4.
+   * @throws AppException VALIDATION_ERROR - unknown set, or the set declares no in-use probe (unsuppressable).
+   * @throws AppException REFERENCE_VALUE_IN_USE - the member is still referenced (probe returned true).
+   */
+  async suppressMember(
+    setKey: string,
+    level: 'tenant' | 'plant',
+    scopeId: string,
+    tenantId: string,
+    memberKey: string,
+    userId: string | null,
+  ): Promise<ResolvedReferenceSet> {
+    const d = this.descriptorOrThrow(setKey)
+    if (!d.inUse) {
+      // Safety invariant (platform doc §3.6): a set with no in-use probe cannot be suppressed.
+      throw new AppException(HttpStatus.BAD_REQUEST, `Reference set ${setKey} does not support suppression (no in-use probe)`, ERROR_CODES.VALIDATION_ERROR)
+    }
+    if (await d.inUse(tenantId, memberKey)) {
+      throw new AppException(HttpStatus.CONFLICT, `Cannot suppress '${memberKey}' in ${setKey}: still in use`, ERROR_CODES.REFERENCE_VALUE_IN_USE)
+    }
+
+    const existing = await this.repo.findActive(tenantId, setKey, level, scopeId)
+    const prev = existing?.payload ?? {}
+    const tombstones = new Set(prev.tombstones ?? [])
+    tombstones.add(memberKey)
+    const members = { ...(prev.members ?? {}) }
+    delete members[memberKey] // a level can't both add and suppress the same key
+    const payload = { members, tombstones: [...tombstones] }
+    const revision = (existing?.revision ?? 0) + 1
+    if (existing) await this.repo.update(existing.id, payload, revision, userId)
+    else await this.repo.insert({ tenantId, setKey, level, scopeId, payload, revision })
+
+    return this.resolveReferenceSet(setKey, tenantId, level === 'plant' ? scopeId : undefined)
+  }
+
+  /**
+   * Restore a suppressed member — remove its tombstone so it cascades from the parent again (the
+   * membership analogue of reset-to-parent). Always safe → NO in-use probe. When the level's row is left
+   * empty (no members, no tombstones) it is soft-deleted. Audit lands in Commit 4.
+   * @throws AppException VALIDATION_ERROR - unknown set.
+   */
+  async restoreMember(
+    setKey: string,
+    level: 'tenant' | 'plant',
+    scopeId: string,
+    tenantId: string,
+    memberKey: string,
+    userId: string | null,
+  ): Promise<ResolvedReferenceSet> {
+    this.descriptorOrThrow(setKey)
+    const existing = await this.repo.findActive(tenantId, setKey, level, scopeId)
+    if (existing) {
+      const prev = existing.payload ?? {}
+      const tombstones = (prev.tombstones ?? []).filter((k) => k !== memberKey)
+      const members = prev.members ?? {}
+      const revision = existing.revision + 1
+      if (Object.keys(members).length === 0 && tombstones.length === 0) {
+        await this.repo.deactivate(existing.id, userId)
+      } else {
+        await this.repo.update(existing.id, { members, tombstones }, revision, userId)
+      }
+    }
+    return this.resolveReferenceSet(setKey, tenantId, level === 'plant' ? scopeId : undefined)
   }
 }
