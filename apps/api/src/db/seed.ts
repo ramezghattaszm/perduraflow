@@ -14,6 +14,7 @@ import {
   program,
 } from '../modules/org/schema'
 import {
+  assetPartMap,
   bom,
   bomComponent,
   certification,
@@ -28,6 +29,8 @@ import {
   resourceTypeConfig,
   routing,
   routingOperation,
+  toolingAsset,
+  toolingEligibleResource,
   uomConversion,
 } from '../modules/master-data/schema'
 import { contractBinding } from '../modules/binding/schema'
@@ -404,6 +407,9 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       // Layer 1 §4C: extensible custom-attribute map (MD12); one part carries it to exercise the
       // per-plant shared_attributes key-merge (§4E). Not read by the sequencer.
       sharedAttributes?: Record<string, unknown>
+      // Layer 2 §5.5: the pointer into the Asset domain (D-L2-5). One part sets it so the Layer-1 pointer
+      // resolves to a real tooling family (the seeded die below). Not read by the sequencer.
+      toolFamily?: string
     }): Promise<string> => {
       const id = (
         await db
@@ -423,6 +429,8 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       colour: 'Bare',
       // Global custom attributes — the Saltillo part_plant override (§4E, below) merges over these.
       sharedAttributes: { finish: 'standard', tolerance: '0.10mm' },
+      // Layer-1 → Asset pointer: resolves to the STAMP-BODY-A die seeded below (D-L2-5).
+      toolFamily: 'STAMP-BODY-A',
     })
     const sal1002 = await mkPart({
       partNo: 'SAL-1002',
@@ -928,6 +936,32 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       qty: 1_000_000,
     })
 
+    // === Tooling asset (Layer 2 2b — Pattern B, D-L2-5) ==========================
+    // One stamping die for the SAL-1001 body-side panel. `asset_type` = 'die' — a member of the resolved
+    // `asset_type` reference set (platform defaults [tool, die, mold, fixture], D-L2-7). `tool_family`
+    // 'STAMP-BODY-A' is exactly the pointer SAL-1001.tool_family carries → the Layer-1 dangling pointer
+    // now resolves. Eligible on both Saltillo presses (eligibility), mapped to the part it produces
+    // (asset↔part). Seeded directly (bypasses the service write-validation, which the specs cover) — the
+    // asset is additive reference data the sequencer never reads; the schedule is unchanged by it.
+    const [stampDie] = await db
+      .insert(toolingAsset)
+      .values({
+        tenantId,
+        assetId: 'DIE-STAMP-BODY-A',
+        assetType: 'die',
+        toolFamily: 'STAMP-BODY-A',
+        plantId: saltillo!.id,
+        toolLifeUnits: '250000', // exact numeric (native decimal string) — strokes budget
+        toolLifeUom: 'strokes',
+        singleLocation: true,
+      })
+      .returning()
+    await db.insert(toolingEligibleResource).values([
+      { tenantId, toolingAssetId: stampDie!.id, resourceId: pressA!.id },
+      { tenantId, toolingAssetId: stampDie!.id, resourceId: pressB!.id },
+    ])
+    await db.insert(assetPartMap).values({ tenantId, toolingAssetId: stampDie!.id, partNo: 'SAL-1001' })
+
     // === Historical outcomes (D57 measured_historical) — representative seed =====
     // Prior weeks' recorded actuals the VS-Baseline (measured_historical) arm computes from — one row
     // per PLANT and per producing LANE, so the Scorecard's "VS Baseline" shows numbers for every lane
@@ -1016,6 +1050,9 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
     )
     console.log(
       '  ✓ historical outcomes: 7 rows (2 plants + every producing lane — VS-Baseline shows per-lane)'
+    )
+    console.log(
+      "  ✓ Layer-2: SAL-1004 published BOM → coil buy-leaf; tooling die 'DIE-STAMP-BODY-A' (type die, family STAMP-BODY-A ← SAL-1001.tool_family, eligible Press A/B)"
     )
   }
 
