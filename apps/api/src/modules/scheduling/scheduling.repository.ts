@@ -8,7 +8,6 @@ import {
   demandInput,
   historicalOutcome,
   materialAvailability,
-  materialRequirement,
   resourceOperatorAssignment,
   optimizerRun,
   scheduledOperation,
@@ -20,7 +19,6 @@ import {
   type DemandInput,
   type HistoricalOutcome,
   type MaterialAvailability,
-  type MaterialRequirement,
   type ResourceOperatorAssignment,
   type NewConversation,
   type NewConversationTurn,
@@ -67,13 +65,8 @@ export class SchedulingRepository {
   }
 
   // --- material gate (§4.8 inputs, D36) --------------------------------------
-  /** Buy-component requirements (BOM-lite) for the plant — interim until master-data BOM. */
-  listMaterialRequirements(tenantId: string, plantId: string): Promise<MaterialRequirement[]> {
-    return this.db
-      .select()
-      .from(materialRequirement)
-      .where(and(eq(materialRequirement.tenantId, tenantId), eq(materialRequirement.plantId, plantId)))
-  }
+  // Buy-component requirements now come from the master-data BOM (explode → buy leaves), resolved via the
+  // `bom.read` binding in the service (D-L2-4); the interim `material_requirement` table is retired.
 
   /** Component availability dates for the plant (on-hand + receipts → availableAt). */
   listMaterialAvailability(tenantId: string, plantId: string): Promise<MaterialAvailability[]> {

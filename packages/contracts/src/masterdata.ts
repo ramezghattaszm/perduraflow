@@ -50,8 +50,8 @@ export type PartType = z.infer<typeof partTypeSchema>
 /**
  * Make-vs-buy sourcing (Layer 1, MD/§5.1) — the **authoritative** flag (distinct from the descriptive
  * `part_type`). `make` = produced in-house; `buy` = purchased (the material gate's buy-component). The
- * global (all-plants) default; a plant may override it in `part_plant` (Layer 1 §4E). Backfilled from the
- * de-facto signal (a `component_part_no` in `material_requirement` → `buy`, else `make`) at introduction.
+ * global (all-plants) default; a plant may override it in `part_plant` (Layer 1 §4E). Backfilled at Layer-1
+ * introduction from the de-facto buy signal (the then-interim BOM-lite link, since retired for the real BOM).
  */
 export const makeBuySchema = z.enum(['make', 'buy'])
 export type MakeBuy = z.infer<typeof makeBuySchema>

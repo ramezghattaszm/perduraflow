@@ -1,0 +1,1 @@
+DROP TABLE "scheduling"."material_requirement" CASCADE;

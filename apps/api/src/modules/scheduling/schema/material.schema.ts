@@ -30,32 +30,9 @@ export const materialAvailability = schedulingSchema.table(
   }),
 )
 
-/**
- * Material requirement (BOM-lite) — **interim** source for which finished part consumes
- * which buy-component (FG → component, qty/unit), so the material gate (D36) has something
- * to explode against while the real Master-Data BOM is deferred (SKIP-45). **This table is
- * temporary**: when the master-data BOM lands, the gate reads the BOM (§5.1) and this table
- * retires — a clean swap that keeps the master-data ownership boundary intact today. Buy
- * components only (no `make` / dependent-demand / precedence; that's D37). `part_no` /
- * `component_part_no` → master-data by the durable **business key** (Pattern A; resolve-as-of,
- * never a part version `id`), no FK — O4.
- */
-export const materialRequirement = schedulingSchema.table(
-  'material_requirement',
-  {
-    id: text('id').primaryKey().$defaultFn(generateId),
-    tenantId: text('tenant_id').notNull(),
-    plantId: text('plant_id').notNull(),
-    partNo: text('part_no').notNull(), // finished part (business key)
-    componentPartNo: text('component_part_no').notNull(), // consumed buy-component (business key)
-    qtyPerUnit: doublePrecision('qty_per_unit').notNull().default(1),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => ({
-    tenantIdx: index('material_requirement_tenant_idx').on(t.tenantId),
-    partIdx: index('material_requirement_part_no_idx').on(t.partNo),
-  }),
-)
+// Material requirement (the interim BOM-lite table) was RETIRED in Layer 2 2a.5 (D-L2-4, migration 0035):
+// the material gate now explodes each FG's published master-data BOM → buy leaves (via the `bom.read`
+// binding) instead. `material_availability` (below) is unchanged — it stays the availability-date input.
 
 /**
  * Resource ↔ operator assignment (C5, §4.8) — a **consumed pinned** scheduler input: who
@@ -92,7 +69,5 @@ export const resourceOperatorAssignment = schedulingSchema.table(
 
 export type MaterialAvailability = typeof materialAvailability.$inferSelect
 export type NewMaterialAvailability = typeof materialAvailability.$inferInsert
-export type MaterialRequirement = typeof materialRequirement.$inferSelect
-export type NewMaterialRequirement = typeof materialRequirement.$inferInsert
 export type ResourceOperatorAssignment = typeof resourceOperatorAssignment.$inferSelect
 export type NewResourceOperatorAssignment = typeof resourceOperatorAssignment.$inferInsert

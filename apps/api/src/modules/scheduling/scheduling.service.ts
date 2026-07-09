@@ -1,7 +1,9 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common'
 import {
+  BOM_READ_CONTRACT,
   MASTERDATA_READ_CONTRACT,
   type AtRiskOrderDto,
+  type BomReadContract,
   type CalendarDto,
   type CoverageAxisDto,
   type CoverageCell,
@@ -215,6 +217,40 @@ export class SchedulingService {
     return this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
   }
 
+  /** Resolve the BOM contract bound to this tenant (O7) — the material gate's structure source (D-L2-4). */
+  private resolveBomRead(tenantId: string): Promise<BomReadContract> {
+    return this.bindings.resolve<BomReadContract>(tenantId, BOM_READ_CONTRACT)
+  }
+
+  /**
+   * The material gate's BOM-sourced input (D-L2-4, replaces the retired `material_requirement`): per finished
+   * `part_no`, the **BUY-component leaves** of its published BOM as-of `asOf` (default now) — the components
+   * the availability floor gates on. Explodes each FG (topology, cycle-safe) and keeps leaves whose part is
+   * `make_buy='buy'` (`make` sub-assemblies recurse; a make leaf never has an availability row anyway). A FG
+   * with no BOM → no entry (on-hand). BOM is tenant-scoped; the availability lookup stays plant-scoped.
+   */
+  private async bomBuyComponentsByFg(tenantId: string, fgPartNos: string[], asOf?: string): Promise<Map<string, string[]>> {
+    const md = await this.resolveMasterData(tenantId)
+    const bomRead = await this.resolveBomRead(tenantId)
+    const makeBuy = new Map<string, 'make' | 'buy' | null>()
+    const byFg = new Map<string, string[]>()
+    for (const fg of new Set(fgPartNos)) {
+      const explosion = await bomRead.explodeBom(tenantId, fg, asOf)
+      const buyLeaves: string[] = []
+      for (const comp of new Set(explosion.nodes.filter((n) => n.isLeaf).map((n) => n.partNo))) {
+        let mb = makeBuy.get(comp)
+        if (mb === undefined) {
+          const part = await md.resolvePart(tenantId, comp, { asOf })
+          mb = part?.makeBuy ?? null
+          makeBuy.set(comp, mb)
+        }
+        if (mb === 'buy') buyLeaves.push(comp)
+      }
+      if (buyLeaves.length > 0) byFg.set(fg, buyLeaves)
+    }
+    return byFg
+  }
+
   // --- reads -----------------------------------------------------------------
   /** Lists the plant's schedule versions (newest first) for the board selector. */
   async listVersions(tenantId: string, plantId: string): Promise<ScheduleVersionDto[]> {
@@ -234,23 +270,27 @@ export class SchedulingService {
     const md = await this.resolveMasterData(tenantId)
     const resName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
     const partNo = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
-    // Per part, the binding gate component = the requirement whose component arrives latest (matches
-    // the sequencer's earliestStartMs = max availability). null = no material gate on that part.
-    // Material tables key by the durable part_no (Layer 0). compByPart maps FG part_no → gating
-    // component part_no; the lateness lookup below resolves an op's frozen-snapshot part VERSION id
-    // to its part_no first (via `partNo`), then looks it up here.
+    // Per part, the binding gate component = the BOM buy-leaf whose availability is LATEST (matches the
+    // sequencer's earliestStartMs = max availability). null = no material gate on that part. compByPart maps
+    // FG part_no → gating component part_no (BOM-sourced, D-L2-4); the lateness lookup below resolves an op's
+    // frozen-snapshot part VERSION id to its part_no first (via `partNo`), then looks it up here.
     const availAt = new Map<string, number>()
     for (const a of await this.repo.listMaterialAvailability(tenantId, plantId)) {
       availAt.set(a.componentPartNo, Math.max(availAt.get(a.componentPartNo) ?? 0, a.availableAt.getTime()))
     }
+    const buyByFg = await this.bomBuyComponentsByFg(tenantId, [...new Set(ops.map((o) => partNo.get(o.partId) ?? o.partId))])
     const compByPart = new Map<string, string>()
-    const bestAt = new Map<string, number>()
-    for (const r of await this.repo.listMaterialRequirements(tenantId, plantId)) {
-      const at = availAt.get(r.componentPartNo) ?? 0
-      if (at >= (bestAt.get(r.partNo) ?? -1)) {
-        bestAt.set(r.partNo, at)
-        compByPart.set(r.partNo, r.componentPartNo)
+    for (const [fg, comps] of buyByFg) {
+      let best = -1
+      let bestComp: string | undefined
+      for (const c of comps) {
+        const at = availAt.get(c) ?? 0
+        if (at >= best) {
+          best = at
+          bestComp = c
+        }
       }
+      if (bestComp) compByPart.set(fg, bestComp)
     }
     // Downtime windows by id — so a `resource_downtime` root narrates the stored window (kind + reason).
     // Active windows (in-effect / future) resolve fully; a window already retracted or expired (e.g. the
@@ -489,16 +529,19 @@ export class SchedulingService {
     const version = versionId ? await this.repo.findVersion(tenantId, versionId) : await this.repo.findCommittedVersion(tenantId, plantId)
     if (!version) return []
     const ops = await this.repo.operationsForVersion(version.id)
-    const reqs = await this.repo.listMaterialRequirements(tenantId, plantId)
-    // componentPartNo → the FG part_nos that consume it (material tables key by business key, Layer 0).
-    const partsByComponent = new Map<string, Set<string>>()
-    for (const r of reqs) {
-      const set = partsByComponent.get(r.componentPartNo) ?? new Set<string>()
-      set.add(r.partNo)
-      partsByComponent.set(r.componentPartNo, set)
-    }
     // Resolve an op's frozen-snapshot part VERSION id to its part_no to match against FG part_nos.
     const partNo = new Map((await (await this.resolveMasterData(tenantId)).listParts(tenantId)).map((p) => [p.id, p.partNo]))
+    // componentPartNo → the FG part_nos that consume it, sourced from each FG's BOM explosion → buy leaves
+    // (D-L2-4, replacing the retired material_requirement).
+    const buyByFg = await this.bomBuyComponentsByFg(tenantId, [...new Set(ops.map((o) => partNo.get(o.partId) ?? o.partId))])
+    const partsByComponent = new Map<string, Set<string>>()
+    for (const [fg, comps] of buyByFg) {
+      for (const c of comps) {
+        const set = partsByComponent.get(c) ?? new Set<string>()
+        set.add(fg)
+        partsByComponent.set(c, set)
+      }
+    }
     const conditions: MaterialConditionDto[] = []
     for (const a of avail) {
       const parts = partsByComponent.get(a.componentPartNo)
@@ -766,17 +809,23 @@ export class SchedulingService {
     const routingCache = new Map<string, Awaited<ReturnType<typeof md.resolveRouting>>>()
     const groupCache = new Map<string, Awaited<ReturnType<typeof md.getResourceGroup>>>()
 
-    // Material gate (D36, §4.8) keyed by the durable part_no (Layer 0): per finished part_no, the
-    // earliest start its consumed buy-components allow = the latest component availability. Sourced from
-    // the interim material_requirement (BOM-lite) + material_availability. No availability row = on-hand.
+    // Material gate (D36, §4.8) keyed by the durable part_no: per finished part_no, the earliest start its
+    // consumed buy-components allow = the latest component availability. Sourced from each FG's published
+    // BOM explosion → buy leaves (D-L2-4, replacing the retired material_requirement) + material_availability.
+    // No availability row = on-hand (no gate).
     const availMs = new Map<string, number>()
     for (const a of await this.repo.listMaterialAvailability(tenantId, plantId)) {
       availMs.set(a.componentPartNo, Math.max(availMs.get(a.componentPartNo) ?? 0, a.availableAt.getTime()))
     }
+    const buyByFg = await this.bomBuyComponentsByFg(tenantId, [...new Set(demand.map((d) => d.partNo))], asOfIso)
     const earliestByPart = new Map<string, number>()
-    for (const r of await this.repo.listMaterialRequirements(tenantId, plantId)) {
-      const ms = availMs.get(r.componentPartNo)
-      if (ms != null) earliestByPart.set(r.partNo, Math.max(earliestByPart.get(r.partNo) ?? 0, ms))
+    for (const [fg, comps] of buyByFg) {
+      let latest = 0
+      for (const c of comps) {
+        const ms = availMs.get(c)
+        if (ms != null) latest = Math.max(latest, ms)
+      }
+      if (latest > 0) earliestByPart.set(fg, latest)
     }
 
     // Order-release floor: PAST-dated demand sits on its own past day; today/future demand floors at

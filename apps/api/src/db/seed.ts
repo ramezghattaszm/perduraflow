@@ -14,6 +14,8 @@ import {
   program,
 } from '../modules/org/schema'
 import {
+  bom,
+  bomComponent,
   certification,
   operator,
   operatorQualification,
@@ -33,7 +35,6 @@ import {
   demandInput,
   historicalOutcome,
   materialAvailability,
-  materialRequirement,
   resourceOperatorAssignment,
 } from '../modules/scheduling/schema'
 import { configOverride, referenceSetOverride } from '../modules/config/schema'
@@ -907,16 +908,17 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       }))
     )
 
-    // Material gate wiring for the SAL-1004 honest-no beat (D36): SAL-1004 consumes the HSLA coil
-    // (requirement link, BOM-lite); the coil isn't on hand until the due-day 14:00. The Press-B op
-    // can't start before then → finish slips past the 18:00 due, and OT can't recover the gated start.
-    await db.insert(materialRequirement).values({
-      tenantId,
-      plantId: saltillo!.id,
-      partNo: partNoOf.get(sal1004)!,
-      componentPartNo: partNoOf.get(coil)!,
-      qtyPerUnit: 1,
-    })
+    // Material gate wiring for the SAL-1004 honest-no beat (D36): SAL-1004 consumes the HSLA coil, now
+    // expressed as a real master-data BOM (D-L2-4 — the interim material_requirement is retired). One
+    // published, open BOM version (effective well before the window so it resolves at every build asOf)
+    // whose single edge → the coil buy-leaf. The gate explodes this → COIL-HSLA-18 (buy) → the coil isn't
+    // on hand until the due-day 14:00, so the Press-B op can't start before then → finish slips past the
+    // 18:00 due, and OT can't recover the gated start. Same buy-leaf the interim table produced.
+    const [sal1004Bom] = await db
+      .insert(bom)
+      .values({ tenantId, parentPartNo: partNoOf.get(sal1004)!, revision: 'A', status: 'published', effectiveFrom: at(-30), effectiveTo: null })
+      .returning()
+    await db.insert(bomComponent).values({ tenantId, bomId: sal1004Bom!.id, componentPartNo: partNoOf.get(coil)!, qtyPer: '1' })
     await db.insert(materialAvailability).values({
       tenantId,
       plantId: saltillo!.id,
