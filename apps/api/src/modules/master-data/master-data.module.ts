@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { OrgModule } from '../org/org.module'
+import { BOM_READ, BomReadService } from './bom-read.service'
 import { MasterDataAdminController } from './master-data.admin.controller'
 import { MasterDataController } from './master-data.controller'
 import { masterDataDbProvider } from './master-data.db'
@@ -28,7 +29,9 @@ import { MasterDataService } from './master-data.service'
     MasterDataService,
     MasterDataReadService,
     { provide: MASTERDATA_READ, useExisting: MasterDataReadService },
+    BomReadService,
+    { provide: BOM_READ, useExisting: BomReadService },
   ],
-  exports: [MASTERDATA_READ],
+  exports: [MASTERDATA_READ, BOM_READ],
 })
 export class MasterDataModule {}

@@ -1,6 +1,10 @@
-import { Body, Controller, Delete, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Param, Patch, Post, Put, UseGuards } from '@nestjs/common'
 import {
   addUomFactorSchema,
+  publishBomSchema,
+  reviseBomSchema,
+  type PublishBomRequest,
+  type ReviseBomRequest,
   createCertificationSchema,
   createOperatorSchema,
   createPartSchema,
@@ -40,6 +44,7 @@ import { ConfigureGuard } from '../../common/guards/configure.guard'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
 import type { JwtPayload } from '../../common/types/jwt-payload.types'
+import { BomReadService } from './bom-read.service'
 import { MasterDataService } from './master-data.service'
 
 /**
@@ -50,7 +55,31 @@ import { MasterDataService } from './master-data.service'
 @Controller('admin/master-data')
 @UseGuards(JwtAuthGuard, ConfigureGuard)
 export class MasterDataAdminController {
-  constructor(private readonly md: MasterDataService) {}
+  constructor(
+    private readonly md: MasterDataService,
+    private readonly bom: BomReadService,
+  ) {}
+
+  // --- bom draft authoring (Layer 2 2a — native-SoR writes, both guards) -----
+  /** `PUT /admin/master-data/boms/:parentPartNo/draft` — author/replace the open draft BOM + its edges. */
+  @Put('boms/:parentPartNo/draft')
+  reviseBom(
+    @CurrentUser() user: JwtPayload,
+    @Param('parentPartNo') parentPartNo: string,
+    @Body(new ZodValidationPipe(reviseBomSchema)) dto: ReviseBomRequest,
+  ) {
+    return this.bom.reviseBom(user.tenantId, parentPartNo, dto, user.sub)
+  }
+
+  /** `POST /admin/master-data/boms/:parentPartNo/publish` — publish the open draft (integrity-gated, blocking). */
+  @Post('boms/:parentPartNo/publish')
+  publishBom(
+    @CurrentUser() user: JwtPayload,
+    @Param('parentPartNo') parentPartNo: string,
+    @Body(new ZodValidationPipe(publishBomSchema)) dto: PublishBomRequest,
+  ) {
+    return this.bom.publishBom(user.tenantId, parentPartNo, dto.effectiveFrom, user.sub)
+  }
 
   // --- part ------------------------------------------------------------------
   /** `POST /admin/master-data/parts` — create a part. */

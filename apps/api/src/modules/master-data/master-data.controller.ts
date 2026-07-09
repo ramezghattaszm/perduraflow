@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import type { JwtPayload } from '../../common/types/jwt-payload.types'
+import { BomReadService } from './bom-read.service'
 import { MasterDataService } from './master-data.service'
 
 /**
@@ -12,7 +13,10 @@ import { MasterDataService } from './master-data.service'
 @Controller('master-data')
 @UseGuards(JwtAuthGuard)
 export class MasterDataController {
-  constructor(private readonly md: MasterDataService) {}
+  constructor(
+    private readonly md: MasterDataService,
+    private readonly bom: BomReadService,
+  ) {}
 
   /** `GET /master-data/parts` — all parts in the tenant. */
   @Get('parts')
@@ -60,5 +64,30 @@ export class MasterDataController {
   @Get('operators')
   listOperators(@CurrentUser() user: JwtPayload) {
     return this.md.listOperators(user.tenantId)
+  }
+
+  // --- bom.read reads (Layer 2 2a — auth-only) -------------------------------
+  /** `GET /master-data/boms/where-used/:componentPartNo?asOf=` — parents that consume the component (as-of). */
+  @Get('boms/where-used/:componentPartNo')
+  bomWhereUsed(@CurrentUser() user: JwtPayload, @Param('componentPartNo') componentPartNo: string, @Query('asOf') asOf?: string) {
+    return this.bom.whereUsed(user.tenantId, componentPartNo, asOf)
+  }
+
+  /** `GET /master-data/boms/:parentPartNo/explode?asOf=` — the multi-level explosion (topology). */
+  @Get('boms/:parentPartNo/explode')
+  bomExplode(@CurrentUser() user: JwtPayload, @Param('parentPartNo') parentPartNo: string, @Query('asOf') asOf?: string) {
+    return this.bom.explodeBom(user.tenantId, parentPartNo, asOf)
+  }
+
+  /** `GET /master-data/boms/:parentPartNo/integrity?asOf=` — integrity findings for the draft (or published-as-of). */
+  @Get('boms/:parentPartNo/integrity')
+  bomIntegrity(@CurrentUser() user: JwtPayload, @Param('parentPartNo') parentPartNo: string, @Query('asOf') asOf?: string) {
+    return this.bom.validateBomIntegrity(user.tenantId, parentPartNo, asOf)
+  }
+
+  /** `GET /master-data/boms/:parentPartNo?asOf=` — the BOM version effective as-of + edges, or null. */
+  @Get('boms/:parentPartNo')
+  resolveBom(@CurrentUser() user: JwtPayload, @Param('parentPartNo') parentPartNo: string, @Query('asOf') asOf?: string) {
+    return this.bom.resolveBom(user.tenantId, parentPartNo, asOf)
   }
 }
