@@ -35,33 +35,41 @@ export class AssetReadService implements AssetReadContract {
   ) {}
 
   // --- resource surface (moved; delegates to the masterdata.read impl, same rows) ---
+  /** One resource by id (tenant-scoped), or null. Delegates to the masterdata.read impl (same row). */
   getResource(tenantId: string, id: string): Promise<ResourceDto | null> {
     return this.mdRead.getResource(tenantId, id)
   }
+  /** All resources in the tenant. Delegates to the masterdata.read impl (same rows). */
   listResources(tenantId: string): Promise<ResourceDto[]> {
     return this.mdRead.listResources(tenantId)
   }
+  /** One resource group (with members) by id, or null. Delegates to the masterdata.read impl. */
   getResourceGroup(tenantId: string, id: string): Promise<ResourceGroupDto | null> {
     return this.mdRead.getResourceGroup(tenantId, id)
   }
+  /** The tenant's resource-type configs (splittable / OT cap / min batch). Delegates to the masterdata.read impl. */
   listResourceTypeConfigs(tenantId: string): Promise<ResourceTypeConfigDto[]> {
     return this.mdRead.listResourceTypeConfigs(tenantId)
   }
+  /** Active downtime windows (optional `plantId` filter). Delegates to the masterdata.read impl. */
   listActiveDowntime(tenantId: string, plantId?: string): Promise<ResourceDowntimeDto[]> {
     return this.mdRead.listActiveDowntime(tenantId, plantId)
   }
 
   // --- tooling reads ---
+  /** One tooling asset by id (with eligibility + parts), or null. */
   async getToolingAsset(tenantId: string, id: string): Promise<ToolingAssetDto | null> {
     const asset = await this.repo.findToolingAsset(tenantId, id)
     if (!asset) return null
     return this.toDto({ asset, eligibleResourceIds: await this.repo.eligibleResourceIdsFor(id), partNos: await this.repo.partNosForToolingAsset(id) })
   }
 
+  /** All tooling assets in the tenant (each with eligibility + parts). */
   async listToolingAssets(tenantId: string): Promise<ToolingAssetDto[]> {
     return (await this.md.listToolingAssets(tenantId)).map((a) => this.toDto(a))
   }
 
+  /** The tooling assets that produce a given part (via the asset↔part map). */
   async getAssetsForPart(tenantId: string, partNo: string): Promise<ToolingAssetDto[]> {
     const assets = await this.repo.assetsForPart(tenantId, partNo)
     return Promise.all(
@@ -72,12 +80,15 @@ export class AssetReadService implements AssetReadContract {
   }
 
   // --- tooling admin CRUD ---
+  /** Create a tooling asset (Pattern B, audited). `actor` is threaded onto the audit trail. */
   async createToolingAsset(tenantId: string, input: CreateToolingAssetRequest, actor: string): Promise<ToolingAssetDto> {
     return this.toDto(await this.md.createToolingAsset(tenantId, input, actor))
   }
+  /** Update a tooling asset in place (Pattern B, audited). `actor` is threaded onto the audit trail. */
   async updateToolingAsset(tenantId: string, id: string, input: UpdateToolingAssetRequest, actor: string): Promise<ToolingAssetDto> {
     return this.toDto(await this.md.updateToolingAsset(tenantId, id, input, actor))
   }
+  /** Deactivate a tooling asset (soft-delete, Pattern B, audited). `actor` is threaded onto the audit trail. */
   async deactivateToolingAsset(tenantId: string, id: string, actor: string): Promise<ToolingAssetDto> {
     return this.toDto(await this.md.deactivateToolingAsset(tenantId, id, actor))
   }

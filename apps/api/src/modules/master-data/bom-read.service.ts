@@ -31,19 +31,23 @@ export class BomReadService implements BomReadContract {
     private readonly repo: MasterDataRepository,
   ) {}
 
+  /** The published BOM version effective as-of + its edges, or null (drafts never resolve). */
   async resolveBom(tenantId: string, parentPartNo: string, asOf?: string): Promise<ResolvedBomDto | null> {
     const resolved = await this.resolver.resolveBom(tenantId, parentPartNo, asOf)
     return resolved ? this.toBomDto(resolved.bom, resolved.components) : null
   }
 
+  /** The multi-level explosion topology as-of (recursive, cycle-safe, derives `level`). */
   explodeBom(tenantId: string, parentPartNo: string, asOf?: string): Promise<BomExplosionDto> {
     return this.resolver.explodeBom(tenantId, parentPartNo, asOf)
   }
 
+  /** The parents that consume a component as-of (structural traversal up). */
   whereUsed(tenantId: string, componentPartNo: string, asOf?: string): Promise<WhereUsedDto> {
     return this.resolver.whereUsed(tenantId, componentPartNo, asOf)
   }
 
+  /** Integrity findings for the draft (or published-as-of): components-exist, acyclic, effectivity, make/buy. */
   validateBomIntegrity(tenantId: string, parentPartNo: string, asOf?: string): Promise<BomIntegrityResultDto> {
     return this.resolver.validateBomIntegrity(tenantId, parentPartNo, asOf)
   }
