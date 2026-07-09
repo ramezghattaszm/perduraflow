@@ -74,6 +74,8 @@ export const ERROR_CODES = {
   INVALID_REVISION_EFFECTIVE_FROM: 'INVALID_REVISION_EFFECTIVE_FROM',
   // Layer 2 BOM (Pattern A + draft/publish): no open draft to publish for a parent.
   BOM_NOT_FOUND: 'BOM_NOT_FOUND',
+  // Layer 2 BOM integrity gate (D-L2-6): the BOM failed validation (missing component / cycle / effectivity / make-buy) — cannot publish.
+  INVALID_BOM: 'INVALID_BOM',
   // scheduling module (phase 2, api-spec §11.6)
   SCHEDULE_VERSION_NOT_FOUND: 'SCHEDULE_VERSION_NOT_FOUND',
   // Only a draft may be discarded — committed/superseded are immutable (IATF/audit). The boundary.

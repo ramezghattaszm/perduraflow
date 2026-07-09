@@ -90,6 +90,26 @@ export interface WhereUsedResult {
   parents: WhereUsedParent[]
 }
 
+/** A BOM integrity failure kind (D-L2-6) — topology only, no plan quantities. */
+export type BomIntegrityKind = 'COMPONENT_NOT_FOUND' | 'CYCLE' | 'EFFECTIVITY_INCONSISTENT' | 'MAKE_BUY_INCOHERENT'
+
+/** One structured integrity finding (an author-facing reason a BOM is invalid). */
+export interface BomIntegrityFinding {
+  kind: BomIntegrityKind
+  /** The offending component (component-level findings). */
+  component?: string
+  /** The ancestor path that closed a cycle (`CYCLE`). */
+  path?: string[]
+  detail: string
+}
+
+/** Result of {@link MasterDataResolver.validateBomIntegrity} — `ok` + the findings (empty when valid). */
+export interface BomIntegrityResult {
+  parentPartNo: string
+  ok: boolean
+  findings: BomIntegrityFinding[]
+}
+
 /** The overridable fields a per-plant override may set (§4E). `undefined` = leave/inherit prior; `null` = inherit the global part value. */
 export interface PartPlantOverrideChanges {
   makeBuy?: MakeBuy | null
@@ -647,14 +667,20 @@ export class MasterDataResolver {
     const draft = await this.repo.findOpenDraftBom(tenantId, parentPartNo)
     if (!draft) throw new AppException(HttpStatus.NOT_FOUND, 'No open BOM draft to publish', ERROR_CODES.BOM_NOT_FOUND)
 
-    // Integrity gate (D-L2-6) — BLOCKING on publish. Placeholder in 2a.1 (components-exist / acyclic /
-    // effectivity-consistency / make-buy coherence land in 2a.2); the seam is here so publish can't skip it.
-    await this.assertBomPublishable(tenantId, draft.id)
-
     const prior = await this.repo.findOpenPublishedBom(tenantId, parentPartNo)
     const effectiveFrom = prior
       ? this.assertAfter(effectiveFromIso, prior.effectiveFrom!)
       : new Date(effectiveFromIso)
+
+    // Integrity gate (D-L2-6) — BLOCKING: an invalid BOM cannot publish. Checked as-of the window start.
+    const integrity = await this.validateBomIntegrity(tenantId, parentPartNo, effectiveFrom.toISOString())
+    if (!integrity.ok) {
+      throw new AppException(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        `BOM integrity failed: ${integrity.findings.map((f) => f.detail).join('; ')}`,
+        ERROR_CODES.INVALID_BOM,
+      )
+    }
 
     const auditRows: NewMasterDataAudit[] = [
       {
@@ -751,9 +777,74 @@ export class MasterDataResolver {
     return { componentPartNo, parents }
   }
 
-  /** Integrity gate seam (D-L2-6) — blocking on publish. Placeholder until 2a.3 (components-exist / acyclic / etc.). */
-  private async assertBomPublishable(_tenantId: string, _draftId: string): Promise<void> {
-    // 2a.3: run validateBomIntegrity and throw INVALID_BOM on failure. No-op placeholder for now.
+  /**
+   * BOM integrity validation (Layer 2 §4a.2, D-L2-6) — **topology only, no plan quantities**. Validates the
+   * DRAFT for a parent (an author checking before publish), or the published version effective at `asOf`
+   * when there is no draft. Structured findings for: (1) every component resolves to a part; (2) acyclic
+   * (the 2a.2 ancestor-path cycle detection, seeded with the parent); (3) effectivity consistency (a `make`
+   * component whose recipe exists but is NOT effective at the reference point — an effectivity gap); (4)
+   * make/buy coherence (a `buy` component must not carry its own BOM — a purchased part has no recipe).
+   * Runs BLOCKING on `publishBom` and is exposed here on-demand. `asOf` defaults to now; publish passes the
+   * intended `effectiveFrom` (the window the BOM is about to open at).
+   */
+  async validateBomIntegrity(tenantId: string, parentPartNo: string, asOf?: string): Promise<BomIntegrityResult> {
+    const at = asOf ? new Date(asOf) : new Date()
+    const target = (await this.repo.findOpenDraftBom(tenantId, parentPartNo)) ?? (await this.repo.findBomAsOf(tenantId, parentPartNo, at))
+    if (!target) return { parentPartNo, ok: true, findings: [] } // nothing to validate
+    const findings = await this.checkBomIntegrity(tenantId, target, at)
+    return { parentPartNo, ok: findings.length === 0, findings }
+  }
+
+  /** The integrity findings for a specific BOM version's edges (topology, as-of `at`). */
+  private async checkBomIntegrity(tenantId: string, version: Bom, at: Date): Promise<BomIntegrityFinding[]> {
+    const findings: BomIntegrityFinding[] = []
+    const edges = await this.repo.bomComponentsFor(version.id)
+
+    for (const e of edges) {
+      const comp = e.componentPartNo
+      const part = await this.repo.findPartAsOf(tenantId, comp, at)
+      if (!part) {
+        findings.push({ kind: 'COMPONENT_NOT_FOUND', component: comp, detail: `Component ${comp} does not resolve to a part as-of` })
+        continue // no part → can't assess make/buy or effectivity
+      }
+      const childBomAsOf = await this.repo.findBomAsOf(tenantId, comp, at)
+      if (part.makeBuy === 'buy' && childBomAsOf) {
+        findings.push({ kind: 'MAKE_BUY_INCOHERENT', component: comp, detail: `Buy component ${comp} has its own BOM (a purchased part has no recipe)` })
+      }
+      if (part.makeBuy === 'make' && !childBomAsOf && (await this.repo.hasAnyPublishedBom(tenantId, comp))) {
+        findings.push({ kind: 'EFFECTIVITY_INCONSISTENT', component: comp, detail: `Make component ${comp} has a BOM but none effective at the parent's window` })
+      }
+    }
+
+    // Acyclic — seed the ancestor path with the parent and walk the published subtree of each edge (2a.2 technique).
+    for (const cycle of await this.detectBomCyclesFromEdges(tenantId, version.parentPartNo, edges, at)) {
+      findings.push({ kind: 'CYCLE', path: cycle.path, detail: `Cycle: ${cycle.path.join(' → ')}` })
+    }
+    return findings
+  }
+
+  /** Cycle detection over a BOM's edges (D-L2-6) — the parent seeds the ancestor path; a re-entry is a cycle. */
+  private async detectBomCyclesFromEdges(tenantId: string, rootPartNo: string, rootEdges: BomComponent[], at: Date): Promise<BomCycle[]> {
+    const cycles: BomCycle[] = []
+    const walk = async (partNo: string, path: Set<string>): Promise<void> => {
+      const v = await this.repo.findBomAsOf(tenantId, partNo, at)
+      if (!v) return
+      for (const e of await this.repo.bomComponentsFor(v.id)) {
+        if (path.has(e.componentPartNo)) {
+          cycles.push({ path: [...path, e.componentPartNo] })
+          continue
+        }
+        await walk(e.componentPartNo, new Set([...path, e.componentPartNo]))
+      }
+    }
+    for (const e of rootEdges) {
+      if (e.componentPartNo === rootPartNo) {
+        cycles.push({ path: [rootPartNo, rootPartNo] }) // self-consumption
+        continue
+      }
+      await walk(e.componentPartNo, new Set([rootPartNo, e.componentPartNo]))
+    }
+    return cycles
   }
 
   // --- internals -------------------------------------------------------------

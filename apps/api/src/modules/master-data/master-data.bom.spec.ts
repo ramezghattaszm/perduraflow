@@ -64,6 +64,7 @@ describe('MasterDataResolver.publishBom — draft → published', () => {
     const repo = {
       findOpenDraftBom: vi.fn().mockResolvedValue(bomRow({ id: 'b_draft' })),
       findOpenPublishedBom: vi.fn().mockResolvedValue(undefined),
+      bomComponentsFor: vi.fn().mockResolvedValue([]), // integrity gate: no edges → valid
       publishBomTx: vi.fn(async (input) => { tx = input; return bomRow({ id: input.draftId, status: 'published', effectiveFrom: input.effectiveFrom }) }),
     }
     const out = await resolver(repo).publishBom('t1', 'FG-1', '2026-09-01T00:00:00Z', 'user-1')
@@ -79,6 +80,7 @@ describe('MasterDataResolver.publishBom — draft → published', () => {
     const repo = {
       findOpenDraftBom: vi.fn().mockResolvedValue(bomRow({ id: 'b_draft' })),
       findOpenPublishedBom: vi.fn().mockResolvedValue(bomRow({ id: 'b_prior', status: 'published', effectiveFrom: new Date('2026-06-01T00:00:00Z') })),
+      bomComponentsFor: vi.fn().mockResolvedValue([]), // integrity gate: no edges → valid
       publishBomTx: vi.fn(async (input) => { tx = input; return bomRow({ id: input.draftId, status: 'published', supersedesId: input.priorPublishedId }) }),
     }
     await resolver(repo).publishBom('t1', 'FG-1', '2026-09-01T00:00:00Z', 'user-1')

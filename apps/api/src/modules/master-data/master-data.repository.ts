@@ -724,6 +724,15 @@ export class MasterDataRepository {
     })
   }
 
+  /** Whether a parent has ANY non-draft (published/superseded) BOM version, window-agnostic (integrity check). */
+  async hasAnyPublishedBom(tenantId: string, parentPartNo: string): Promise<boolean> {
+    const row = await this.db.query.bom.findFirst({
+      where: and(eq(bom.tenantId, tenantId), eq(bom.parentPartNo, parentPartNo), ne(bom.status, 'draft')),
+      columns: { id: true },
+    })
+    return row != null
+  }
+
   /** The edge rows (direct components) of a BOM version, sorted by component. */
   bomComponentsFor(bomId: string): Promise<BomComponent[]> {
     return this.db
