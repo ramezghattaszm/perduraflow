@@ -857,6 +857,15 @@ export class MasterDataRepository {
     })
   }
 
+  /** In-use probe (D-L2-7): is any ACTIVE tooling asset carrying `assetType` in the tenant? (existence only). */
+  async existsActiveToolingAssetOfType(tenantId: string, assetType: string): Promise<boolean> {
+    const row = await this.db.query.toolingAsset.findFirst({
+      columns: { id: true },
+      where: and(eq(toolingAsset.tenantId, tenantId), eq(toolingAsset.assetType, assetType), eq(toolingAsset.isActive, true)),
+    })
+    return row !== undefined
+  }
+
   /** The resource ids a tooling asset is eligible to run on. */
   async eligibleResourceIdsFor(toolingAssetId: string): Promise<string[]> {
     const rows = await this.db

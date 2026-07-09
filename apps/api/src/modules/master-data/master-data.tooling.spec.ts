@@ -11,7 +11,13 @@ import { MasterDataService } from './master-data.service'
 function make(repo: Record<string, ReturnType<typeof vi.fn>>, orgOver: Record<string, unknown> = {}) {
   const org = { validatePlantIds: vi.fn().mockResolvedValue({ valid: [], invalid: [] }), validateCalendarIds: vi.fn(), ...orgOver }
   const events = { publish: vi.fn().mockResolvedValue(undefined) }
-  return new MasterDataService(repo as never, org as never, events as never, {} as never)
+  // asset_type write-validation (D-L2-7) resolves reference.read through the binding — stub the platform defaults.
+  const bindings = {
+    resolve: vi.fn().mockResolvedValue({
+      resolveReferenceSet: vi.fn().mockResolvedValue({ setKey: 'asset_type', members: [{ key: 'tool' }, { key: 'die' }, { key: 'mold' }, { key: 'fixture' }] }),
+    }),
+  }
+  return new MasterDataService(repo as never, org as never, events as never, {} as never, bindings as never)
 }
 
 describe('MasterDataService.createToolingAsset — Pattern B create + audit', () => {

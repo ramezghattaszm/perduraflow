@@ -78,6 +78,9 @@ export const ERROR_CODES = {
   INVALID_BOM: 'INVALID_BOM',
   // Layer 2 tooling asset (Pattern B): no such tooling asset in the tenant.
   TOOLING_ASSET_NOT_FOUND: 'TOOLING_ASSET_NOT_FOUND',
+  // Layer 2b (D-L2-7): a tooling_asset.asset_type write did not resolve to a registered member of the
+  // tenant's `asset_type` reference set (reference.read, O7). The typed write-time rejection.
+  INVALID_ASSET_TYPE: 'INVALID_ASSET_TYPE',
   // scheduling module (phase 2, api-spec §11.6)
   SCHEDULE_VERSION_NOT_FOUND: 'SCHEDULE_VERSION_NOT_FOUND',
   // Only a draft may be discarded — committed/superseded are immutable (IATF/audit). The boundary.

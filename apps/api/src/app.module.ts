@@ -17,6 +17,7 @@ import { AuthModule } from './modules/auth/auth.module'
 import { BindingModule } from './modules/binding/binding.module'
 import { BindingResolver } from './modules/binding/binding.resolver'
 import { ConfigModule as AppConfigModule } from './modules/config/config.module'
+import { buildAssetTypeReferenceSet, registerReferenceSet } from './modules/config/config.refsets'
 import { EmailModule } from './modules/email/email.module'
 import { EventBusModule } from './modules/eventbus/eventbus.module'
 import { HealthModule } from './modules/health/health.module'
@@ -38,6 +39,11 @@ import { TenantModule } from './modules/tenant/tenant.module'
  * a given mode. Phase 2 registers exactly one — `masterdata.read` →
  * `platform_module` → the Master Data module's read service. Done here (not in
  * the `binding` module) so `binding` imports no domain module. Eager factory.
+ *
+ * It ALSO registers config's real reference sets (D-L2-7): the `asset_type` set's
+ * in-use probe is Master Data data (any active `tooling_asset` of the type), so it
+ * is wired here through the same O7 binding — config → `asset.read` → the probe —
+ * keeping config from importing Master Data. Descriptor + probe register together.
  */
 const BINDING_COUNTERPARTS: Provider = {
   provide: 'BINDING_COUNTERPARTS_BOOTSTRAP',
@@ -53,6 +59,13 @@ const BINDING_COUNTERPARTS: Provider = {
     resolver.register(REFERENCE_READ_CONTRACT.id, 'platform_module', referenceData)
     resolver.register(BOM_READ_CONTRACT.id, 'platform_module', bomData)
     resolver.register(ASSET_READ_CONTRACT.id, 'platform_module', assetData)
+    // asset_type: descriptor + in-use probe together. The probe resolves asset.read per tenant through the
+    // binding (config never imports Master Data) — config → Master Data callback for suppression safety.
+    registerReferenceSet(
+      buildAssetTypeReferenceSet(async (tenantId, memberKey) =>
+        (await resolver.resolve<AssetReadContract>(tenantId, ASSET_READ_CONTRACT)).hasActiveToolingAssetOfType(tenantId, memberKey),
+      ),
+    )
     return true
   },
 }

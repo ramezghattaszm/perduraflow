@@ -36,7 +36,7 @@ function makeService(repo: Partial<Record<string, ReturnType<typeof vi.fn>>>) {
   }
   const events = { publish: vi.fn().mockResolvedValue(undefined) }
   const resolver = { revisePart: vi.fn(), reviseRouting: vi.fn() }
-  return new MasterDataService(repo as never, org as never, events as never, resolver as never)
+  return new MasterDataService(repo as never, org as never, events as never, resolver as never, {} as never)
 }
 
 describe('master-data audit — Pattern B resource', () => {

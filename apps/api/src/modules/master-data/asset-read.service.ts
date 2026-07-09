@@ -82,6 +82,12 @@ export class AssetReadService implements AssetReadContract {
     return this.toDto(await this.md.deactivateToolingAsset(tenantId, id, actor))
   }
 
+  // --- in-use probe (config → Master Data, O7) ---
+  /** Any active tooling asset of this `assetType` in the tenant? Config's `asset_type` set gates suppression on it. */
+  hasActiveToolingAssetOfType(tenantId: string, assetType: string): Promise<boolean> {
+    return this.repo.existsActiveToolingAssetOfType(tenantId, assetType)
+  }
+
   private toDto({ asset, eligibleResourceIds, partNos }: ToolingAssetWithChildren): ToolingAssetDto {
     return {
       id: asset.id,

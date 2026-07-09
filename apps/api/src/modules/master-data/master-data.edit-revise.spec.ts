@@ -28,7 +28,7 @@ const op = (over: Partial<RoutingOperation> = {}): RoutingOperation => ({
 function make(repo: Record<string, ReturnType<typeof vi.fn>>, resolver: Record<string, ReturnType<typeof vi.fn>>) {
   const org = { validatePlantIds: vi.fn(), validateCalendarIds: vi.fn() }
   const events = { publish: vi.fn().mockResolvedValue(undefined) }
-  return new MasterDataService(repo as never, org as never, events as never, resolver as never)
+  return new MasterDataService(repo as never, org as never, events as never, resolver as never, {} as never)
 }
 
 describe('updatePart → revise', () => {

@@ -87,8 +87,10 @@ const TEST_MAP_REFSET: ReferenceSetDescriptor = {
 }
 
 /**
- * The reference-set registry. Commit 2: two TEST-ONLY sets prove the mechanism (replace + merge). Real
- * sets (`asset_type`, Layer 2b) register their descriptor **and** in-use probe together.
+ * The reference-set registry. The two TEST-ONLY sets prove the mechanism (replace + merge); real sets
+ * (`asset_type`, Layer 2b) are added at the composition root via {@link registerReferenceSet}, which
+ * couples the descriptor to its in-use probe (the probe needs its owning domain module, wired through the
+ * O7 binding — not available to this static module).
  */
 export const REFERENCE_SETS: Record<string, ReferenceSetDescriptor> = {
   [TEST_REFSET.setKey]: TEST_REFSET,
@@ -98,4 +100,47 @@ export const REFERENCE_SETS: Record<string, ReferenceSetDescriptor> = {
 /** Resolve a reference-set descriptor, or undefined for an unknown `set_key` (the caller 400s). */
 export function getReferenceSetDescriptor(setKey: string): ReferenceSetDescriptor | undefined {
   return REFERENCE_SETS[setKey]
+}
+
+// --- real sets: descriptor + probe register together (D-L2-7) ----------------
+
+/** An in-use probe — "does `memberKey` have any live referrer in this tenant?" (owning-module data). */
+export type InUseProbe = (tenantId: string, memberKey: string) => Promise<boolean>
+
+/** The `asset_type` set key — the taxonomy of tooling-asset kinds (tool / die / mold / fixture …). */
+export const ASSET_TYPE_SET_KEY = 'asset_type'
+
+/**
+ * Build the `asset_type` reference-set descriptor (D-L2-7) — platform defaults `[tool, die, mold, fixture]`,
+ * declared depth `{global, tenant}`, `replace` mode. The caller (composition root) MUST supply the in-use
+ * probe (any active `tooling_asset` of the type), wired to Master Data through the O7 binding — so the
+ * descriptor and its probe are inseparable ({@link registerReferenceSet} enforces it).
+ */
+export function buildAssetTypeReferenceSet(inUse: InUseProbe): ReferenceSetDescriptor {
+  return {
+    setKey: ASSET_TYPE_SET_KEY,
+    platformDefaults: [
+      { key: 'tool', metadata: { label: 'Tool' } },
+      { key: 'die', metadata: { label: 'Die' } },
+      { key: 'mold', metadata: { label: 'Mold' } },
+      { key: 'fixture', metadata: { label: 'Fixture' } },
+    ],
+    declaredLevels: ['global', 'tenant'],
+    resolutionMode: 'replace',
+    inUse,
+  }
+}
+
+/**
+ * Register a real reference set into the substrate. The **safety invariant** (platform doc §3.6): a real
+ * set registers its descriptor AND its in-use probe together — there is no descriptor-without-probe, so a
+ * suppressable value can never be orphaned from its referential-safety gate. Idempotent per key (re-register
+ * replaces). Called at the composition root, where the probe can be wired to its owning module (O7 binding).
+ * @throws Error - the descriptor carries no in-use probe (the invariant is violated).
+ */
+export function registerReferenceSet(descriptor: ReferenceSetDescriptor): void {
+  if (!descriptor.inUse) {
+    throw new Error(`Reference set '${descriptor.setKey}' must register an in-use probe (safety invariant — no descriptor without a probe)`)
+  }
+  REFERENCE_SETS[descriptor.setKey] = descriptor
 }

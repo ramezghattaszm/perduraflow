@@ -16,6 +16,8 @@ import {
   type ResourceDowntimeDto,
   type ResourceDto,
   type ResourceGroupDto,
+  type ReferenceReadContract,
+  REFERENCE_READ_CONTRACT,
   type RoutingDto,
   type SetOperatorQualificationRequest,
   type UpdateCertificationRequest,
@@ -27,6 +29,7 @@ import {
 } from '@perduraflow/contracts'
 import { AppException, ERROR_CODES } from '../../common/exceptions/app.exception'
 import { EVENTS } from '../../events'
+import { BindingResolver } from '../binding/binding.resolver'
 import { EventBus } from '../eventbus/event-bus'
 import { ORG_READ } from '../org/org-read.service'
 import {
@@ -127,6 +130,7 @@ export class MasterDataService {
     @Inject(ORG_READ) private readonly org: OrgReadContract,
     private readonly events: EventBus,
     private readonly resolver: MasterDataResolver,
+    private readonly bindings: BindingResolver,
   ) {}
 
   // --- part ------------------------------------------------------------------
@@ -465,6 +469,7 @@ export class MasterDataService {
    */
   async createToolingAsset(tenantId: string, input: CreateToolingAssetInput, actor: string = SYSTEM_ACTOR): Promise<ToolingAssetWithChildren> {
     await this.assertPlant(tenantId, input.plantId)
+    await this.assertAssetTypeRegistered(tenantId, input.assetType)
     const eligibleResourceIds = input.eligibleResourceIds ?? []
     const partNos = input.partNos ?? []
     await this.assertResourcesExist(tenantId, eligibleResourceIds)
@@ -495,6 +500,7 @@ export class MasterDataService {
    */
   async updateToolingAsset(tenantId: string, id: string, input: UpdateToolingAssetInput, actor: string = SYSTEM_ACTOR): Promise<ToolingAssetWithChildren> {
     if (input.plantId) await this.assertPlant(tenantId, input.plantId)
+    if (input.assetType !== undefined) await this.assertAssetTypeRegistered(tenantId, input.assetType)
     if (input.eligibleResourceIds) await this.assertResourcesExist(tenantId, input.eligibleResourceIds)
     const patch: Partial<NewToolingAsset> = {}
     for (const k of ['assetType', 'toolFamily', 'plantId', 'toolLifeUnits', 'toolLifeUom', 'singleLocation', 'isActive'] as const) {
@@ -786,6 +792,24 @@ export class MasterDataService {
   }
 
   // --- internal validation ---------------------------------------------------
+  /**
+   * Validates a `tooling_asset.asset_type` write against the tenant's resolved `asset_type` reference set
+   * (D-L2-7). Master Data CONSUMES `reference.read` through the O7 binding — the configurable set is the
+   * source of truth, nothing hardcoded (D42). An unknown value is a typed rejection.
+   * @throws AppException INVALID_ASSET_TYPE - the value is not a registered member of the tenant's set.
+   */
+  private async assertAssetTypeRegistered(tenantId: string, assetType: string): Promise<void> {
+    const reference = await this.bindings.resolve<ReferenceReadContract>(tenantId, REFERENCE_READ_CONTRACT)
+    const { members } = await reference.resolveReferenceSet(tenantId, 'asset_type')
+    if (!members.some((m) => m.key === assetType)) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        `Unknown asset_type '${assetType}' — not a member of the tenant's asset_type reference set`,
+        ERROR_CODES.INVALID_ASSET_TYPE,
+      )
+    }
+  }
+
   /** Validates a kernel plant reference through org.read (O4). */
   private async assertPlant(tenantId: string, plantId: string): Promise<void> {
     const { invalid } = await this.org.validatePlantIds(tenantId, [plantId])

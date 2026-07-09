@@ -54,6 +54,13 @@ export interface AssetReadContract {
   createToolingAsset(tenantId: string, input: CreateToolingAssetRequest, actor: string): Promise<ToolingAssetDto>
   updateToolingAsset(tenantId: string, id: string, input: UpdateToolingAssetRequest, actor: string): Promise<ToolingAssetDto>
   deactivateToolingAsset(tenantId: string, id: string, actor: string): Promise<ToolingAssetDto>
+  // --- in-use probe (config → Master Data, O7) ---
+  /**
+   * In-use probe for the `asset_type` reference set (D-L2-7): does ANY active `tooling_asset` in the tenant
+   * carry `assetType`? Config resolves this counterpart through the O7 binding and gates suppression on it —
+   * a `true` blocks removing the value with `REFERENCE_VALUE_IN_USE`. Master Data serves it; config calls it.
+   */
+  hasActiveToolingAssetOfType(tenantId: string, assetType: string): Promise<boolean>
 }
 
 // --- admin CRUD request schemas (tooling screens) ----------------------------
@@ -64,7 +71,7 @@ const decimalString = z.string().max(40).regex(/^\d+(\.\d+)?$/, 'must be a non-n
 export const createToolingAssetSchema = z
   .object({
     assetId: z.string().min(1).max(80),
-    // Plain text this layer — write-validated against the `asset_type` reference set in 2b.3.
+    // Shape only here; the service write-validates it against the tenant's `asset_type` reference set (D-L2-7).
     assetType: z.string().min(1).max(80),
     toolFamily: z.string().max(120).nullable().optional(),
     plantId: z.string().min(1),
