@@ -11,10 +11,10 @@ import {
   type DriftDetectedPayload,
   type ExecutionActualPayload,
   type LearningParam,
-  type MasterDataReadContract,
+  type AssetReadContract,
   type OrgReadContract,
   type PredictionDisposition,
-  MASTERDATA_READ_CONTRACT,
+  ASSET_READ_CONTRACT,
 } from '@perduraflow/contracts'
 import { EVENTS } from '../../events'
 import { projectWorkingTime, workingCalendarFromCalendarDto, type WorkingCalendar } from '../../common/utils/working-calendar'
@@ -67,8 +67,8 @@ export class LearningService implements OnModuleInit {
   private async resolveResourceCalendar(tenantId: string, resourceId: string): Promise<WorkingCalendar | null> {
     const hit = this.calendarCache.get(resourceId)
     if (hit !== undefined) return hit
-    const md = await this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
-    const calendarId = (await md.getResource(tenantId, resourceId))?.calendarId
+    const asset = await this.bindings.resolve<AssetReadContract>(tenantId, ASSET_READ_CONTRACT)
+    const calendarId = (await asset.getResource(tenantId, resourceId))?.calendarId
     const calDto = calendarId ? await this.org.getCalendar(tenantId, calendarId) : null
     const cal = calDto ? workingCalendarFromCalendarDto(calDto) : null
     this.calendarCache.set(resourceId, cal)

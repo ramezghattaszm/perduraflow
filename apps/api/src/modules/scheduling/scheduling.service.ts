@@ -1,7 +1,9 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common'
 import {
+  ASSET_READ_CONTRACT,
   BOM_READ_CONTRACT,
   MASTERDATA_READ_CONTRACT,
+  type AssetReadContract,
   type AtRiskOrderDto,
   type BomReadContract,
   type CalendarDto,
@@ -222,6 +224,11 @@ export class SchedulingService {
     return this.bindings.resolve<BomReadContract>(tenantId, BOM_READ_CONTRACT)
   }
 
+  /** Resolve the asset contract bound to this tenant (O7) — the resource + tooling surface (D-L2-3, 2b). */
+  private resolveAsset(tenantId: string): Promise<AssetReadContract> {
+    return this.bindings.resolve<AssetReadContract>(tenantId, ASSET_READ_CONTRACT)
+  }
+
   /**
    * The material gate's BOM-sourced input (D-L2-4, replaces the retired `material_requirement`): per finished
    * `part_no`, the **BUY-component leaves** of its published BOM as-of `asOf` (default now) — the components
@@ -268,7 +275,8 @@ export class SchedulingService {
    */
   private async latenessChainsFor(tenantId: string, plantId: string, ops: ScheduledOperation[]): Promise<Map<string, LatenessChainDto>> {
     const md = await this.resolveMasterData(tenantId)
-    const resName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+    const asset = await this.resolveAsset(tenantId)
+    const resName = new Map((await asset.listResources(tenantId)).map((r) => [r.id, r.name]))
     const partNo = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
     // Per part, the binding gate component = the BOM buy-leaf whose availability is LATEST (matches the
     // sequencer's earliestStartMs = max availability). null = no material gate on that part. compByPart maps
@@ -295,7 +303,7 @@ export class SchedulingService {
     // Downtime windows by id — so a `resource_downtime` root narrates the stored window (kind + reason).
     // Active windows (in-effect / future) resolve fully; a window already retracted or expired (e.g. the
     // line was brought back up) degrades to the generic line-down label — still a correct, grounded root.
-    const downtimeById = new Map((await md.listActiveDowntime(tenantId, plantId)).map((d) => [d.id, d]))
+    const downtimeById = new Map((await asset.listActiveDowntime(tenantId, plantId)).map((d) => [d.id, d]))
     // Operators by id — so an `operator` root names the slow operator (+ %) the engine recorded.
     const operatorById = new Map((await md.listOperators(tenantId)).map((o) => [o.id, o]))
     const lk: LatenessLookups = {
@@ -335,7 +343,8 @@ export class SchedulingService {
    */
   private async strandedOpIds(tenantId: string, plantId: string, ops: ScheduledOperation[]): Promise<Set<string>> {
     const md = await this.resolveMasterData(tenantId)
-    const { closed } = downtimeMaps(await md.listActiveDowntime(tenantId, plantId))
+    const asset = await this.resolveAsset(tenantId)
+    const { closed } = downtimeMaps(await asset.listActiveDowntime(tenantId, plantId))
     const out = new Set<string>()
     if (closed.size === 0) return out
     for (const o of ops) {
@@ -384,7 +393,7 @@ export class SchedulingService {
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
     // The plant's daily working window for the Gantt axis — derived from the SAME
     // calendars the sequencer placed against (D-shift), so the axis spans the working day.
-    const plantResources = (await (await this.resolveMasterData(tenantId)).listResources(tenantId)).filter((r) => r.plantId === version.plantId)
+    const plantResources = (await (await this.resolveAsset(tenantId)).listResources(tenantId)).filter((r) => r.plantId === version.plantId)
     const workingWindow = workingWindowOf(await this.resolveResourceCalendars(tenantId, plantResources))
     // Causal lateness chains for the at-risk ops (D-late) — attached to the board op so the bar panel
     // can show "held by … ← root", same computed chain the queue + Copilot read.
@@ -442,7 +451,8 @@ export class SchedulingService {
   /** The plant's pinned resource↔operator assignments (§4.8 performance input) — launcher view. */
   async listResourceOperatorAssignments(tenantId: string, plantId: string): Promise<ResourceOperatorAssignmentDto[]> {
     const md = await this.resolveMasterData(tenantId)
-    const resourceName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+    const asset = await this.resolveAsset(tenantId)
+    const resourceName = new Map((await asset.listResources(tenantId)).map((r) => [r.id, r.name]))
     const operators = new Map((await md.listOperators(tenantId)).map((o) => [o.id, o]))
     return (await this.repo.listResourceOperatorAssignments(tenantId, plantId)).map((a) => ({
       id: a.id,
@@ -478,7 +488,8 @@ export class SchedulingService {
       throw new AppException(HttpStatus.BAD_REQUEST, 'effectiveFrom must precede effectiveTo', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
 
     const md = await this.resolveMasterData(tenantId)
-    const resource = (await md.listResources(tenantId)).find((r) => r.id === dto.resourceId && r.plantId === dto.plantId)
+    const asset = await this.resolveAsset(tenantId)
+    const resource = (await asset.listResources(tenantId)).find((r) => r.id === dto.resourceId && r.plantId === dto.plantId)
     if (!resource) throw new AppException(HttpStatus.BAD_REQUEST, 'Resource not found in this plant', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
     const operator = (await md.listOperators(tenantId)).find((o) => o.id === dto.operatorId && o.isActive)
     if (!operator) throw new AppException(HttpStatus.BAD_REQUEST, 'Operator not found', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
@@ -561,7 +572,8 @@ export class SchedulingService {
   /** Board rows: the plant's resources, via the bound `masterdata.read`. */
   async listResources(tenantId: string, plantId: string): Promise<ResourceDto[]> {
     const md = await this.resolveMasterData(tenantId)
-    return (await md.listResources(tenantId)).filter((r) => r.plantId === plantId)
+    const asset = await this.resolveAsset(tenantId)
+    return (await asset.listResources(tenantId)).filter((r) => r.plantId === plantId)
   }
 
   /**
@@ -575,7 +587,8 @@ export class SchedulingService {
     resources: { id: string; name: string; status: string }[]
   }> {
     const md = await this.resolveMasterData(tenantId)
-    const resources = (await md.listResources(tenantId))
+    const asset = await this.resolveAsset(tenantId)
+    const resources = (await asset.listResources(tenantId))
       .filter((r) => r.plantId === plantId)
       .map((r) => ({ id: r.id, name: r.name, status: r.status }))
     const custCache = new Map<string, string>()
@@ -794,11 +807,12 @@ export class SchedulingService {
    */
   async buildBaseContext(tenantId: string, plantId: string, asOf: Date): Promise<BaseContext> {
     const md = await this.resolveMasterData(tenantId)
+    const asset = await this.resolveAsset(tenantId)
     // Master-data resolve-as-of anchor (Layer 0 §4.6): the caller's deliberate, recorded build
     // timestamp. Part/routing resolve by business key AS OF this instant — never a hidden `now`.
     const asOfIso = asOf.toISOString()
     const demand = await this.repo.activeDemand(tenantId, plantId)
-    const resources = await md.listResources(tenantId)
+    const resources = await asset.listResources(tenantId)
     const resourceById = new Map(resources.map((r) => [r.id, r]))
     const activeResourceIds = new Set(resources.filter((r) => r.status === 'active').map((r) => r.id))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
@@ -848,7 +862,7 @@ export class SchedulingService {
       }
       const priorityRank = await this.priorityRankFor(tenantId, line.customerId, line.programId, priorityCache)
       for (const op of routing.operations) {
-        if (!groupCache.has(op.resourceGroupId)) groupCache.set(op.resourceGroupId, await md.getResourceGroup(tenantId, op.resourceGroupId))
+        if (!groupCache.has(op.resourceGroupId)) groupCache.set(op.resourceGroupId, await asset.getResourceGroup(tenantId, op.resourceGroupId))
         const group = groupCache.get(op.resourceGroupId)
         const eligible = (group?.memberResourceIds ?? []).filter((id) => activeResourceIds.has(id)).sort()
         if (eligible.length === 0) {
@@ -880,7 +894,7 @@ export class SchedulingService {
     // Downtime closures (line-down / maintenance): per-resource time-boxed windows the calendar-aware
     // sequencer subtracts from capacity (ops displace around them — NOT excluded). The SAME windows
     // feed the binder so a delayed start roots at `resource_downtime` (with the window id). One source.
-    const downtime = await md.listActiveDowntime(tenantId, plantId)
+    const downtime = await asset.listActiveDowntime(tenantId, plantId)
     const { closed: downtimeClosed, windows: downtimeByResource } = downtimeMaps(downtime)
     const resourceCalendars = await this.resolveResourceCalendars(tenantId, resources, downtimeClosed)
 
@@ -895,7 +909,7 @@ export class SchedulingService {
 
     // Minimum batch (C4): each resource's run-quantity floor from its resource-type config
     // (minBatchQty; 0 = no floor). The sequencer floors effRunQty = max(demandQty, minBatch).
-    const minBatchByType = new Map((await md.listResourceTypeConfigs(tenantId)).map((c) => [c.resourceType, c.minBatchQty]))
+    const minBatchByType = new Map((await asset.listResourceTypeConfigs(tenantId)).map((c) => [c.resourceType, c.minBatchQty]))
     const minBatchByResource = new Map(resources.map((r) => [r.id, minBatchByType.get(r.resourceType) ?? 0]))
 
     // Objective Policy (config-driven): resolve the scorer's weights + the version token (plant→
@@ -945,7 +959,7 @@ export class SchedulingService {
     extraClosedByResource?: Map<string, Array<[number, number]>>,
   ): Promise<Map<string, WorkingCalendar>> {
     const cfgByType = new Map(
-      (await (await this.resolveMasterData(tenantId)).listResourceTypeConfigs(tenantId)).map((c) => [c.resourceType, c]),
+      (await (await this.resolveAsset(tenantId)).listResourceTypeConfigs(tenantId)).map((c) => [c.resourceType, c]),
     )
     const calCache = new Map<string, CalendarDto | null>()
     const out = new Map<string, WorkingCalendar>()
@@ -1058,7 +1072,8 @@ export class SchedulingService {
     const actuals = await this.learning.listActualsForVersion(tenantId, versionId)
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
     const md = await this.resolveMasterData(tenantId)
-    const allResources = await md.listResources(tenantId)
+    const asset = await this.resolveAsset(tenantId)
+    const allResources = await asset.listResources(tenantId)
     const nameById = new Map(allResources.map((r) => [r.id, r.name]))
 
     // Capacity utilization (D-util) over the FORWARD window [max(today, horizonStart) → horizonEnd]
@@ -1070,7 +1085,7 @@ export class SchedulingService {
     const utilWindowEnd = version.horizonEnd.getTime()
     // Subtract downtime (line-down / maintenance) from available minutes — a down line's regular
     // capacity drops over the window, so utilization reflects the outage (same source as the solve).
-    const { closed: utilDowntime } = downtimeMaps(await md.listActiveDowntime(tenantId, version.plantId))
+    const { closed: utilDowntime } = downtimeMaps(await asset.listActiveDowntime(tenantId, version.plantId))
     const utilCalendars = await this.resolveResourceCalendars(
       tenantId,
       allResources.filter((r) => r.plantId === version.plantId),
@@ -1340,7 +1355,8 @@ export class SchedulingService {
       return { plantId: resolvedPlant, scheduleVersionId: null, resourceId: resourceId ?? null, previous: null, otif: 1, costPerUnit: null, oee: null, scheduleAdherence: null, throughputAttainment: null, atRisk: [], committedAtRisk: 0 }
     }
     const md = await this.resolveMasterData(tenantId)
-    const resourceById = new Map((await md.listResources(tenantId)).map((r) => [r.id, r]))
+    const asset = await this.resolveAsset(tenantId)
+    const resourceById = new Map((await asset.listResources(tenantId)).map((r) => [r.id, r]))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
 
     const cur = await this.versionMetrics(tenantId, version.id, resourceId, resourceById, partNoById, version.plantId, true)
@@ -1404,6 +1420,7 @@ export class SchedulingService {
     if (!version) return { plantId: resolvedPlant, scheduleVersionId: null, counts: empty, rows: [] }
 
     const md = await this.resolveMasterData(tenantId)
+    const asset = await this.resolveAsset(tenantId)
     const ops = await this.repo.operationsForVersion(version.id)
     // Execution reality is CROSS-VERSION: an order op that has RUN — an actual on the authoritative
     // committed plan — is `completed` no matter which version is being viewed. Key it by
@@ -1420,7 +1437,7 @@ export class SchedulingService {
       )
       for (const o of authorityOps) if (authorityActualOpIds.has(o.id)) executedKeys.add(`${o.demandLineId}:${o.opSeq}`)
     }
-    const resourceName = new Map((await md.listResources(tenantId)).map((r) => [r.id, r.name]))
+    const resourceName = new Map((await asset.listResources(tenantId)).map((r) => [r.id, r.name]))
     const partNoById = new Map((await md.listParts(tenantId)).map((p) => [p.id, p.partNo]))
     // Same computed chains the queue/board/Copilot read (built from the unfiltered ops).
     const chains = await this.latenessChainsFor(tenantId, version.plantId, ops)

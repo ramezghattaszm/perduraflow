@@ -353,12 +353,16 @@ export interface MasterDataReadContract {
    */
   revisePart(tenantId: string, partNo: string, input: RevisePartRequest, actor: string): Promise<PartVersionDto>
   validatePartIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
+  /**
+   * @deprecated (Layer 2 2b, D-L2-3) The resource surface MOVED to `asset.read`. Retained callerless for
+   * A12 must-ignore; consumers resolve `asset.read` instead. (The dead `validateResourceIds`/
+   * `validateResourceGroupIds` were dropped in the move.)
+   */
   getResource(tenantId: string, id: string): Promise<ResourceDto | null>
-  /** All resources in the tenant (added in `1.1` — board rows / group-member detail). */
+  /** @deprecated (2b) MOVED to `asset.read`. */
   listResources(tenantId: string): Promise<ResourceDto[]>
-  validateResourceIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
+  /** @deprecated (2b) MOVED to `asset.read`. */
   getResourceGroup(tenantId: string, id: string): Promise<ResourceGroupDto | null>
-  validateResourceGroupIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation>
   /**
    * @deprecated (Layer 0, D-L0-4) Resolve by business key + as-of instead: `resolveRouting(tenantId,
    * partNo, { name, asOf })`. A routing `id` is a per-version row id. Retained for A12 must-ignore.
@@ -388,13 +392,9 @@ export interface MasterDataReadContract {
   getOperator(tenantId: string, id: string): Promise<OperatorDto | null>
   /** All operators (with held cert ids) — workforce coverage view (added in `1.2`). */
   listOperators(tenantId: string): Promise<OperatorDto[]>
-  /** Resource-type shift config (splittable / OT cap) — the calendar-aware sequencer (D-shift). */
+  /** @deprecated (2b) MOVED to `asset.read` (resource-type config storage stays a flat master-data table). */
   listResourceTypeConfigs(tenantId: string): Promise<ResourceTypeConfigDto[]>
-  /**
-   * Active resource downtime windows (line-down / maintenance) — `isActive` and not yet
-   * fully past (`to > now`), so the set covers both currently-in-effect and future closures.
-   * Optionally plant-scoped for the solve. The sequencer subtracts these from capacity (1.3).
-   */
+  /** @deprecated (2b) MOVED to `asset.read`. Active resource downtime windows (line-down / maintenance). */
   listActiveDowntime(tenantId: string, plantId?: string): Promise<ResourceDowntimeDto[]>
 }
 

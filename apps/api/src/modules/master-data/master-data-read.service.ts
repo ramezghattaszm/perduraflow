@@ -130,25 +130,15 @@ export class MasterDataReadService implements MasterDataReadContract {
     return (await this.repo.listResources(tenantId)).map(toResourceDto)
   }
 
-  /** Validates resource references (O4) — for phase-2 consumers. */
-  async validateResourceIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation> {
-    const valid = await this.repo.resourceIdsIn(tenantId, ids)
-    const validSet = new Set(valid)
-    return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
-  }
+  // validateResourceIds / validateResourceGroupIds — DROPPED in Layer 2 2b (D-L2-3): dead validators,
+  // never consumed (the resource surface moved to `asset.read`). The repo's resourceIdsIn / resourceGroupIdsIn
+  // stay — the service's assertResourcesExist / assertResourceGroupsExist still use them for write validation.
 
   /** Resolves one resource group (with member ids) in the tenant, or null. */
   async getResourceGroup(tenantId: string, id: string): Promise<ResourceGroupDto | null> {
     const row = await this.repo.findResourceGroup(tenantId, id)
     if (!row) return null
     return toResourceGroupDto(row, await this.repo.memberResourceIds(row.id))
-  }
-
-  /** Validates resource-group references (O4) — for phase-2 consumers (eligibility). */
-  async validateResourceGroupIds(tenantId: string, ids: string[]): Promise<MasterDataRefValidation> {
-    const valid = await this.repo.resourceGroupIdsIn(tenantId, ids)
-    const validSet = new Set(valid)
-    return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
   }
 
   /** Resolves one routing (with its ordered operations) in the tenant, or null. */

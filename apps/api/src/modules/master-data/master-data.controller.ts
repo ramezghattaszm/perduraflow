@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import type { JwtPayload } from '../../common/types/jwt-payload.types'
+import { AssetReadService } from './asset-read.service'
 import { BomReadService } from './bom-read.service'
 import { MasterDataService } from './master-data.service'
 
@@ -16,7 +17,27 @@ export class MasterDataController {
   constructor(
     private readonly md: MasterDataService,
     private readonly bom: BomReadService,
+    private readonly asset: AssetReadService,
   ) {}
+
+  // --- tooling asset reads (Layer 2 2b — auth-only) --------------------------
+  /** `GET /master-data/tooling-assets` — all tooling assets (with eligibility + parts). */
+  @Get('tooling-assets')
+  listToolingAssets(@CurrentUser() user: JwtPayload) {
+    return this.asset.listToolingAssets(user.tenantId)
+  }
+
+  /** `GET /master-data/tooling-assets/for-part/:partNo` — the tooling assets that produce a part. */
+  @Get('tooling-assets/for-part/:partNo')
+  toolingAssetsForPart(@CurrentUser() user: JwtPayload, @Param('partNo') partNo: string) {
+    return this.asset.getAssetsForPart(user.tenantId, partNo)
+  }
+
+  /** `GET /master-data/tooling-assets/:id` — one tooling asset, or null. */
+  @Get('tooling-assets/:id')
+  getToolingAsset(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.asset.getToolingAsset(user.tenantId, id)
+  }
 
   /** `GET /master-data/parts` — all parts in the tenant. */
   @Get('parts')

@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import {
   LEARNING_READ_CONTRACT,
-  MASTERDATA_READ_CONTRACT,
+  ASSET_READ_CONTRACT,
   type ExecutionActualDto,
   type LearnedParameterDto,
   type LearningParam,
   type LearningReadContract,
-  type MasterDataReadContract,
+  type AssetReadContract,
   type ParameterPredictionDto,
 } from '@perduraflow/contracts'
 import { BindingResolver } from '../binding/binding.resolver'
@@ -94,8 +94,8 @@ export class LearningReadService implements LearningReadContract {
    * resource belongs to the plant. Mirrors every other plant-scoped read (filter at the endpoint).
    */
   async listPredictionsForPlant(tenantId: string, plantId: string): Promise<ParameterPredictionDto[]> {
-    const md = await this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
-    const plantResourceIds = new Set((await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id))
+    const asset = await this.bindings.resolve<AssetReadContract>(tenantId, ASSET_READ_CONTRACT)
+    const plantResourceIds = new Set((await asset.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id))
     return (await this.repo.listLivePredictions(tenantId))
       .filter((p) => plantResourceIds.has(p.resourceId))
       .map(toParameterPredictionDto)
@@ -105,8 +105,8 @@ export class LearningReadService implements LearningReadContract {
    *  Same server-side plant-scoping as {@link listPredictionsForPlant} so a screen never sees another
    *  plant's rows. */
   async listSetAsidePredictionsForPlant(tenantId: string, plantId: string): Promise<ParameterPredictionDto[]> {
-    const md = await this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
-    const plantResourceIds = new Set((await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id))
+    const asset = await this.bindings.resolve<AssetReadContract>(tenantId, ASSET_READ_CONTRACT)
+    const plantResourceIds = new Set((await asset.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id))
     return (await this.repo.listSetAsidePredictions(tenantId))
       .filter((p) => plantResourceIds.has(p.resourceId))
       .map(toParameterPredictionDto)

@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common'
 import {
-  MASTERDATA_READ_CONTRACT,
+  ASSET_READ_CONTRACT,
   type ConfigReadContract,
   type ExecutionActualDto,
   type KpiDashboardDto,
   type KpiThresholdKey,
   type KpiTileDto,
   type LearningReadContract,
-  type MasterDataReadContract,
+  type AssetReadContract,
   type OeeDto,
 } from '@perduraflow/contracts'
 import { BindingResolver } from '../binding/binding.resolver'
@@ -109,8 +109,8 @@ export class ActualsRollupService {
     @Inject(CONFIG_READ) private readonly config: ConfigReadContract,
   ) {}
 
-  private resolveMasterData(tenantId: string): Promise<MasterDataReadContract> {
-    return this.bindings.resolve<MasterDataReadContract>(tenantId, MASTERDATA_READ_CONTRACT)
+  private resolveAsset(tenantId: string): Promise<AssetReadContract> {
+    return this.bindings.resolve<AssetReadContract>(tenantId, ASSET_READ_CONTRACT)
   }
 
   /**
@@ -147,8 +147,8 @@ export class ActualsRollupService {
     windowStartMs: number,
     windowEndMs: number,
   ): Promise<{ authoritative: ExecutionActualDto[]; resourceIds: string[] }> {
-    const md = await this.resolveMasterData(tenantId)
-    const resourceIds = (await md.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id)
+    const asset = await this.resolveAsset(tenantId)
+    const resourceIds = (await asset.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id)
     const actuals = await this.learning.listActualsForResourcesInWindow(tenantId, resourceIds, windowStartMs, windowEndMs)
     if (actuals.length === 0) return { authoritative: [], resourceIds }
 

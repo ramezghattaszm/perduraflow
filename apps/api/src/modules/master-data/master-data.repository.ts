@@ -867,6 +867,17 @@ export class MasterDataRepository {
     return rows.map((r) => r.resourceId)
   }
 
+  /** The tooling assets that produce a given part (via the asset↔part map), newest first. */
+  async assetsForPart(tenantId: string, partNo: string): Promise<ToolingAsset[]> {
+    const rows = await this.db
+      .select({ asset: toolingAsset })
+      .from(assetPartMap)
+      .innerJoin(toolingAsset, eq(assetPartMap.toolingAssetId, toolingAsset.id))
+      .where(and(eq(assetPartMap.tenantId, tenantId), eq(assetPartMap.partNo, partNo)))
+      .orderBy(desc(toolingAsset.createdAt))
+    return rows.map((r) => r.asset)
+  }
+
   /** The part_nos a tooling asset produces. */
   async partNosForToolingAsset(toolingAssetId: string): Promise<string[]> {
     const rows = await this.db

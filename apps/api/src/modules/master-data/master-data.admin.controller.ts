@@ -1,6 +1,10 @@
 import { Body, Controller, Delete, Param, Patch, Post, Put, UseGuards } from '@nestjs/common'
 import {
   addUomFactorSchema,
+  createToolingAssetSchema,
+  updateToolingAssetSchema,
+  type CreateToolingAssetRequest,
+  type UpdateToolingAssetRequest,
   publishBomSchema,
   reviseBomSchema,
   type PublishBomRequest,
@@ -44,6 +48,7 @@ import { ConfigureGuard } from '../../common/guards/configure.guard'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe'
 import type { JwtPayload } from '../../common/types/jwt-payload.types'
+import { AssetReadService } from './asset-read.service'
 import { BomReadService } from './bom-read.service'
 import { MasterDataService } from './master-data.service'
 
@@ -58,7 +63,34 @@ export class MasterDataAdminController {
   constructor(
     private readonly md: MasterDataService,
     private readonly bom: BomReadService,
+    private readonly asset: AssetReadService,
   ) {}
+
+  // --- tooling asset admin (Layer 2 2b — Pattern B, both guards, audited) -----
+  /** `POST /admin/master-data/tooling-assets` — create a tooling asset (+ eligibility + part map). */
+  @Post('tooling-assets')
+  createToolingAsset(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(createToolingAssetSchema)) dto: CreateToolingAssetRequest,
+  ) {
+    return this.asset.createToolingAsset(user.tenantId, dto, user.sub)
+  }
+
+  /** `PATCH /admin/master-data/tooling-assets/:id` — update a tooling asset in place. */
+  @Patch('tooling-assets/:id')
+  updateToolingAsset(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateToolingAssetSchema)) dto: UpdateToolingAssetRequest,
+  ) {
+    return this.asset.updateToolingAsset(user.tenantId, id, dto, user.sub)
+  }
+
+  /** `DELETE /admin/master-data/tooling-assets/:id` — deactivate a tooling asset (soft-delete). */
+  @Delete('tooling-assets/:id')
+  deactivateToolingAsset(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.asset.deactivateToolingAsset(user.tenantId, id, user.sub)
+  }
 
   // --- bom draft authoring (Layer 2 2a — native-SoR writes, both guards) -----
   /** `PUT /admin/master-data/boms/:parentPartNo/draft` — author/replace the open draft BOM + its edges. */

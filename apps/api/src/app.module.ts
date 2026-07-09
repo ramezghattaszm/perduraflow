@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config'
 import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ThrottlerModule } from '@nestjs/throttler'
 import {
+  ASSET_READ_CONTRACT,
+  type AssetReadContract,
   BOM_READ_CONTRACT,
   type BomReadContract,
   MASTERDATA_READ_CONTRACT,
@@ -23,6 +25,7 @@ import { MasterDataModule } from './modules/master-data/master-data.module'
 import { LlmModule } from './modules/llm/llm.module'
 import { MASTERDATA_READ } from './modules/master-data/master-data-read.service'
 import { BOM_READ } from './modules/master-data/bom-read.service'
+import { ASSET_READ } from './modules/master-data/asset-read.service'
 import { REFERENCE_READ } from './modules/config/reference-read.service'
 import { NotifierModule } from './modules/notifier/notifier.module'
 import { OrgModule } from './modules/org/org.module'
@@ -38,16 +41,18 @@ import { TenantModule } from './modules/tenant/tenant.module'
  */
 const BINDING_COUNTERPARTS: Provider = {
   provide: 'BINDING_COUNTERPARTS_BOOTSTRAP',
-  inject: [BindingResolver, MASTERDATA_READ, REFERENCE_READ, BOM_READ],
+  inject: [BindingResolver, MASTERDATA_READ, REFERENCE_READ, BOM_READ, ASSET_READ],
   useFactory: (
     resolver: BindingResolver,
     masterData: MasterDataReadContract,
     referenceData: ReferenceReadContract,
     bomData: BomReadContract,
+    assetData: AssetReadContract,
   ) => {
     resolver.register(MASTERDATA_READ_CONTRACT.id, 'platform_module', masterData)
     resolver.register(REFERENCE_READ_CONTRACT.id, 'platform_module', referenceData)
     resolver.register(BOM_READ_CONTRACT.id, 'platform_module', bomData)
+    resolver.register(ASSET_READ_CONTRACT.id, 'platform_module', assetData)
     return true
   },
 }

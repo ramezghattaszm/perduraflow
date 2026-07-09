@@ -711,11 +711,12 @@ export async function seed(nowMs: number = Date.now()): Promise<void> {
       },
     ])
 
-    // binding: masterdata.read + reference.read + bom.read → platform_module (the per-tenant counterparts, O7)
+    // binding: the platform_module counterparts (per-tenant, O7)
     await db.insert(contractBinding).values([
       { tenantId, contractId: 'masterdata.read', major: '1', mode: 'platform_module' },
       { tenantId, contractId: 'reference.read', major: '1', mode: 'platform_module' },
       { tenantId, contractId: 'bom.read', major: '1', mode: 'platform_module' },
+      { tenantId, contractId: 'asset.read', major: '1', mode: 'platform_module' },
     ])
 
     // === §5 Demand — back-solved to the utilization targets (rolling window) ====
