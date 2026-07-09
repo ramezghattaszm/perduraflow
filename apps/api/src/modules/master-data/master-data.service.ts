@@ -45,12 +45,47 @@ import {
   type MasterDataAuditChange,
   type MasterDataEntityType,
   type NewMasterDataAudit,
+  type NewToolingAsset,
   type Part,
   type PartPlant,
   type PlantPartMapping,
   type Routing,
   type RoutingOperation,
+  type ToolingAsset,
 } from './schema'
+
+/** Create input for a tooling asset (Pattern B, §5.1). `assetType` is plain text this commit (validated against the set in 2b.3). */
+export interface CreateToolingAssetInput {
+  assetId: string
+  assetType: string
+  toolFamily?: string | null
+  plantId: string
+  toolLifeUnits?: string | null
+  toolLifeUom?: string | null
+  singleLocation?: boolean
+  eligibleResourceIds?: string[]
+  partNos?: string[]
+}
+
+/** Update input — all fields optional; supplied child arrays REPLACE the existing set. */
+export interface UpdateToolingAssetInput {
+  assetType?: string
+  toolFamily?: string | null
+  plantId?: string
+  toolLifeUnits?: string | null
+  toolLifeUom?: string | null
+  singleLocation?: boolean
+  isActive?: boolean
+  eligibleResourceIds?: string[]
+  partNos?: string[]
+}
+
+/** A tooling asset + its eligible resources + the parts it produces (the read shape until `asset.read` lands in 2b.3). */
+export interface ToolingAssetWithChildren {
+  asset: ToolingAsset
+  eligibleResourceIds: string[]
+  partNos: string[]
+}
 
 /** Actor sentinel for changes with no JWT user (seed / system paths) — never null (§6). */
 const SYSTEM_ACTOR = 'system'
@@ -72,6 +107,9 @@ const RESOURCE_AUDIT_COLS = [
 
 /** Columns audited on a `resource_group` header change (members handled separately). */
 const RESOURCE_GROUP_AUDIT_COLS = ['name', 'plantId', 'isActive'] as const
+
+/** Columns audited on a `tooling_asset` change (children — eligible resources / part map — handled separately). */
+const TOOLING_ASSET_AUDIT_COLS = ['assetId', 'assetType', 'toolFamily', 'plantId', 'toolLifeUnits', 'toolLifeUom', 'singleLocation', 'isActive'] as const
 
 /**
  * Master Data domain service — admin CRUD for parts, resources, resource groups,
@@ -389,6 +427,111 @@ export class MasterDataService {
       throw new AppException(HttpStatus.NOT_FOUND, 'Resource group not found', ERROR_CODES.RESOURCE_GROUP_NOT_FOUND)
     }
     return toResourceGroupDto(result.row, result.members)
+  }
+
+  // --- tooling asset (Layer 2 2b — Pattern B, mutable-with-audit) -------------
+  /** Lists the tenant's tooling assets, each with its eligible resources + the parts it produces. */
+  async listToolingAssets(tenantId: string): Promise<ToolingAssetWithChildren[]> {
+    const assets = await this.repo.listToolingAssets(tenantId)
+    return Promise.all(
+      assets.map(async (a) => ({
+        asset: a,
+        eligibleResourceIds: await this.repo.eligibleResourceIdsFor(a.id),
+        partNos: await this.repo.partNosForToolingAsset(a.id),
+      })),
+    )
+  }
+
+  /**
+   * Resolves one tooling asset (+ children) in the tenant.
+   * @throws AppException TOOLING_ASSET_NOT_FOUND - no such asset in the tenant
+   */
+  async getToolingAsset(tenantId: string, id: string): Promise<ToolingAssetWithChildren> {
+    const asset = await this.repo.findToolingAsset(tenantId, id)
+    if (!asset) throw new AppException(HttpStatus.NOT_FOUND, 'Tooling asset not found', ERROR_CODES.TOOLING_ASSET_NOT_FOUND)
+    return {
+      asset,
+      eligibleResourceIds: await this.repo.eligibleResourceIdsFor(id),
+      partNos: await this.repo.partNosForToolingAsset(id),
+    }
+  }
+
+  /**
+   * Creates a tooling asset (Pattern B) — validates its plant (org.read, O4) + that every eligible resource
+   * exists in the tenant (intra-module), then inserts the asset + its child rows + a `create` audit row,
+   * ALL atomically. `assetType` is stored as plain text this commit (set validation lands in 2b.3).
+   * @throws AppException INVALID_PLANT_REFERENCE - plant did not resolve
+   * @throws AppException INVALID_RESOURCE_REFERENCE - an eligible resource did not resolve
+   */
+  async createToolingAsset(tenantId: string, input: CreateToolingAssetInput, actor: string = SYSTEM_ACTOR): Promise<ToolingAssetWithChildren> {
+    await this.assertPlant(tenantId, input.plantId)
+    const eligibleResourceIds = input.eligibleResourceIds ?? []
+    const partNos = input.partNos ?? []
+    await this.assertResourcesExist(tenantId, eligibleResourceIds)
+    const data: NewToolingAsset = {
+      tenantId,
+      assetId: input.assetId,
+      assetType: input.assetType,
+      toolFamily: input.toolFamily ?? null,
+      plantId: input.plantId,
+      toolLifeUnits: input.toolLifeUnits ?? null,
+      toolLifeUom: input.toolLifeUom ?? null,
+      singleLocation: input.singleLocation ?? true,
+    }
+    const row = await this.repo.createToolingAssetWithAudit(data, eligibleResourceIds, partNos, (r) => {
+      const changedFields = this.snapshot(r, TOOLING_ASSET_AUDIT_COLS)
+      changedFields['eligibleResourceIds'] = { new: eligibleResourceIds }
+      changedFields['partNos'] = { new: partNos }
+      return this.auditRow({ tenantId, entityType: 'tooling_asset', businessKey: r.assetId, versionId: r.id, action: 'create', actor, changedFields })
+    })
+    return { asset: row, eligibleResourceIds, partNos }
+  }
+
+  /**
+   * Updates a tooling asset in place (Pattern B — never a new version). Re-validates plant/resources when
+   * supplied; writes one audit row iff a tracked field or child set actually changed — `deactivate` when the
+   * update flips `is_active → false`, else `update`. Supplied child arrays REPLACE the existing set.
+   * @throws AppException TOOLING_ASSET_NOT_FOUND / INVALID_PLANT_REFERENCE / INVALID_RESOURCE_REFERENCE
+   */
+  async updateToolingAsset(tenantId: string, id: string, input: UpdateToolingAssetInput, actor: string = SYSTEM_ACTOR): Promise<ToolingAssetWithChildren> {
+    if (input.plantId) await this.assertPlant(tenantId, input.plantId)
+    if (input.eligibleResourceIds) await this.assertResourcesExist(tenantId, input.eligibleResourceIds)
+    const patch: Partial<NewToolingAsset> = {}
+    for (const k of ['assetType', 'toolFamily', 'plantId', 'toolLifeUnits', 'toolLifeUom', 'singleLocation', 'isActive'] as const) {
+      if (input[k] !== undefined) (patch as Record<string, unknown>)[k] = input[k]
+    }
+    const row = await this.repo.updateToolingAssetWithAudit(
+      tenantId,
+      id,
+      patch,
+      input.eligibleResourceIds,
+      input.partNos,
+      (before, after, oldEligible, newEligible, oldParts, newParts) => {
+        const changedFields = this.diff(before, after, TOOLING_ASSET_AUDIT_COLS)
+        if (input.eligibleResourceIds && !this.sameMembers(oldEligible, newEligible)) changedFields['eligibleResourceIds'] = { old: oldEligible, new: newEligible }
+        if (input.partNos && !this.sameMembers(oldParts, newParts)) changedFields['partNos'] = { old: oldParts, new: newParts }
+        if (Object.keys(changedFields).length === 0) return null
+        return this.auditRow({
+          tenantId,
+          entityType: 'tooling_asset',
+          businessKey: after.assetId,
+          versionId: after.id,
+          action: changedFields['isActive']?.new === false ? 'deactivate' : 'update',
+          actor,
+          changedFields,
+        })
+      },
+    )
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Tooling asset not found', ERROR_CODES.TOOLING_ASSET_NOT_FOUND)
+    return { asset: row, eligibleResourceIds: await this.repo.eligibleResourceIdsFor(id), partNos: await this.repo.partNosForToolingAsset(id) }
+  }
+
+  /**
+   * Deactivates a tooling asset (soft-delete, Pattern B) — `is_active → false`, audited as `deactivate`.
+   * @throws AppException TOOLING_ASSET_NOT_FOUND - no such asset in the tenant
+   */
+  async deactivateToolingAsset(tenantId: string, id: string, actor: string = SYSTEM_ACTOR): Promise<ToolingAssetWithChildren> {
+    return this.updateToolingAsset(tenantId, id, { isActive: false }, actor)
   }
 
   // --- routing + operations --------------------------------------------------

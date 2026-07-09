@@ -41,6 +41,7 @@
   "INVALID_REVISION_EFFECTIVE_FROM": "A new revision must take effect after the current version's effective date.",
   "BOM_NOT_FOUND": "There is no BOM draft to publish for this part.",
   "INVALID_BOM": "This BOM can't be published — please resolve the integrity issues first.",
+  "TOOLING_ASSET_NOT_FOUND": "That tooling asset no longer exists.",
   "INVALID_CUSTOMER_REFERENCE": "That customer no longer exists.",
   "INVALID_PROGRAM_REFERENCE": "That program no longer exists.",
   "SCHEDULE_VERSION_NOT_FOUND": "That schedule version no longer exists.",

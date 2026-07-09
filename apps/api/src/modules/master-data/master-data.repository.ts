@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or } from 'drizzle-orm'
 import { MASTERDATA_DB, type MasterDataDatabase } from './master-data.db'
 import {
+  assetPartMap,
   bom,
   bomComponent,
   certification,
@@ -18,13 +19,17 @@ import {
   resourceTypeConfig,
   routing,
   routingOperation,
+  toolingAsset,
+  toolingEligibleResource,
   uomConversion,
+  type AssetPartMap,
   type Bom,
   type BomComponent,
   type Certification,
   type NewBom,
   type NewBomComponent,
   type NewCertification,
+  type NewAssetPartMap,
   type NewMasterDataAudit,
   type NewOperator,
   type NewPart,
@@ -40,12 +45,15 @@ import {
   type Part,
   type PartPlant,
   type PlantPartMapping,
+  type NewToolingAsset,
+  type NewToolingEligibleResource,
   type Resource,
   type ResourceDowntime,
   type ResourceGroup,
   type ResourceTypeConfig,
   type Routing,
   type RoutingOperation,
+  type ToolingAsset,
   type UomConversion,
 } from './schema'
 
@@ -829,6 +837,124 @@ export class MasterDataRepository {
       if (!published) throw new Error('publishBomTx: draft not found or not a draft')
       if (input.auditRows.length > 0) await tx.insert(masterDataAudit).values(input.auditRows)
       return published
+    })
+  }
+
+  // --- tooling asset (Layer 2 2b — Pattern B, mutable-with-audit) -------------
+  /** All tooling assets in the tenant (active + deactivated), newest first. */
+  listToolingAssets(tenantId: string): Promise<ToolingAsset[]> {
+    return this.db
+      .select()
+      .from(toolingAsset)
+      .where(eq(toolingAsset.tenantId, tenantId))
+      .orderBy(desc(toolingAsset.createdAt))
+  }
+
+  /** One tooling asset by row id in the tenant, or undefined. */
+  findToolingAsset(tenantId: string, id: string): Promise<ToolingAsset | undefined> {
+    return this.db.query.toolingAsset.findFirst({
+      where: and(eq(toolingAsset.tenantId, tenantId), eq(toolingAsset.id, id)),
+    })
+  }
+
+  /** The resource ids a tooling asset is eligible to run on. */
+  async eligibleResourceIdsFor(toolingAssetId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ resourceId: toolingEligibleResource.resourceId })
+      .from(toolingEligibleResource)
+      .where(eq(toolingEligibleResource.toolingAssetId, toolingAssetId))
+      .orderBy(asc(toolingEligibleResource.resourceId))
+    return rows.map((r) => r.resourceId)
+  }
+
+  /** The part_nos a tooling asset produces. */
+  async partNosForToolingAsset(toolingAssetId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ partNo: assetPartMap.partNo })
+      .from(assetPartMap)
+      .where(eq(assetPartMap.toolingAssetId, toolingAssetId))
+      .orderBy(asc(assetPartMap.partNo))
+    return rows.map((r) => r.partNo)
+  }
+
+  /**
+   * Create a tooling asset + its eligible-resource + part-map child rows + its audit row — ALL atomic
+   * (Pattern B — §6; mirrors {@link createResourceGroupWithAudit}). `makeAudit` builds the audit from the
+   * inserted row; any failure rolls back the asset, its children, and the audit together.
+   */
+  async createToolingAssetWithAudit(
+    data: NewToolingAsset,
+    eligibleResourceIds: string[],
+    partNos: string[],
+    makeAudit: (row: ToolingAsset) => NewMasterDataAudit,
+  ): Promise<ToolingAsset> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx.insert(toolingAsset).values(data).returning()
+      if (eligibleResourceIds.length > 0) {
+        await tx
+          .insert(toolingEligibleResource)
+          .values(eligibleResourceIds.map((resourceId) => ({ tenantId: row!.tenantId, toolingAssetId: row!.id, resourceId })))
+      }
+      if (partNos.length > 0) {
+        await tx.insert(assetPartMap).values(partNos.map((partNo) => ({ tenantId: row!.tenantId, toolingAssetId: row!.id, partNo })))
+      }
+      await tx.insert(masterDataAudit).values(makeAudit(row!))
+      return row!
+    })
+  }
+
+  /**
+   * Update a tooling asset in place + replace its children (when supplied) + write its audit row — ALL
+   * atomic (Pattern B — §6). Reads the prior row + prior children inside the tx and hands them to
+   * `buildAudit`, whose returned null (no tracked change) skips the audit write. Any failure rolls back all.
+   */
+  async updateToolingAssetWithAudit(
+    tenantId: string,
+    id: string,
+    patch: Partial<NewToolingAsset>,
+    eligibleResourceIds: string[] | undefined,
+    partNos: string[] | undefined,
+    buildAudit: (
+      before: ToolingAsset,
+      after: ToolingAsset,
+      oldEligible: string[],
+      newEligible: string[],
+      oldParts: string[],
+      newParts: string[],
+    ) => NewMasterDataAudit | null,
+  ): Promise<ToolingAsset | undefined> {
+    return this.db.transaction(async (tx) => {
+      const before = await tx.query.toolingAsset.findFirst({ where: and(eq(toolingAsset.tenantId, tenantId), eq(toolingAsset.id, id)) })
+      if (!before) return undefined
+      const [after] = await tx
+        .update(toolingAsset)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(and(eq(toolingAsset.tenantId, tenantId), eq(toolingAsset.id, id)))
+        .returning()
+
+      const oldEligible = (await tx.select({ r: toolingEligibleResource.resourceId }).from(toolingEligibleResource).where(eq(toolingEligibleResource.toolingAssetId, id))).map((x) => x.r)
+      let newEligible = oldEligible
+      if (eligibleResourceIds) {
+        await tx.delete(toolingEligibleResource).where(eq(toolingEligibleResource.toolingAssetId, id))
+        if (eligibleResourceIds.length > 0) {
+          await tx.insert(toolingEligibleResource).values(eligibleResourceIds.map((resourceId) => ({ tenantId, toolingAssetId: id, resourceId })))
+        }
+        newEligible = eligibleResourceIds
+      }
+
+      const oldParts = (await tx.select({ p: assetPartMap.partNo }).from(assetPartMap).where(eq(assetPartMap.toolingAssetId, id))).map((x) => x.p)
+      let newParts = oldParts
+      if (partNos) {
+        await tx.delete(assetPartMap).where(eq(assetPartMap.toolingAssetId, id))
+        if (partNos.length > 0) {
+          await tx.insert(assetPartMap).values(partNos.map((partNo) => ({ tenantId, toolingAssetId: id, partNo })))
+        }
+        newParts = partNos
+      }
+
+      const audit = buildAudit(before, after!, oldEligible, newEligible, oldParts, newParts)
+      if (audit) await tx.insert(masterDataAudit).values(audit)
+      return after!
     })
   }
 

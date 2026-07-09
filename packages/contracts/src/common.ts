@@ -76,6 +76,8 @@ export const ERROR_CODES = {
   BOM_NOT_FOUND: 'BOM_NOT_FOUND',
   // Layer 2 BOM integrity gate (D-L2-6): the BOM failed validation (missing component / cycle / effectivity / make-buy) — cannot publish.
   INVALID_BOM: 'INVALID_BOM',
+  // Layer 2 tooling asset (Pattern B): no such tooling asset in the tenant.
+  TOOLING_ASSET_NOT_FOUND: 'TOOLING_ASSET_NOT_FOUND',
   // scheduling module (phase 2, api-spec §11.6)
   SCHEDULE_VERSION_NOT_FOUND: 'SCHEDULE_VERSION_NOT_FOUND',
   // Only a draft may be discarded — committed/superseded are immutable (IATF/audit). The boundary.
