@@ -14,7 +14,7 @@
 
 ## 1. What ground truth settled (the design constraints)
 
-- **Five injection mechanisms** (§2): `FLOOR` (into `Math.max` start), `RANK` (EDD-key bias), `CANDIDACY` (`isReady`/eligibility skip), `FEASIBILITY` (`placeJob → null` degrade), `PRE_GATE` (service-level, before the loop). The registry must reproduce all five — a flat boolean list would break byte-identicalness.
+- **Five injection mechanisms** (§2), across **two scopes**: `ORDERING`-scope = `RANK` (the global EDD pre-sort, evaluated once); `PLACEMENT`-scope = `CANDIDACY` (`isReady`/eligibility skip), `FLOOR` (into `Math.max` start), `FEASIBILITY` (`placeJob → null` degrade), `PRE_GATE` (service-level, before the loop). The registry must reproduce all five in the correct scope — a flat per-candidate list would misplace EDD (once-global, not per-candidate) and break byte-identicalness.
 - **No veto-and-reselect** exists — the central new control-flow (S1.2).
 - **The objective already speaks degree-of-violation:** every `scorePlan` factor's `rawValue` *is* a violation degree; `ConstraintBinding` already has `type:'hard'|'soft'` — but **hard is only *reported*, never *enforced*** (`binding:false` hardcoded). So soft-mode maps onto the objective cleanly; **hard-mode has no enforcement path in `scorePlan`** and must route to the veto primitive. The two design problems (veto + hard-mode) are one problem.
 - **Two loci, different data shapes:** `sequence()` evaluates pre-placement `(item, resourceState, candidateStart)`; `scorePlan()` post-placement `(placement, plan)`. The declarative constraint must be a relation over a **schedule-model both can evaluate** — which is also the CP-SAT-adapter form (solver-neutrality, S4).
@@ -33,9 +33,13 @@ A **constraint** is a declarative object:
 - **application mode** (S1.3) — `hard | soft | hard-with-slack`, **resolved config**, deciding whether a violation vetoes, penalizes, or slacks-then-vetoes.
 - **solver-neutral** — the constraint knows nothing of *when* (loop vs objective) or *by which engine* (greedy vs CP-SAT) it is evaluated; adapters compile it.
 
-**The ordered mechanism-pipeline (mandatory under decision 1):** the registry evaluates constraints in a **declared phase order** reproducing today's inline sequence — `PRE_GATE → CANDIDACY → FLOOR → RANK → (place) → FEASIBILITY`. A floor must evaluate before candidacy, candidacy before ranking, etc., or byte-identicalness dies. The pipeline order is itself part of the determinism contract.
+**The two-tier evaluation model (corrected per S1.1 Commit-0 ground truth):** the mechanisms do **not** compose in one flat per-candidate pipeline — they split across **two constraint scopes**:
+- **`ORDERING` scope** — evaluated **once, globally, before placement**, producing the job order. **EDD lives here** (the fixed `(dueMs, seqIndex)` pre-sort). A registered ORDERING constraint contributes to the global sort key.
+- **`PLACEMENT` scope** — evaluated **per-job during greedy placement** (`placeJob`): `CANDIDACY` (eligibility) → `FLOOR` (timing) → place → `FEASIBILITY`. **Changeover lives here** (a setup-cost lookup during placement, *not* a reordering term).
 
-**EDD is a registered `RANK` constraint** — the base rank; changeover-bias and future rank constraints compose with it. So the engine's core ordering is data-described, and S4's CP-SAT expresses EDD as one model element rather than unwinding hardcoded logic.
+So the declared phase order is two-tier: **`ORDERING` (once) → then per job: `PRE_GATE → CANDIDACY → FLOOR → place → FEASIBILITY`**. This distinction is *load-bearing for byte-identicalness*: extracting EDD as a per-candidate rank would change *when* it evaluates (per-candidate vs once-global) and reorder placement. It also maps cleanly onto CP-SAT (ordering vs placement is a natural solver split), so it's an improvement, not just a correction.
+
+**EDD is a registered `ORDERING` constraint** (the base global sort key); future ordering constraints compose into that key. Changeover is a `PLACEMENT` constraint. So the engine's core ordering is data-described, and S4's CP-SAT expresses it as a model element.
 
 **What stays inline (not extracted):** nothing legality/ordering-related — but the *arithmetic primitives* the constraints call (the ML `effectiveFor` duration overlay, operator scaling, the raw `Math.max`/`processMs` computation) remain functions the `FLOOR`/duration constraints *invoke*. The constraint declares "material floor applies here"; the millisecond math it calls is the same untouched function. This is the seam that makes byte-identical achievable: **move the *decision*, reuse the *arithmetic*.**
 
