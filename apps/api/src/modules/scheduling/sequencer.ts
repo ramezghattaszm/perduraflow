@@ -16,6 +16,8 @@
 
 import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type WorkingCalendar } from '../../common/utils/working-calendar'
 import { ConstraintPipeline } from './constraints/pipeline'
+import { materialFloorConstraint, minBatchFloorConstraint, precedenceFloorConstraint, releaseFloorConstraint } from './constraints/floor'
+import type { ScheduleModel } from './constraints/types'
 
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
 export const CHANGEOVER_BONUS_HOURS = 24
@@ -293,13 +295,6 @@ export function sequence(
     return best
   }
 
-  // S1.1: the placement loop routes through the two-tier constraint pipeline. Commit 1 registers NO
-  // constraints — every tier/phase is a pass-through returning the inline-delegated value, so routing
-  // through the registry is byte-identical to the prior inline logic. Mechanisms move in one at a time
-  // (Commits 2–5). ORDERING tier = the global pre-sort seam (identity here; EDD's home in Commit 4);
-  // PLACEMENT tier = the per-job CANDIDACY / FLOOR / FEASIBILITY phases below.
-  const pipeline = new ConstraintPipeline()
-  const remaining = [...pipeline.order(items)] // ORDERING tier — global pre-sort (identity in Commit 1)
   const placements: Placement[] = []
   let horizonEndMs = origin
 
@@ -328,6 +323,21 @@ export function sequence(
     const k = predKey(it)
     return k === null || endByLineOp.has(k)
   }
+
+  // S1.1: the placement loop routes through the two-tier constraint pipeline.
+  //  • ORDERING tier (once, before placement) — the global pre-sort seam; identity here (EDD → Commit 4).
+  //  • PLACEMENT tier (per job) — CANDIDACY (Commit 3) / FLOOR (this commit) / FEASIBILITY (Commit 5).
+  // Commit 2 registers the FLOOR mechanism as PLACEMENT/FLOOR constraints (constraints/floor.ts). Each
+  // INVOKES the same untouched arithmetic (D-S1-5): material = item.earliestStartMs, release =
+  // item.releaseFloorMs, precedence = predecessorEnd(item) [the reused closure, reading the live
+  // endByLineOp], min-batch = minBatchByResource.get(res). The pipeline folds these with Math.max — exactly
+  // the composition the loop computed inline. The base floor (prevFree, origin) stays inline; the same
+  // floor inputs also stay inline below for the causal attribution (bindMs), a separate mechanism not moved.
+  const pipeline = new ConstraintPipeline([], {
+    floor: [materialFloorConstraint(), releaseFloorConstraint(), precedenceFloorConstraint(predecessorEnd)],
+    quantityFloor: [minBatchFloorConstraint(minBatchByResource ?? new Map())],
+  })
+  const remaining = [...pipeline.order(items)] // ORDERING tier — global pre-sort (identity; EDD → Commit 4)
 
   while (remaining.length > 0) {
     let bestIdx = -1
@@ -368,9 +378,14 @@ export function sequence(
     const release = item.releaseFloorMs ?? 0 // order-release floor (past demand → its day; today/future → today)
     const predEnd = predecessorEnd(item) // C3 precedence: can't start before the prior op ends
     const prevFree = st.freeMs
-    // PLACEMENT · FLOOR (pipeline pass-through in Commit 1 → the inline `Math.max` of the five floor terms;
-    // the arithmetic stays here, only the decision-to-apply routes through the tier — D-S1-5).
-    const floor = pipeline.floor(Math.max(prevFree, origin, earliest, predEnd, release))
+    // PLACEMENT · FLOOR — the base floor (resource free time + schedule origin) stays inline; the registered
+    // FLOOR constraints (material / release / precedence) fold their contributions on top via the pipeline
+    // (D-S1-5 — the fold DECISION moved; each constraint invokes the same arithmetic as `earliest`/`release`/
+    // `predEnd` above). Result === the prior Math.max(prevFree, origin, earliest, predEnd, release). The
+    // schedule-model is built once here and reused by the quantity-floor tier below.
+    const baseFloorMs = Math.max(prevFree, origin)
+    const model: ScheduleModel = { item, resourceId: bestRes, candidateStartMs: baseFloorMs, originMs: origin, resourceFreeMs: prevFree }
+    const floor = pipeline.floor(baseFloorMs, () => model)
     // Resolve the effective times AT the op's start floor — a forward-only forecast overlay
     // (`ml_predicted`, D44) gates itself by when the op actually runs, so an op landing on a
     // past day falls back to its std/measured cycle instead of carrying the pre-adopted forecast.
@@ -388,7 +403,9 @@ export function sequence(
     // 0 / no entry → no floor (effRunQty = demandQty). Drives both duration and run qty. Where the
     // surplus (effRunQty − demandQty) goes (inventory/netting) is a documented future refinement —
     // the seed keeps demand ≥ minBatch so it never binds by default, so no disposition is needed.
-    const effRunQty = Math.max(item.qty, minBatchByResource?.get(bestRes) ?? 0)
+    // PLACEMENT · FLOOR (quantity) — min-batch folds into the run qty via the pipeline's quantity-floor tier
+    // (same arithmetic: max(demandQty, minBatch), reusing the built `model`). === the prior inline Math.max.
+    const effRunQty = pipeline.quantityFloor(item.qty, () => model)
     const durMs = (eff.setupTime + effCycle * effRunQty) * MS_PER_MINUTE
     // Calendar-aware placement: advance the cursor through working time only (skipping
     // nights / Sundays / holidays / maintenance / down). A null result means the op cannot

@@ -4,8 +4,11 @@ import type { SequencerItem } from '../sequencer'
 /** The PLACEMENT-tier constraint sets, grouped by phase (evaluated in the declared phase order). */
 export interface PlacementConstraints {
   preGate?: Constraint[]
-  candidacy?: Constraint[]
+  /** FLOOR · start-time — folded into the op's start floor (`Math.max`). */
   floor?: Constraint[]
+  /** FLOOR · quantity — folded into the op's run quantity (`Math.max`); same mechanism, quantity dimension. */
+  quantityFloor?: Constraint[]
+  candidacy?: Constraint[]
   feasibility?: Constraint[]
 }
 
@@ -65,6 +68,20 @@ export class ConstraintPipeline {
     let f = inlineFloorMs
     for (const c of cs) f = Math.max(f, c.evaluate(m).contribution ?? f)
     return f
+  }
+
+  /**
+   * PLACEMENT · FLOOR (quantity) — the resolved run quantity. Composes the inline demand qty with any
+   * quantity-FLOOR constraints' contributions (the max — e.g. the min-batch floor). Commit 1/empty: none →
+   * returns `inlineQty` unchanged. The `max(demandQty, minBatch)` math stays the same; only the fold moved.
+   */
+  quantityFloor(inlineQty: number, model?: () => ScheduleModel): number {
+    const cs = this.placement.quantityFloor
+    if (!cs || cs.length === 0) return inlineQty
+    const m = model!()
+    let q = inlineQty
+    for (const c of cs) q = Math.max(q, c.evaluate(m).contribution ?? q)
+    return q
   }
 
   /**
