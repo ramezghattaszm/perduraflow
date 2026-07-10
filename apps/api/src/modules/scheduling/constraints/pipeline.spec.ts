@@ -21,9 +21,10 @@ describe('ConstraintPipeline — empty pipeline is a pass-through (S1.1 Commit 1
     expect(ordered).toBe(items) // identity — no copy, no reorder
   })
 
-  it('PLACEMENT · candidacy returns the inline readiness verbatim', () => {
-    expect(p.candidacy(true)).toBe(true)
-    expect(p.candidacy(false)).toBe(false)
+  it('PLACEMENT · candidacy with no registered constraint → a candidate (true)', () => {
+    // Readiness/eligibility are registered CANDIDACY constraints (Commit 3); an empty pipeline defaults to
+    // "candidate". The skip decision is entirely data-described — see candidacy.spec.
+    expect(p.candidacy()).toBe(true)
   })
 
   it('PLACEMENT · floor returns the inline floor ms verbatim', () => {

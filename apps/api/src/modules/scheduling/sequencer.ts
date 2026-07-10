@@ -17,6 +17,7 @@
 import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type WorkingCalendar } from '../../common/utils/working-calendar'
 import { ConstraintPipeline } from './constraints/pipeline'
 import { materialFloorConstraint, minBatchFloorConstraint, precedenceFloorConstraint, releaseFloorConstraint } from './constraints/floor'
+import { eligibilityCandidacyConstraint, readinessCandidacyConstraint } from './constraints/candidacy'
 import type { ScheduleModel } from './constraints/types'
 
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
@@ -326,14 +327,16 @@ export function sequence(
 
   // S1.1: the placement loop routes through the two-tier constraint pipeline.
   //  • ORDERING tier (once, before placement) — the global pre-sort seam; identity here (EDD → Commit 4).
-  //  • PLACEMENT tier (per job) — CANDIDACY (Commit 3) / FLOOR (this commit) / FEASIBILITY (Commit 5).
-  // Commit 2 registers the FLOOR mechanism as PLACEMENT/FLOOR constraints (constraints/floor.ts). Each
-  // INVOKES the same untouched arithmetic (D-S1-5): material = item.earliestStartMs, release =
-  // item.releaseFloorMs, precedence = predecessorEnd(item) [the reused closure, reading the live
-  // endByLineOp], min-batch = minBatchByResource.get(res). The pipeline folds these with Math.max — exactly
-  // the composition the loop computed inline. The base floor (prevFree, origin) stays inline; the same
-  // floor inputs also stay inline below for the causal attribution (bindMs), a separate mechanism not moved.
+  //  • PLACEMENT tier (per job) — CANDIDACY (Commit 3) / FLOOR (Commit 2) / FEASIBILITY (Commit 5).
+  // Each registered constraint INVOKES the same untouched arithmetic/logic (D-S1-5); only the decision moves.
+  //  CANDIDACY: readiness = isReady(item) [the reused closure]; eligibility = item.eligibleResourceIds.length>0
+  //    (the group→members data path stays in buildBaseContext; only the not-eligible gate moved here).
+  //  FLOOR: material = item.earliestStartMs, release = item.releaseFloorMs, precedence = predecessorEnd(item),
+  //    min-batch = minBatchByResource.get(res); the pipeline folds these with Math.max (the base floor
+  //    prevFree/origin stays inline). The same floor inputs also stay inline for the causal attribution
+  //    (bindMs), a separate mechanism not moved.
   const pipeline = new ConstraintPipeline([], {
+    candidacy: [readinessCandidacyConstraint(isReady), eligibilityCandidacyConstraint()],
     floor: [materialFloorConstraint(), releaseFloorConstraint(), precedenceFloorConstraint(predecessorEnd)],
     quantityFloor: [minBatchFloorConstraint(minBatchByResource ?? new Map())],
   })
@@ -346,8 +349,10 @@ export function sequence(
     let bestRes = ''
     for (let i = 0; i < remaining.length; i++) {
       const item = remaining[i]!
-      // PLACEMENT · CANDIDACY (pipeline pass-through in Commit 1 → the inline `isReady`).
-      if (!pipeline.candidacy(isReady(item))) continue // precedence: predecessor not placed yet → not a candidate
+      // PLACEMENT · CANDIDACY — the registered readiness + eligibility constraints (Commit 3). Evaluated
+      // BEFORE resource assignment (order preserved), so the candidacy model carries no resource yet
+      // (resourceId/candidateStart/freeMs are placeholders the candidacy constraints do not read).
+      if (!pipeline.candidacy(() => ({ item, resourceId: '', candidateStartMs: 0, originMs: origin, resourceFreeMs: 0 }))) continue
       const res = assignResource(item)
       const st = stateFor(res)
       const sameAttr =

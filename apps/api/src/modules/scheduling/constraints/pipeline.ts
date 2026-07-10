@@ -44,11 +44,11 @@ export class ConstraintPipeline {
   }
 
   /**
-   * PLACEMENT · CANDIDACY — is this op a placement candidate? Composes the inline readiness with any
-   * CANDIDACY constraints (a violation → not a candidate). Commit 1: none → returns `inlineReady` unchanged.
+   * PLACEMENT · CANDIDACY — is this op a placement candidate? Evaluates the registered CANDIDACY constraints
+   * (readiness, eligibility); a violation (`degree > 0`) → not a candidate this iteration. No registered
+   * constraint → a candidate (returns true). The candidacy decision is now entirely data-described (Commit 3).
    */
-  candidacy(inlineReady: boolean, model?: () => ScheduleModel): boolean {
-    if (!inlineReady) return false
+  candidacy(model?: () => ScheduleModel): boolean {
     const cs = this.placement.candidacy
     if (!cs || cs.length === 0) return true
     const m = model!()
