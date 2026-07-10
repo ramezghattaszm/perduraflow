@@ -10,7 +10,9 @@ import {
   type NewConfigOverride,
 } from './schema'
 
-type OverrideLevel = 'tenant' | 'plant'
+// Stored override levels (excludes `global`, the in-code floor). `line` is the S0b rung — accepted by the
+// walker's fetch signature; no config group stores a line row until it declares line depth (S1).
+type OverrideLevel = 'tenant' | 'plant' | 'line'
 
 /** Drizzle queries for the config module (scoped to its own schema, O2). */
 @Injectable()

@@ -217,7 +217,7 @@ function FieldRow({
   const dispMax = field.max !== undefined ? toDisplay(field.max, field.display) : undefined
 
   const onSave = () => {
-    if (!scopeId || scope === 'global') return
+    if (!scopeId || scope === 'global' || scope === 'line') return // S0b: no line-write UI (line depth is S1)
     if (isBool) {
       set.mutate({ group, level: scope, scopeId, fields: { [field.key]: boolDraft }, plantId: plantId ?? undefined })
       return
@@ -226,7 +226,7 @@ function FieldRow({
     set.mutate({ group, level: scope, scopeId, fields: { [field.key]: rawNum }, plantId: plantId ?? undefined })
   }
   const onReset = () => {
-    if (!scopeId || scope === 'global') return
+    if (!scopeId || scope === 'global' || scope === 'line') return // S0b: no line-write UI (line depth is S1)
     reset.mutate({ group, level: scope, scopeId, field: field.key, plantId: plantId ?? undefined })
     setDraft('')
   }
@@ -397,11 +397,11 @@ function ObjectiveWeightsEditor({
   const setWeight = (k: keyof ObjectiveWeights, value: number) => setW((prev) => ({ ...prev, [k]: value }))
 
   const onSave = () => {
-    if (!verdict.ok || !scopeId || scope === 'global') return
+    if (!verdict.ok || !scopeId || scope === 'global' || scope === 'line') return // S0b: no line-write UI (line depth is S1)
     set.mutate({ group: 'objective', level: scope, scopeId, fields: { ...w }, plantId: plantId ?? undefined })
   }
   const onReset = () => {
-    if (!scopeId || scope === 'global') return
+    if (!scopeId || scope === 'global' || scope === 'line') return // S0b: no line-write UI (line depth is S1)
     reset.mutate({ group: 'objective', level: scope, scopeId, plantId: plantId ?? undefined })
   }
 

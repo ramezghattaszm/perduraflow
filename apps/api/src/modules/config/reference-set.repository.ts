@@ -10,7 +10,9 @@ import {
   referenceSetOverride,
 } from './schema'
 
-type OverrideLevel = 'tenant' | 'plant'
+// Stored override levels (excludes `global`, the in-code floor). `line` is the S0b rung — accepted by the
+// walker's fetch signature; no reference set stores a line row until it declares line depth (S1).
+type OverrideLevel = 'tenant' | 'plant' | 'line'
 
 /**
  * Drizzle queries for the reference-set store (`reference_set_override`, config schema, O2). Mirrors

@@ -44,10 +44,14 @@ export class ReferenceSetService {
    * walker skips undeclared rungs). Suppression (tombstones) is applied in Commit 3.
    * @throws AppException VALIDATION_ERROR - the set is not registered.
    */
-  async resolveReferenceSet(setKey: string, tenantId: string, plantId?: string): Promise<ResolvedReferenceSet> {
+  async resolveReferenceSet(setKey: string, tenantId: string, plantId?: string, lineId?: string): Promise<ResolvedReferenceSet> {
     const d = this.descriptorOrThrow(setKey)
+    // S0b: `lineId` threads the line rung, but a set folds it only if `line` is in its declaredLevels
+    // (none is in S0 — asset_type stays {global,tenant}). With no line depth declared, the walker never
+    // reaches `line` → resolution is byte-identical to pre-S0b.
     const path = await walkScopePath<ReferenceSetOverride>(tenantId, plantId, d.declaredLevels, (level, scopeId) =>
       this.repo.findActive(tenantId, setKey, level, scopeId),
+      lineId,
     )
     return { setKey, members: this.membershipFold(path, d) }
   }

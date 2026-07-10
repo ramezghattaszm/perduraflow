@@ -17,8 +17,10 @@ import type { ConfigOverride } from './schema'
 export interface ResolvedConfig<T extends Record<string, ConfigValue> = Record<string, ConfigValue>> {
   values: T
   provenance: Record<string, ConfigLevel>
-  /** The winning override's revision per level (for the version token / audit display). */
-  revisions: { tenant: number | null; plant: number | null }
+  /** The winning override's revision per level (for the version token / audit display). `line` is the S0b
+   *  rung — always null until a group declares `line` depth (S1); the determinism token reads only
+   *  tenant/plant, so this additive key never shifts it. */
+  revisions: { tenant: number | null; plant: number | null; line: number | null }
 }
 
 /** A config scope-path rung: the level + its stored config-override row (specialization of the shared {@link ScopeLevelRow}). */
@@ -50,10 +52,12 @@ export class ConfigService {
    * descriptor default is the floor); `plant` is only walked when a `plantId` is in context. This is
    * the ONE place the ladder is walked — a fold (scalar or, later, membership) plugs on top of it.
    */
-  private scopePath(group: ConfigGroupKey, tenantId: string, plantId?: string): Promise<ConfigScopeRow[]> {
-    // Config groups walk the full ladder; `plant` is skipped when no plantId is in context (autonomy).
+  private scopePath(group: ConfigGroupKey, tenantId: string, plantId?: string, lineId?: string): Promise<ConfigScopeRow[]> {
+    // Config groups walk the full ladder; `plant`/`line` are skipped when no plantId/lineId is in context.
+    // No config caller threads a `lineId` in S0 (line depth is S1) → the line rung is inert (byte-identical).
     return walkScopePath<ConfigOverride>(tenantId, plantId, SCOPE_LADDER, (level, scopeId) =>
       this.repo.findActive(tenantId, group, level, scopeId),
+      lineId,
     )
   }
 
@@ -86,7 +90,13 @@ export class ConfigService {
     return {
       values: values as T,
       provenance,
-      revisions: { tenant: byLevel.get('tenant')?.revision ?? null, plant: byLevel.get('plant')?.revision ?? null },
+      // `line` is additive (S0b) — null with no line rung in the path, so an existing group's revisions
+      // object is byte-unchanged for the token (which reads tenant/plant), only gaining a null `line`.
+      revisions: {
+        tenant: byLevel.get('tenant')?.revision ?? null,
+        plant: byLevel.get('plant')?.revision ?? null,
+        line: byLevel.get('line')?.revision ?? null,
+      },
     }
   }
 
@@ -100,9 +110,12 @@ export class ConfigService {
     group: ConfigGroupKey,
     tenantId: string,
     plantId?: string,
+    lineId?: string,
   ): Promise<ResolvedConfig<T>> {
     const d = this.descriptorOrThrow(group)
-    const path = await this.scopePath(group, tenantId, plantId)
+    // `lineId` is the S0b rung — threaded through the walker but inert until a consumer resolves at line
+    // depth (S1); with none in context the path is the exact pre-S0b global→tenant→plant sequence.
+    const path = await this.scopePath(group, tenantId, plantId, lineId)
     return this.scalarFold<T>(path, d)
   }
 
@@ -120,6 +133,8 @@ export class ConfigService {
       global: d.defaults[f.key]!,
       tenant: tenantRow?.payload?.[f.key] ?? null,
       plant: plantRow?.payload?.[f.key] ?? null,
+      // S0b rung — no line scope in the config view (line depth is S1); always null here.
+      line: null,
       kind: f.kind,
       display: f.display ?? 'raw',
       control: f.control ?? (f.kind === 'boolean' ? 'toggle' : 'number'),

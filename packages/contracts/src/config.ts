@@ -18,8 +18,13 @@ export const CONFIG_READ_CONTRACT = { id: 'config.read', version: '1.0' } as con
 export const configGroupKeySchema = z.enum(['objective', 'reporting', 'autonomy', 'kpi'])
 export type ConfigGroupKey = z.infer<typeof configGroupKeySchema>
 
-/** Resolution levels — `global` is the shipped default floor; tenant/plant are stored overrides. */
-export const configLevelSchema = z.enum(['global', 'tenant', 'plant'])
+/**
+ * Resolution levels — `global` is the shipped default floor; tenant/plant/line are stored overrides.
+ * `line` is the sub-plant containment rung (Scheduling S0b) — REALIZED on the ladder but **opt-in**: a set
+ * resolves at line only if it declares `line` in its depth (nothing does in S0; that is S1's job). Adding
+ * it here is inert until declared — the walker skips `line` when no `lineId` is in context.
+ */
+export const configLevelSchema = z.enum(['global', 'tenant', 'plant', 'line'])
 export type ConfigLevel = z.infer<typeof configLevelSchema>
 
 /** A settings value — groups hold flat scalar fields (numbers/strings/booleans). */
@@ -42,6 +47,11 @@ export interface ConfigFieldView {
   tenant: ConfigValue | null
   /** Plant override for this field, or null if none / no plant scope requested. */
   plant: ConfigValue | null
+  /**
+   * Line override for this field, or null if none / no line scope requested (Scheduling S0b). Always null
+   * until a group declares `line` depth (S1) — the fixed-shape cascade column for the realized rung.
+   */
+  line: ConfigValue | null
   kind: 'int' | 'number' | 'text' | 'boolean'
   /** Raw min/max (in STORED units — the validation bounds). */
   min?: number
