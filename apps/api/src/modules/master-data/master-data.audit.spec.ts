@@ -16,6 +16,7 @@ const resourceRow = (over: Partial<Resource> = {}): Resource => ({
   name: 'Press A',
   resourceType: 'line',
   plantId: 'p1',
+  lineId: null,
   calendarId: 'c1',
   rate: 10,
   rateUom: 'EA/h',
@@ -105,7 +106,7 @@ describe('master-data audit — Pattern B resource', () => {
 
     await svc.createResource(
       't1',
-      { name: 'Press A', resourceType: 'line', plantId: 'p1', calendarId: 'c1', rate: 15, rateUom: 'EA/h', runCostPerHour: 100, setupCost: 50, overheadPerUnit: 0.5, otCapMinutes: 120 },
+      { name: 'Press A', resourceType: 'line', plantId: 'p1', lineId: null, calendarId: 'c1', rate: 15, rateUom: 'EA/h', runCostPerHour: 100, setupCost: 50, overheadPerUnit: 0.5, otCapMinutes: 120 },
       // actor omitted → 'system'
     )
 

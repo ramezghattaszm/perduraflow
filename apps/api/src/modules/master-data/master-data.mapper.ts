@@ -60,6 +60,7 @@ export const toResourceDto = (r: Resource): ResourceDto => ({
   name: r.name,
   resourceType: r.resourceType,
   plantId: r.plantId,
+  lineId: r.lineId,
   calendarId: r.calendarId,
   rate: r.rate,
   rateUom: r.rateUom,

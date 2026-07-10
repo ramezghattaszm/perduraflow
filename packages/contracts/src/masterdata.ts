@@ -149,6 +149,11 @@ export interface ResourceDto {
   resourceType: ResourceType
   /** → kernel Plant, validated via org.read (O4). */
   plantId: string
+  /**
+   * → kernel Line (Scheduling S0a), validated via org.read 1.3 (O4). Null = the resource locates to
+   * its plant only (plant is the fallback grain; a set line must sit in the resource's own plant).
+   */
+  lineId: string | null
   /** → kernel Calendar, validated via org.read 1.1 (O4). */
   calendarId: string
   /** Nominal throughput rate (MD5.5; per-op std times are the scheduling baseline). */
@@ -493,6 +498,9 @@ export const createResourceSchema = z
     name: z.string().min(1).max(160),
     resourceType: resourceTypeSchema,
     plantId: z.string().min(1),
+    // S0a: optional sub-plant location. Validated at write via org.read 1.3 (O4) + the plant-consistency
+    // guard (the line must sit in this resource's plant). Null/omitted = plant-grain (unchanged).
+    lineId: z.string().min(1).nullable().default(null),
     calendarId: z.string().min(1),
     rate: z.number().nonnegative().nullable().default(null),
     rateUom: z.string().max(16).nullable().default(null),

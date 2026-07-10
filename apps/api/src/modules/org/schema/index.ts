@@ -1,5 +1,6 @@
 export * from './_schema'
 export * from './plant.schema'
+export * from './line.schema'
 export * from './plant-group.schema'
 export * from './customer.schema'
 export * from './calendar.schema'

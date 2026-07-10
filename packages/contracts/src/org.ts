@@ -19,12 +19,22 @@ import { z } from 'zod'
 // validate a part's `customer_id`/`program` refs at write (O4). Additive — every
 // prior consumer keeps compiling; `org.read` has no per-tenant binding, so nothing
 // pins a version.
-export const ORG_READ_CONTRACT = { id: 'org.read', version: '1.2' } as const
+// `1.3` (Scheduling S0a, additive MINOR): adds the `line` entity — the first
+// realized sub-plant containment level (single-parent under plant) — via `LineDto`
+// + `listLines`/`getLine`/`validateLineIds` (mirroring the plant/customer riders)
+// so `master-data` can validate `resource.line_id` at write (O4). Additive — every
+// prior consumer keeps compiling; `org.read` has no per-tenant binding, so nothing
+// pins a version.
+export const ORG_READ_CONTRACT = { id: 'org.read', version: '1.3' } as const
 
 // --- enums -------------------------------------------------------------------
 
 export const plantStatusSchema = z.enum(['active', 'inactive'])
 export type PlantStatus = z.infer<typeof plantStatusSchema>
+
+/** Line status — mirrors plant (soft-delete via status, never hard delete). */
+export const lineStatusSchema = z.enum(['active', 'inactive'])
+export type LineStatus = z.infer<typeof lineStatusSchema>
 
 /** D49: `cluster` = resource-sharing candidate; `division`/`region` = reporting/scope. */
 export const plantGroupTypeSchema = z.enum(['cluster', 'division', 'region', 'custom'])
@@ -43,6 +53,20 @@ export interface PlantDto {
   region: string | null
   location: string | null
   status: PlantStatus
+}
+
+/**
+ * Line (Scheduling S0a) — a producing line within a plant; the first realized
+ * sub-plant **containment** level (single-parent: a line belongs to exactly one
+ * plant). Distinct from a `resource_group` (a many-to-many eligibility pool) — a
+ * line is a *location*, not a capability set.
+ */
+export interface LineDto {
+  id: string
+  /** Single-parent containment — the plant this line belongs to. */
+  plantId: string
+  name: string
+  status: LineStatus
 }
 
 export interface PlantGroupDto {
@@ -106,6 +130,10 @@ export interface OrgReadContract {
   readonly contract: typeof ORG_READ_CONTRACT
   listPlants(tenantId: string): Promise<PlantDto[]>
   getPlant(tenantId: string, id: string): Promise<PlantDto | null>
+  /** Lists all lines in the tenant (Scheduling S0a, `org.read 1.3`). */
+  listLines(tenantId: string): Promise<LineDto[]>
+  /** Resolves one line in the tenant, or null (carries its parent `plantId`) — S0a, `org.read 1.3`. */
+  getLine(tenantId: string, id: string): Promise<LineDto | null>
   getPlantGroup(tenantId: string, id: string): Promise<PlantGroupDto | null>
   getCustomer(tenantId: string, id: string): Promise<CustomerDto | null>
   getProgram(tenantId: string, id: string): Promise<ProgramDto | null>
@@ -114,6 +142,11 @@ export interface OrgReadContract {
   validatePlantIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
   /** Validates that every id resolves to a plant group in the tenant (O4). */
   validatePlantGroupIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
+  /**
+   * Validates that every id resolves to an active line in the tenant (O4). Added in
+   * `org.read 1.3` so `master-data` can validate `resource.line_id` at write.
+   */
+  validateLineIds(tenantId: string, ids: string[]): Promise<PlantRefValidation>
   /**
    * Validates that every id resolves to a calendar in the tenant (O4). Added in
    * `org.read 1.1` so `master-data` can validate `resource.calendar_id` at write.
@@ -145,6 +178,18 @@ export const createPlantSchema = z
 export type CreatePlantRequest = z.infer<typeof createPlantSchema>
 export const updatePlantSchema = createPlantSchema.partial().strict()
 export type UpdatePlantRequest = z.infer<typeof updatePlantSchema>
+
+/** Create a line under a plant (S0a). `plantId` is validated at write via `validatePlantIds` (O4). */
+export const createLineSchema = z
+  .object({
+    plantId: z.string().min(1),
+    name: z.string().min(1).max(160),
+    status: lineStatusSchema.default('active'),
+  })
+  .strict()
+export type CreateLineRequest = z.infer<typeof createLineSchema>
+export const updateLineSchema = createLineSchema.partial().strict()
+export type UpdateLineRequest = z.infer<typeof updateLineSchema>
 
 export const createPlantGroupSchema = z
   .object({

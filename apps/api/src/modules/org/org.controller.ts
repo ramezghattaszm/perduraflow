@@ -20,6 +20,12 @@ export class OrgController {
     return this.org.listPlants(user.tenantId)
   }
 
+  /** `GET /org/lines` — all lines in the tenant (S0a). */
+  @Get('lines')
+  listLines(@CurrentUser() user: JwtPayload) {
+    return this.org.listLines(user.tenantId)
+  }
+
   /** `GET /org/plant-groups` — all plant groups (with member ids) in the tenant. */
   @Get('plant-groups')
   listPlantGroups(@CurrentUser() user: JwtPayload) {

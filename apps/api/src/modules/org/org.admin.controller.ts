@@ -2,21 +2,25 @@ import { Body, Controller, Param, Patch, Post, UseGuards } from '@nestjs/common'
 import {
   createCalendarSchema,
   createCustomerSchema,
+  createLineSchema,
   createPlantGroupSchema,
   createPlantSchema,
   createProgramSchema,
   updateCalendarSchema,
   updateCustomerSchema,
+  updateLineSchema,
   updatePlantGroupSchema,
   updatePlantSchema,
   updateProgramSchema,
   type CreateCalendarRequest,
   type CreateCustomerRequest,
+  type CreateLineRequest,
   type CreatePlantGroupRequest,
   type CreatePlantRequest,
   type CreateProgramRequest,
   type UpdateCalendarRequest,
   type UpdateCustomerRequest,
+  type UpdateLineRequest,
   type UpdatePlantGroupRequest,
   type UpdatePlantRequest,
   type UpdateProgramRequest,
@@ -55,6 +59,25 @@ export class OrgAdminController {
     @Body(new ZodValidationPipe(updatePlantSchema)) dto: UpdatePlantRequest,
   ) {
     return this.org.updatePlant(user.tenantId, id, dto)
+  }
+
+  /** `POST /admin/org/lines` — create a line under a plant (S0a). */
+  @Post('lines')
+  createLine(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(createLineSchema)) dto: CreateLineRequest,
+  ) {
+    return this.org.createLine(user.tenantId, dto)
+  }
+
+  /** `PATCH /admin/org/lines/:id` — update a line (S0a). */
+  @Patch('lines/:id')
+  updateLine(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateLineSchema)) dto: UpdateLineRequest,
+  ) {
+    return this.org.updateLine(user.tenantId, id, dto)
   }
 
   /** `POST /admin/org/plant-groups` — create a plant group. */

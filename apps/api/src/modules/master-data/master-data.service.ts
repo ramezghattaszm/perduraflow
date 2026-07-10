@@ -98,6 +98,7 @@ const RESOURCE_AUDIT_COLS = [
   'name',
   'resourceType',
   'plantId',
+  'lineId',
   'calendarId',
   'rate',
   'rateUom',
@@ -251,6 +252,7 @@ export class MasterDataService {
    */
   async createResource(tenantId: string, dto: CreateResourceRequest, actor: string = SYSTEM_ACTOR): Promise<ResourceDto> {
     await this.assertPlant(tenantId, dto.plantId)
+    await this.assertLineForPlant(tenantId, dto.lineId, dto.plantId) // S0a: line ∈ this plant (or null)
     await this.assertCalendar(tenantId, dto.calendarId)
     const row = await this.repo.createResourceWithAudit({ ...dto, tenantId }, (r) =>
       this.auditRow({
@@ -276,6 +278,12 @@ export class MasterDataService {
    */
   async updateResource(tenantId: string, id: string, dto: UpdateResourceRequest, actor: string = SYSTEM_ACTOR): Promise<ResourceDto> {
     if (dto.plantId) await this.assertPlant(tenantId, dto.plantId)
+    // S0a: validate line_id against the resource's effective plant — the incoming plant (if changing) else
+    // the resource's current plant. `lineId === undefined` = not touched (skip); explicit null clears it.
+    if (dto.lineId !== undefined && dto.lineId !== null) {
+      const effectivePlant = dto.plantId ?? (await this.repo.findResource(tenantId, id))?.plantId
+      if (effectivePlant) await this.assertLineForPlant(tenantId, dto.lineId, effectivePlant)
+    }
     if (dto.calendarId) await this.assertCalendar(tenantId, dto.calendarId)
     const row = await this.repo.updateResourceWithAudit(tenantId, id, dto, (before, after) => {
       const changedFields = this.diff(before, after, RESOURCE_AUDIT_COLS)
@@ -823,6 +831,25 @@ export class MasterDataService {
     const { invalid } = await this.org.validateCalendarIds(tenantId, [calendarId])
     if (invalid.length > 0) {
       throw new AppException(HttpStatus.NOT_FOUND, 'Calendar not found', ERROR_CODES.INVALID_CALENDAR_REFERENCE)
+    }
+  }
+
+  /**
+   * Validates a `resource.line_id` (Scheduling S0a, O4 via org.read 1.3) — null skips (plant-only grain).
+   * Two-part: (1) the line resolves to an active line in the tenant; (2) the **plant-consistency guard** —
+   * the line must sit in the resource's OWN plant (a resource can't be on a line in another plant).
+   * @throws AppException INVALID_LINE_REFERENCE - the line id did not resolve to an active tenant line
+   * @throws AppException LINE_PLANT_MISMATCH - the line resolves but belongs to a different plant
+   */
+  private async assertLineForPlant(tenantId: string, lineId: string | null | undefined, plantId: string): Promise<void> {
+    if (!lineId) return
+    const { invalid } = await this.org.validateLineIds(tenantId, [lineId])
+    if (invalid.length > 0) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'Line not found', ERROR_CODES.INVALID_LINE_REFERENCE)
+    }
+    const line = await this.org.getLine(tenantId, lineId)
+    if (line && line.plantId !== plantId) {
+      throw new AppException(HttpStatus.BAD_REQUEST, `Line ${lineId} is not in plant ${plantId}`, ERROR_CODES.LINE_PLANT_MISMATCH)
     }
   }
 

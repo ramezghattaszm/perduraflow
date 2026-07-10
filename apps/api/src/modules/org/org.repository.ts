@@ -4,14 +4,17 @@ import { ORG_DB, type OrgDatabase } from './org.db'
 import {
   calendar,
   customer,
+  line,
   plant,
   plantGroup,
   plantGroupMember,
   program,
   type Calendar,
   type Customer,
+  type Line,
   type NewCalendar,
   type NewCustomer,
+  type NewLine,
   type NewPlant,
   type NewPlantGroup,
   type NewProgram,
@@ -57,6 +60,39 @@ export class OrgRepository {
       .update(plant)
       .set({ ...patch, updatedAt: new Date() })
       .where(and(eq(plant.tenantId, tenantId), eq(plant.id, id)))
+      .returning()
+    return row
+  }
+
+  // --- line (S0a) ------------------------------------------------------------
+  listLines(tenantId: string): Promise<Line[]> {
+    return this.db.select().from(line).where(eq(line.tenantId, tenantId)).orderBy(asc(line.name))
+  }
+
+  findLine(tenantId: string, id: string): Promise<Line | undefined> {
+    return this.db.query.line.findFirst({ where: and(eq(line.tenantId, tenantId), eq(line.id, id)) })
+  }
+
+  /** Returns the ids (of the given set) that exist as ACTIVE lines in the tenant (O4). */
+  async activeLineIdsIn(tenantId: string, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return []
+    const rows = await this.db
+      .select({ id: line.id })
+      .from(line)
+      .where(and(eq(line.tenantId, tenantId), eq(line.status, 'active'), inArray(line.id, ids)))
+    return rows.map((r) => r.id)
+  }
+
+  async createLine(data: NewLine): Promise<Line> {
+    const [row] = await this.db.insert(line).values(data).returning()
+    return row!
+  }
+
+  async updateLine(tenantId: string, id: string, patch: Partial<NewLine>): Promise<Line | undefined> {
+    const [row] = await this.db
+      .update(line)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(line.tenantId, tenantId), eq(line.id, id)))
       .returning()
     return row
   }

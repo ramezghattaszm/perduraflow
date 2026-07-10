@@ -38,6 +38,8 @@ export const ERROR_CODES = {
   // org module (kernel organizational model)
   PLANT_NOT_FOUND: 'PLANT_NOT_FOUND',
   PLANT_GROUP_NOT_FOUND: 'PLANT_GROUP_NOT_FOUND',
+  // Scheduling S0a (line entity): the sub-plant containment level.
+  LINE_NOT_FOUND: 'LINE_NOT_FOUND',
   CUSTOMER_NOT_FOUND: 'CUSTOMER_NOT_FOUND',
   PROGRAM_NOT_FOUND: 'PROGRAM_NOT_FOUND',
   CALENDAR_NOT_FOUND: 'CALENDAR_NOT_FOUND',
@@ -59,6 +61,10 @@ export const ERROR_CODES = {
   INVALID_DOWNTIME_WINDOW: 'INVALID_DOWNTIME_WINDOW',
   // cross-module reference validation via org.read 1.1 (O4)
   INVALID_CALENDAR_REFERENCE: 'INVALID_CALENDAR_REFERENCE',
+  // resource.line_id validated via org.read 1.3 (O4, Scheduling S0a): unknown line ref, and the
+  // plant-consistency guard (a resource's line must sit in the resource's own plant).
+  INVALID_LINE_REFERENCE: 'INVALID_LINE_REFERENCE',
+  LINE_PLANT_MISMATCH: 'LINE_PLANT_MISMATCH',
   // part customer/program refs validated via org.read 1.2 (O4, Master Data Layer 1)
   INVALID_CUSTOMER_REFERENCE: 'INVALID_CUSTOMER_REFERENCE',
   INVALID_PROGRAM_REFERENCE: 'INVALID_PROGRAM_REFERENCE',

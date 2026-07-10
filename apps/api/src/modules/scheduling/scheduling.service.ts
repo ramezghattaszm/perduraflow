@@ -56,6 +56,7 @@ import {
 import { ActualsRollupService } from './actuals-rollup.service'
 import { SchedulingRepository } from './scheduling.repository'
 import type { DemandInput, ResourceOperatorAssignment, ScheduledOperation } from './schema'
+import { matchesLocation } from './location'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
@@ -393,7 +394,7 @@ export class SchedulingService {
     const actualByOp = new Map(actuals.map((a) => [a.scheduledOperationId, a]))
     // The plant's daily working window for the Gantt axis — derived from the SAME
     // calendars the sequencer placed against (D-shift), so the axis spans the working day.
-    const plantResources = (await (await this.resolveAsset(tenantId)).listResources(tenantId)).filter((r) => r.plantId === version.plantId)
+    const plantResources = (await (await this.resolveAsset(tenantId)).listResources(tenantId)).filter((r) => matchesLocation(r, version.plantId))
     const workingWindow = workingWindowOf(await this.resolveResourceCalendars(tenantId, plantResources))
     // Causal lateness chains for the at-risk ops (D-late) — attached to the board op so the bar panel
     // can show "held by … ← root", same computed chain the queue + Copilot read.
@@ -489,7 +490,7 @@ export class SchedulingService {
 
     const md = await this.resolveMasterData(tenantId)
     const asset = await this.resolveAsset(tenantId)
-    const resource = (await asset.listResources(tenantId)).find((r) => r.id === dto.resourceId && r.plantId === dto.plantId)
+    const resource = (await asset.listResources(tenantId)).find((r) => r.id === dto.resourceId && matchesLocation(r, dto.plantId))
     if (!resource) throw new AppException(HttpStatus.BAD_REQUEST, 'Resource not found in this plant', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
     const operator = (await md.listOperators(tenantId)).find((o) => o.id === dto.operatorId && o.isActive)
     if (!operator) throw new AppException(HttpStatus.BAD_REQUEST, 'Operator not found', ERROR_CODES.OPERATOR_ASSIGNMENT_INVALID)
@@ -570,10 +571,11 @@ export class SchedulingService {
   }
 
   /** Board rows: the plant's resources, via the bound `masterdata.read`. */
-  async listResources(tenantId: string, plantId: string): Promise<ResourceDto[]> {
+  async listResources(tenantId: string, plantId: string, lineId?: string): Promise<ResourceDto[]> {
     const md = await this.resolveMasterData(tenantId)
     const asset = await this.resolveAsset(tenantId)
-    return (await asset.listResources(tenantId)).filter((r) => r.plantId === plantId)
+    // S0a: optional line filter — plant-grain unchanged when `lineId` is absent.
+    return (await asset.listResources(tenantId)).filter((r) => matchesLocation(r, plantId, lineId))
   }
 
   /**
@@ -582,14 +584,14 @@ export class SchedulingService {
    * human names resolved so language ("delay Stellantis", "Press Line A") maps to
    * real ids. Bounded by the plant's active demand + resources (a handful each).
    */
-  async entityCatalog(tenantId: string, plantId: string): Promise<{
+  async entityCatalog(tenantId: string, plantId: string, lineId?: string): Promise<{
     orders: { demandLineId: string; releaseReference: string | null; customer: string; part: string; qty: number; firmness: string; due: string }[]
     resources: { id: string; name: string; status: string }[]
   }> {
     const md = await this.resolveMasterData(tenantId)
     const asset = await this.resolveAsset(tenantId)
     const resources = (await asset.listResources(tenantId))
-      .filter((r) => r.plantId === plantId)
+      .filter((r) => matchesLocation(r, plantId, lineId)) // S0a: optional line filter; plant-grain when absent
       .map((r) => ({ id: r.id, name: r.name, status: r.status }))
     const custCache = new Map<string, string>()
     const demand = (await this.repo.listDemand(tenantId, plantId)).filter((d) => d.isActive)
@@ -1088,7 +1090,7 @@ export class SchedulingService {
     const { closed: utilDowntime } = downtimeMaps(await asset.listActiveDowntime(tenantId, version.plantId))
     const utilCalendars = await this.resolveResourceCalendars(
       tenantId,
-      allResources.filter((r) => r.plantId === version.plantId),
+      allResources.filter((r) => matchesLocation(r, version.plantId)),
       utilDowntime,
     )
     const availByResource = new Map<string, number>()

@@ -1,11 +1,12 @@
 import type {
   CalendarDto,
   CustomerDto,
+  LineDto,
   PlantDto,
   PlantGroupDto,
   ProgramDto,
 } from '@perduraflow/contracts'
-import type { Calendar, Customer, Plant, PlantGroup, Program } from './schema'
+import type { Calendar, Customer, Line, Plant, PlantGroup, Program } from './schema'
 
 /** Map an org row to its `org.read` DTO. */
 export const toPlantDto = (p: Plant): PlantDto => ({
@@ -15,6 +16,14 @@ export const toPlantDto = (p: Plant): PlantDto => ({
   region: p.region,
   location: p.location,
   status: p.status,
+})
+
+/** Map a line row to its `org.read` DTO (S0a). */
+export const toLineDto = (l: Line): LineDto => ({
+  id: l.id,
+  plantId: l.plantId,
+  name: l.name,
+  status: l.status,
 })
 
 export const toPlantGroupDto = (g: PlantGroup, memberPlantIds: string[]): PlantGroupDto => ({

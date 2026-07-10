@@ -90,6 +90,8 @@ export function ResourcesScreen() {
       name,
       resourceType,
       plantId,
+      // S0a: line-level location — plant-grain default; a line picker is a later UI pass (D-S0-2).
+      lineId: null,
       calendarId,
       rate: num(rate),
       rateUom: rateUom.trim() || null,

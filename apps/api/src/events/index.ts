@@ -10,6 +10,7 @@ export const EVENTS = {
   USER_CREATED: 'auth.user.created',
   ROLE_CREATED: 'auth.role.created',
   PLANT_CREATED: 'org.plant.created',
+  LINE_CREATED: 'org.line.created',
   PLANT_GROUP_CREATED: 'org.plant_group.created',
   CUSTOMER_CREATED: 'org.customer.created',
   PROGRAM_CREATED: 'org.program.created',

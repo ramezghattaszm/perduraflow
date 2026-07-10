@@ -17,6 +17,11 @@ export const resource = masterDataSchema.table(
     name: text('name').notNull(),
     resourceType: text('resource_type').$type<ResourceType>().notNull(),
     plantId: text('plant_id').notNull(),
+    // Sub-plant location (Scheduling S0a) — the kernel `org.line` this resource sits on, or null
+    // (plant-only grain). Plain text org ref (no cross-schema FK — O2); validated at write via
+    // `org.read 1.3`/`validateLineIds` (O4) + the plant-consistency guard (the line must be in this
+    // resource's plant). NULLABLE-PERMANENT: line-adoption is a per-tenant maturity choice (D-S0-2).
+    lineId: text('line_id'),
     calendarId: text('calendar_id').notNull(),
     rate: doublePrecision('rate'),
     rateUom: text('rate_uom'),

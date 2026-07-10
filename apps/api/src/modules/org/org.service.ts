@@ -3,15 +3,18 @@ import type {
   CalendarDto,
   CreateCalendarRequest,
   CreateCustomerRequest,
+  CreateLineRequest,
   CreatePlantGroupRequest,
   CreatePlantRequest,
   CreateProgramRequest,
   CustomerDto,
+  LineDto,
   PlantDto,
   PlantGroupDto,
   ProgramDto,
   UpdateCalendarRequest,
   UpdateCustomerRequest,
+  UpdateLineRequest,
   UpdatePlantGroupRequest,
   UpdatePlantRequest,
   UpdateProgramRequest,
@@ -22,6 +25,7 @@ import { EVENTS } from '../../events'
 import {
   toCalendarDto,
   toCustomerDto,
+  toLineDto,
   toPlantDto,
   toPlantGroupDto,
   toProgramDto,
@@ -66,6 +70,36 @@ export class OrgService {
     const row = await this.repo.updatePlant(tenantId, id, dto)
     if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Plant not found', ERROR_CODES.PLANT_NOT_FOUND)
     return toPlantDto(row)
+  }
+
+  // --- line (S0a) ------------------------------------------------------------
+  /** Lists the tenant's lines. */
+  async listLines(tenantId: string): Promise<LineDto[]> {
+    return (await this.repo.listLines(tenantId)).map(toLineDto)
+  }
+
+  /**
+   * Creates a line under an existing plant (S0a). The line's `plant_id` is validated
+   * against the tenant's plants (O4). Emits `org.line.created`.
+   * @throws AppException PLANT_NOT_FOUND - the line's plant did not resolve
+   */
+  async createLine(tenantId: string, dto: CreateLineRequest): Promise<LineDto> {
+    await this.assertPlantsExist(tenantId, [dto.plantId])
+    const row = await this.repo.createLine({ ...dto, tenantId })
+    await this.events.publish(EVENTS.LINE_CREATED, { id: row.id, tenantId, name: row.name }, tenantId)
+    return toLineDto(row)
+  }
+
+  /**
+   * Updates a line in the tenant (S0a). Re-validates `plant_id` when supplied.
+   * @throws AppException LINE_NOT_FOUND - no such line in the tenant
+   * @throws AppException PLANT_NOT_FOUND - the new plant did not resolve
+   */
+  async updateLine(tenantId: string, id: string, dto: UpdateLineRequest): Promise<LineDto> {
+    if (dto.plantId) await this.assertPlantsExist(tenantId, [dto.plantId])
+    const row = await this.repo.updateLine(tenantId, id, dto)
+    if (!row) throw new AppException(HttpStatus.NOT_FOUND, 'Line not found', ERROR_CODES.LINE_NOT_FOUND)
+    return toLineDto(row)
   }
 
   // --- plant group -----------------------------------------------------------

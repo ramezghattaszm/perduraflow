@@ -3,6 +3,7 @@ import {
   ORG_READ_CONTRACT,
   type CalendarDto,
   type CustomerDto,
+  type LineDto,
   type OrgReadContract,
   type PlantDto,
   type PlantGroupDto,
@@ -12,6 +13,7 @@ import {
 import {
   toCalendarDto,
   toCustomerDto,
+  toLineDto,
   toPlantDto,
   toPlantGroupDto,
   toProgramDto,
@@ -42,6 +44,17 @@ export class OrgReadService implements OrgReadContract {
   async getPlant(tenantId: string, id: string): Promise<PlantDto | null> {
     const row = await this.repo.findPlant(tenantId, id)
     return row ? toPlantDto(row) : null
+  }
+
+  /** Lists all lines in the tenant (S0a). */
+  async listLines(tenantId: string): Promise<LineDto[]> {
+    return (await this.repo.listLines(tenantId)).map(toLineDto)
+  }
+
+  /** Resolves one line in the tenant (with its parent plantId), or null (S0a). */
+  async getLine(tenantId: string, id: string): Promise<LineDto | null> {
+    const row = await this.repo.findLine(tenantId, id)
+    return row ? toLineDto(row) : null
   }
 
   /** Resolves one plant group (with its member plant ids) in the tenant, or null. */
@@ -76,6 +89,16 @@ export class OrgReadService implements OrgReadContract {
    */
   async validatePlantIds(tenantId: string, ids: string[]): Promise<PlantRefValidation> {
     const valid = await this.repo.activePlantIdsIn(tenantId, ids)
+    const validSet = new Set(valid)
+    return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
+  }
+
+  /**
+   * Validates cross-module line references (O4, `org.read 1.3`): `master-data` calls
+   * this before persisting a `resource.line_id`.
+   */
+  async validateLineIds(tenantId: string, ids: string[]): Promise<PlantRefValidation> {
+    const valid = await this.repo.activeLineIdsIn(tenantId, ids)
     const validSet = new Set(valid)
     return { valid, invalid: ids.filter((id) => !validSet.has(id)) }
   }

@@ -13,6 +13,7 @@ import {
 import { BindingResolver } from '../binding/binding.resolver'
 import { LEARNING_READ } from '../learning/learning-read.service'
 import { CONFIG_READ } from '../config/config-read.service'
+import { matchesLocation } from './location'
 import { SchedulingRepository } from './scheduling.repository'
 import { startOfDayUtc } from '../../common/utils/working-calendar'
 import {
@@ -146,9 +147,11 @@ export class ActualsRollupService {
     plantId: string,
     windowStartMs: number,
     windowEndMs: number,
+    lineId?: string,
   ): Promise<{ authoritative: ExecutionActualDto[]; resourceIds: string[] }> {
     const asset = await this.resolveAsset(tenantId)
-    const resourceIds = (await asset.listResources(tenantId)).filter((r) => r.plantId === plantId).map((r) => r.id)
+    // S0a: optional line filter — plant-grain unchanged when `lineId` is absent.
+    const resourceIds = (await asset.listResources(tenantId)).filter((r) => matchesLocation(r, plantId, lineId)).map((r) => r.id)
     const actuals = await this.learning.listActualsForResourcesInWindow(tenantId, resourceIds, windowStartMs, windowEndMs)
     if (actuals.length === 0) return { authoritative: [], resourceIds }
 
