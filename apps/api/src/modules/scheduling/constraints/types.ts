@@ -66,6 +66,9 @@ export interface ScheduleModel {
   readonly candidateStartMs: number
   readonly originMs: number
   readonly resourceFreeMs: number
+  /** Set only for FEASIBILITY evaluation (post-`placeJob`): did the op fit a working segment? `false` = the
+   *  placeJob → null degrade (op longer than any segment, no OT). Undefined at pre-placement evaluation. */
+  readonly placedFeasible?: boolean
 }
 
 /**

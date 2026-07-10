@@ -18,6 +18,7 @@ import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type Working
 import { ConstraintPipeline } from './constraints/pipeline'
 import { materialFloorConstraint, minBatchFloorConstraint, precedenceFloorConstraint, releaseFloorConstraint } from './constraints/floor'
 import { eligibilityCandidacyConstraint, readinessCandidacyConstraint } from './constraints/candidacy'
+import { placementFeasibilityConstraint } from './constraints/feasibility'
 import type { ScheduleModel } from './constraints/types'
 
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
@@ -339,6 +340,7 @@ export function sequence(
     candidacy: [readinessCandidacyConstraint(isReady), eligibilityCandidacyConstraint()],
     floor: [materialFloorConstraint(), releaseFloorConstraint(), precedenceFloorConstraint(predecessorEnd)],
     quantityFloor: [minBatchFloorConstraint(minBatchByResource ?? new Map())],
+    feasibility: [placementFeasibilityConstraint()], // Commit 5 — degrade form (veto-and-reselect is S1.2)
   })
   const remaining = [...pipeline.order(items)] // ORDERING tier — global pre-sort (identity; EDD → Commit 4)
 
@@ -416,9 +418,11 @@ export function sequence(
     // nights / Sundays / holidays / maintenance / down). A null result means the op cannot
     // fit (non-split op longer than any working segment, no OT) — the service feasibility
     // gate is responsible for rejecting those; fall back to contiguous + at-risk defensively.
-    // PLACEMENT · place → FEASIBILITY (pipeline pass-through in Commit 1 → `placeJob`'s result unchanged;
-    // the veto-and-reselect form of FEASIBILITY is S1.2, not here).
-    const placed = pipeline.feasibility(placeJob(cal, floor, durMs, st.ot))
+    // PLACEMENT · place → FEASIBILITY — placeJob runs, then the registered FEASIBILITY constraint evaluates
+    // the outcome (`placedFeasible = placed !== null`). Degrade form (Commit 5): the placement is returned
+    // unchanged; the contiguous-fallback arithmetic below is invoked as-is. Veto-and-reselect is S1.2.
+    const placedRaw = placeJob(cal, floor, durMs, st.ot)
+    const placed = pipeline.feasibility(placedRaw, () => ({ item, resourceId: bestRes, candidateStartMs: floor, originMs: origin, resourceFreeMs: prevFree, placedFeasible: placedRaw !== null }))
     const startMs = placed?.startMs ?? floor
     const endMs = placed?.endMs ?? startMs + durMs
     const atRisk = endMs > item.requiredDate || placed === null

@@ -60,6 +60,7 @@ import { matchesLocation } from './location'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
+import { eligibilityPreGateConstraint } from './constraints/pregate'
 import { startOfDayUtc, workingCalendarFromCalendarDto, workingMinutesInRange, type WorkingCalendar } from '../../common/utils/working-calendar'
 
 /** The deterministic sequencer inputs for a plant — shared by `solve()` + what-if. */
@@ -851,6 +852,7 @@ export class SchedulingService {
 
     const items: SequencerItem[] = []
     let infeasibleReason: string | null = null
+    const eligibilityPreGate = eligibilityPreGateConstraint() // PRE_GATE · zero-eligible hard-reject (S1.1 Commit 5)
     for (const line of demand) {
       const part = partCache.get(line.partNo) ?? (await md.resolvePart(tenantId, line.partNo, { asOf: asOfIso }))
       partCache.set(line.partNo, part)
@@ -867,11 +869,7 @@ export class SchedulingService {
         if (!groupCache.has(op.resourceGroupId)) groupCache.set(op.resourceGroupId, await asset.getResourceGroup(tenantId, op.resourceGroupId))
         const group = groupCache.get(op.resourceGroupId)
         const eligible = (group?.memberResourceIds ?? []).filter((id) => activeResourceIds.has(id)).sort()
-        if (eligible.length === 0) {
-          infeasibleReason = `Demand ${line.demandLineId}: no eligible active resource for op ${op.opSeq}`
-          break
-        }
-        items.push({
+        const it: SequencerItem = {
           demandLineId: line.demandLineId,
           // The RESOLVED part version id — a frozen snapshot recorded on the scheduled op (D-L0-6),
           // never re-resolved as-live. `partNo` is the durable business key the plan reasons over.
@@ -889,7 +887,15 @@ export class SchedulingService {
           eligibleResourceIds: eligible,
           earliestStartMs: earliestByPart.get(line.partNo),
           releaseFloorMs: Math.min(todayStartMs, startOfDayUtc(line.requiredDate.getTime())),
-        })
+        }
+        // PRE_GATE · eligibility — the zero-eligible hard-reject, now the registered PRE_GATE constraint.
+        // Same predicate as the CANDIDACY eligibility term (item.eligibleResourceIds.length); this gate
+        // fires first (aborts the solve), so no zero-eligible op ever reaches the loop's CANDIDACY skip.
+        if (eligibilityPreGate.evaluate({ item: it, resourceId: '', candidateStartMs: 0, originMs: 0, resourceFreeMs: 0 }).degree > 0) {
+          infeasibleReason = `Demand ${line.demandLineId}: no eligible active resource for op ${op.opSeq}`
+          break
+        }
+        items.push(it)
       }
       if (infeasibleReason) break
     }

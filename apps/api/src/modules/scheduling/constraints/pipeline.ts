@@ -88,10 +88,14 @@ export class ConstraintPipeline {
    * PLACEMENT · FEASIBILITY (degrade form) — the placement result after `placeJob`. Commit 1: no constraint
    * → returns `placed` unchanged. (The veto-and-reselect form is S1.2, not here.)
    */
-  feasibility<T>(placed: T, _model?: () => ScheduleModel): T {
+  feasibility<T>(placed: T, model?: () => ScheduleModel): T {
     const cs = this.placement.feasibility
     if (!cs || cs.length === 0) return placed
-    // (S1.2: degrade-form feasibility constraints; veto-and-reselect is a later control-flow change)
+    // Degrade form (Commit 5): evaluate the FEASIBILITY constraints over the placement outcome (recording
+    // the verdict for S1.2's veto-and-reselect), but leave the placement unchanged — the sequencer's
+    // contiguous-fallback arithmetic handles the null degrade. No reselect here.
+    const m = model!()
+    for (const c of cs) c.evaluate(m)
     return placed
   }
 }
