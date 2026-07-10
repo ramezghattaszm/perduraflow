@@ -15,6 +15,7 @@
  */
 
 import { ALWAYS_ON, newOvertimeState, placeJob, type OvertimeState, type WorkingCalendar } from '../../common/utils/working-calendar'
+import { ConstraintPipeline } from './constraints/pipeline'
 
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
 export const CHANGEOVER_BONUS_HOURS = 24
@@ -292,7 +293,13 @@ export function sequence(
     return best
   }
 
-  const remaining = [...items]
+  // S1.1: the placement loop routes through the two-tier constraint pipeline. Commit 1 registers NO
+  // constraints — every tier/phase is a pass-through returning the inline-delegated value, so routing
+  // through the registry is byte-identical to the prior inline logic. Mechanisms move in one at a time
+  // (Commits 2–5). ORDERING tier = the global pre-sort seam (identity here; EDD's home in Commit 4);
+  // PLACEMENT tier = the per-job CANDIDACY / FLOOR / FEASIBILITY phases below.
+  const pipeline = new ConstraintPipeline()
+  const remaining = [...pipeline.order(items)] // ORDERING tier — global pre-sort (identity in Commit 1)
   const placements: Placement[] = []
   let horizonEndMs = origin
 
@@ -329,7 +336,8 @@ export function sequence(
     let bestRes = ''
     for (let i = 0; i < remaining.length; i++) {
       const item = remaining[i]!
-      if (!isReady(item)) continue // precedence: predecessor not placed yet → not a candidate
+      // PLACEMENT · CANDIDACY (pipeline pass-through in Commit 1 → the inline `isReady`).
+      if (!pipeline.candidacy(isReady(item))) continue // precedence: predecessor not placed yet → not a candidate
       const res = assignResource(item)
       const st = stateFor(res)
       const sameAttr =
@@ -360,7 +368,9 @@ export function sequence(
     const release = item.releaseFloorMs ?? 0 // order-release floor (past demand → its day; today/future → today)
     const predEnd = predecessorEnd(item) // C3 precedence: can't start before the prior op ends
     const prevFree = st.freeMs
-    const floor = Math.max(prevFree, origin, earliest, predEnd, release)
+    // PLACEMENT · FLOOR (pipeline pass-through in Commit 1 → the inline `Math.max` of the five floor terms;
+    // the arithmetic stays here, only the decision-to-apply routes through the tier — D-S1-5).
+    const floor = pipeline.floor(Math.max(prevFree, origin, earliest, predEnd, release))
     // Resolve the effective times AT the op's start floor — a forward-only forecast overlay
     // (`ml_predicted`, D44) gates itself by when the op actually runs, so an op landing on a
     // past day falls back to its std/measured cycle instead of carrying the pre-adopted forecast.
@@ -384,7 +394,9 @@ export function sequence(
     // nights / Sundays / holidays / maintenance / down). A null result means the op cannot
     // fit (non-split op longer than any working segment, no OT) — the service feasibility
     // gate is responsible for rejecting those; fall back to contiguous + at-risk defensively.
-    const placed = placeJob(cal, floor, durMs, st.ot)
+    // PLACEMENT · place → FEASIBILITY (pipeline pass-through in Commit 1 → `placeJob`'s result unchanged;
+    // the veto-and-reselect form of FEASIBILITY is S1.2, not here).
+    const placed = pipeline.feasibility(placeJob(cal, floor, durMs, st.ot))
     const startMs = placed?.startMs ?? floor
     const endMs = placed?.endMs ?? startMs + durMs
     const atRisk = endMs > item.requiredDate || placed === null
