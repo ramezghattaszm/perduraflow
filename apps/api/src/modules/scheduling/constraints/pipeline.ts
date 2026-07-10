@@ -30,17 +30,30 @@ export class ConstraintPipeline {
   constructor(
     private readonly ordering: Constraint[] = [],
     private readonly placement: PlacementConstraints = {},
+    private readonly selection: Constraint[] = [],
   ) {}
 
   /**
-   * ORDERING tier — the global job order, evaluated ONCE before placement. Commit 1: no ORDERING constraint
-   * → returns `items` unchanged (the seam EDD's global pre-sort fills in Commit 4). The greedy loop selects
-   * order-invariantly (total-order tie-break), so a pass-through here cannot change the schedule.
+   * Input-order seam — returns `items` unchanged. There is **no ORDERING scope**: the DB input order is
+   * proven inert (the reverse-order diagnostic left the plan byte-identical, because the SELECTION min-scan
+   * is order-invariant under the total-order tie-break). Kept as an inert identity no-op; NOT a mechanism.
    */
   order(items: SequencerItem[]): SequencerItem[] {
-    if (this.ordering.length === 0) return items
-    // (Commit 4: fold ORDERING constraints into a stable global sort key)
     return items
+  }
+
+  /**
+   * SELECTION scope — the stateful per-step composite rank score for one candidate `(item, resource-state)`.
+   * Sums the registered SELECTION constraints' signed contributions **in registration order, from 0** —
+   * reproducing the inline `rank = (requiredDate − origin)/hr − bonus − expedite + notReady` bit-for-bit
+   * (leading `0 +` is additive identity; the constraints are registered `[eddBase, changeover, expedite,
+   * notReady]` so the fold matches the inline left-to-right order). Lower rank wins; the loop's argmin +
+   * total-order tie-break stays inline (reproduced, not reordered).
+   */
+  selectionScore(model: ScheduleModel): number {
+    let score = 0
+    for (const c of this.selection) score += c.evaluate(model).contribution ?? 0
+    return score
   }
 
   /**

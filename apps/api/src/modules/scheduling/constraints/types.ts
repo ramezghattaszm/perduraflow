@@ -17,14 +17,19 @@
  */
 import type { SequencerItem } from '../sequencer'
 
-/** Which tier evaluates the constraint (the S1.1 two-tier model). */
-export type ConstraintScope = 'ORDERING' | 'PLACEMENT'
+/**
+ * Which scope evaluates the constraint (the proven two-scope model). `SELECTION` is the stateful per-step
+ * scorer (the sole ordering mechanism); `PLACEMENT` is per-job post-selection. There is no `ORDERING` scope
+ * — the DB input order is proven inert (the reverse-order diagnostic left the plan byte-identical).
+ */
+export type ConstraintScope = 'SELECTION' | 'PLACEMENT'
 
 /**
- * How the framework applies a constraint's evaluation — the five extraction targets. `RANK` is `ORDERING`-
- * scope (the global sort key); `PRE_GATE`/`CANDIDACY`/`FLOOR`/`FEASIBILITY` are `PLACEMENT`-scope phases.
+ * How the framework applies a constraint's evaluation. `SELECTION` is the stateful per-step composite rank
+ * scorer (the sole ordering mechanism); `PRE_GATE`/`CANDIDACY`/`FLOOR`/`FEASIBILITY` are `PLACEMENT`-scope
+ * phases (per job).
  */
-export type ConstraintMechanism = 'RANK' | 'PRE_GATE' | 'CANDIDACY' | 'FLOOR' | 'FEASIBILITY'
+export type ConstraintMechanism = 'SELECTION' | 'PRE_GATE' | 'CANDIDACY' | 'FLOOR' | 'FEASIBILITY'
 
 /**
  * The versioned internal expression representation constraints are authored against. Bumped on any grammar
@@ -66,6 +71,9 @@ export interface ScheduleModel {
   readonly candidateStartMs: number
   readonly originMs: number
   readonly resourceFreeMs: number
+  /** Set only for SELECTION evaluation: the assigned resource's **live** current changeover attribute (the
+   *  last op placed on it, mutated after each placement) — the stateful input to the changeover rank-bonus. */
+  readonly currentAttr?: string | null
   /** Set only for FEASIBILITY evaluation (post-`placeJob`): did the op fit a working segment? `false` = the
    *  placeJob → null degrade (op longer than any segment, no OT). Undefined at pre-placement evaluation. */
   readonly placedFeasible?: boolean

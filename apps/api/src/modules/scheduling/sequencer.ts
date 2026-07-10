@@ -19,6 +19,7 @@ import { ConstraintPipeline } from './constraints/pipeline'
 import { materialFloorConstraint, minBatchFloorConstraint, precedenceFloorConstraint, releaseFloorConstraint } from './constraints/floor'
 import { eligibilityCandidacyConstraint, readinessCandidacyConstraint } from './constraints/candidacy'
 import { placementFeasibilityConstraint } from './constraints/feasibility'
+import { changeoverSelectionConstraint, eddBaseSelectionConstraint, expediteSelectionConstraint, notReadySelectionConstraint } from './constraints/selection'
 import type { ScheduleModel } from './constraints/types'
 
 /** Forecast job may pull ahead by at most this many hours to group a changeover (documented constant). */
@@ -27,7 +28,7 @@ export const CHANGEOVER_BONUS_HOURS = 24
 export const EXPEDITE_BONUS_HOURS = 100_000
 /** Deferral applied to a not-yet-material-ready op under readyFirst (push it behind ready work). */
 export const READY_DEFER_HOURS = 50_000
-const MS_PER_HOUR = 3_600_000
+export const MS_PER_HOUR = 3_600_000
 const MS_PER_MINUTE = 60_000
 
 /** One unit of work to place (a demand line's routing operation). */
@@ -336,12 +337,19 @@ export function sequence(
   //    min-batch = minBatchByResource.get(res); the pipeline folds these with Math.max (the base floor
   //    prevFree/origin stays inline). The same floor inputs also stay inline for the causal attribution
   //    (bindMs), a separate mechanism not moved.
-  const pipeline = new ConstraintPipeline([], {
-    candidacy: [readinessCandidacyConstraint(isReady), eligibilityCandidacyConstraint()],
-    floor: [materialFloorConstraint(), releaseFloorConstraint(), precedenceFloorConstraint(predecessorEnd)],
-    quantityFloor: [minBatchFloorConstraint(minBatchByResource ?? new Map())],
-    feasibility: [placementFeasibilityConstraint()], // Commit 5 — degrade form (veto-and-reselect is S1.2)
-  })
+  const pipeline = new ConstraintPipeline(
+    [], // no ORDERING scope — the input order is proven inert (the `order()` seam is an identity no-op)
+    {
+      candidacy: [readinessCandidacyConstraint(isReady), eligibilityCandidacyConstraint()],
+      floor: [materialFloorConstraint(), releaseFloorConstraint(), precedenceFloorConstraint(predecessorEnd)],
+      quantityFloor: [minBatchFloorConstraint(minBatchByResource ?? new Map())],
+      feasibility: [placementFeasibilityConstraint()], // Commit 5 — degrade form (veto-and-reselect is S1.2)
+    },
+    // SELECTION (Commit 4) — the stateful per-step composite scorer, the sole ordering mechanism. Registration
+    // order is load-bearing: [eddBase, changeover, expedite, notReady] folds bit-for-bit as the inline
+    // `(requiredDate−origin)/hr − bonus − expedite + notReady`. Changeover is a SELECTION rank term ONLY.
+    [eddBaseSelectionConstraint(), changeoverSelectionConstraint(policy), expediteSelectionConstraint(policy), notReadySelectionConstraint(policy)],
+  )
   const remaining = [...pipeline.order(items)] // ORDERING tier — global pre-sort (identity; EDD → Commit 4)
 
   while (remaining.length > 0) {
@@ -355,17 +363,12 @@ export function sequence(
       // BEFORE resource assignment (order preserved), so the candidacy model carries no resource yet
       // (resourceId/candidateStart/freeMs are placeholders the candidacy constraints do not read).
       if (!pipeline.candidacy(() => ({ item, resourceId: '', candidateStartMs: 0, originMs: origin, resourceFreeMs: 0 }))) continue
-      const res = assignResource(item)
+      const res = assignResource(item) // least-loaded eligible member (selection state; reads st.freeMs) — reproduced inline, not reordered
       const st = stateFor(res)
-      const sameAttr =
-        st.currentAttr !== null && item.changeoverValue !== null && st.currentAttr === item.changeoverValue
-      const allowBonus = item.firmness === 'forecast' || policy?.changeoverBonusAllFirmness === true
-      const bonus = allowBonus && sameAttr ? CHANGEOVER_BONUS_HOURS : 0
-      const expedite = policy?.expediteDemandLineIds?.has(item.demandLineId) ? EXPEDITE_BONUS_HOURS : 0
-      // readyFirst: an op not yet material-ready at this resource's free time is deferred so
-      // ready (ungated) work takes the early slots — fills the pre-arrival gap (re-sequence-around).
-      const notReady = policy?.readyFirst === true && (item.earliestStartMs ?? 0) > st.freeMs ? READY_DEFER_HOURS : 0
-      const rank = (item.requiredDate - origin) / MS_PER_HOUR - bonus - expedite + notReady
+      // SELECTION · the stateful per-step composite score — the registered SELECTION constraints fold
+      // `(requiredDate−origin)/hr − changeoverBonus(currentAttr) − expedite + notReady`. Reads the resource's
+      // LIVE currentAttr / freeMs (mutated after each placement — line ~500). === the prior inline `rank`.
+      const rank = pipeline.selectionScore({ item, resourceId: res, candidateStartMs: 0, originMs: origin, resourceFreeMs: st.freeMs, currentAttr: st.currentAttr })
       if (bestItem === null || rank < bestRank || (rank === bestRank && tieBreakLess(item, bestItem))) {
         bestRank = rank
         bestIdx = i
