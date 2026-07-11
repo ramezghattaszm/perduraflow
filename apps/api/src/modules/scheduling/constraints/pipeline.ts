@@ -13,18 +13,18 @@ export interface PlacementConstraints {
 }
 
 /**
- * The two-tier constraint pipeline (S1.1) — the registry the placement loop routes through.
+ * The two-scope constraint pipeline (S1.1) — the registry the placement loop routes through.
  *
- * **ORDERING tier** ({@link order}) evaluates ONCE, globally, before placement — the job order (EDD's home,
- * Commit 4). **PLACEMENT tier** evaluates PER JOB in the declared phase order
- * `PRE_GATE → CANDIDACY → FLOOR → place → FEASIBILITY`. This ordered two-tier evaluation is part of the
- * determinism contract — extracting an ORDERING mechanism as a per-candidate PLACEMENT term (or a FLOOR
- * after CANDIDACY) would change *when* it evaluates and break byte-identicalness.
+ * **SELECTION scope** ({@link selectionScore}) is the stateful per-step composite scorer, evaluated for
+ * every remaining ready candidate each iteration — the sole ordering mechanism. **PLACEMENT scope** evaluates
+ * PER JOB post-selection in the declared phase order `PRE_GATE → CANDIDACY → FLOOR → place → FEASIBILITY`.
+ * The phase order is part of the determinism contract — evaluating a FLOOR after CANDIDACY (or reordering the
+ * stateful SELECTION scan) would change *when* it evaluates and break byte-identicalness.
+ * There is no ORDERING scope — the DB input order is proven inert, so {@link order} is an identity no-op.
  *
- * **Commit 1 — WRAPPING, not moving:** no constraint is registered. Every method is a thin pass-through that
- * returns the inline-delegated value, so the loop routes THROUGH the pipeline yet computes byte-identically.
- * Mechanisms move in one at a time (Commits 2–5); when a phase gains constraints, its caller passes the
- * lazily-built {@link ScheduleModel} (never invoked while the phase is empty, so Commit 1 pays nothing).
+ * S1.1 extracted every mechanism into this registry byte-identical (Commits 1–5): the loop routes THROUGH the
+ * pipeline and computes exactly as the prior inline logic. When a scope/phase has constraints, its caller
+ * passes the {@link ScheduleModel}; an empty phase returns the delegate unchanged.
  */
 export class ConstraintPipeline {
   constructor(

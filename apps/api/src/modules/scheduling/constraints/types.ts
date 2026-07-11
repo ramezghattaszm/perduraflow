@@ -3,17 +3,21 @@
  *
  * A constraint is a declarative object: a **predicate over a schedule-model** producing a **degree of
  * violation** (0 = satisfied, >0 = magnitude) and/or a **contribution** (a floor time, a rank delta) per its
- * **mechanism**, evaluated in one of two **scopes** (the S1.1 two-tier model):
- *  - `ORDERING` — evaluated ONCE, globally, before placement (the job order; EDD is the base here).
- *  - `PLACEMENT` — evaluated PER JOB during greedy placement, in the phase order
- *    `PRE_GATE → CANDIDACY → FLOOR → place → FEASIBILITY` (changeover is a PLACEMENT setup-cost lookup).
+ * **mechanism**, evaluated in one of two **scopes** (the proven two-scope model — see the scope doc):
+ *  - `SELECTION` — the **stateful per-step scorer**, evaluated for every remaining ready candidate each loop
+ *    iteration; the **sole ordering mechanism** (EDD is its `dueHours` base term, plus the changeover/expedite/
+ *    not-ready rank terms). Reads live per-resource state (`currentAttr`, `freeMs`). There is no ORDERING
+ *    scope — the DB input order is proven inert (the reverse-order diagnostic left the plan byte-identical).
+ *  - `PLACEMENT` — evaluated PER JOB post-selection, in the phase order
+ *    `PRE_GATE → CANDIDACY → FLOOR → place → FEASIBILITY`. Changeover is a `SELECTION` rank term ONLY —
+ *    never a placement cost (the engine has no per-transition setup; inventing one breaks byte-identical).
  *
  * The constraint knows nothing of *when* (loop vs objective) or *by which engine* (greedy vs CP-SAT, S4) it
  * is evaluated — adapters compile it. It is authored against the versioned {@link VOCABULARY_VERSION}
  * expression grammar (the internal representation S4 adapters + future customer-authoring expose), NOT ad-hoc
  * TypeScript predicates. Application mode (hard/soft/slack) is resolved config (S1.3) and lives outside this
- * shape. S1.1 Commit 1 defines the abstraction; no constraint is registered yet (the pipeline wraps the
- * existing inline logic pass-through) — mechanisms move in one at a time (Commits 2–5).
+ * shape. S1.1 extracted every mechanism into the registry byte-identical (Commits 1–5): FLOOR, CANDIDACY,
+ * FEASIBILITY, the zero-eligible PRE_GATE, and the stateful SELECTION scorer.
  */
 import type { SequencerItem } from '../sequencer'
 
@@ -81,7 +85,7 @@ export interface ScheduleModel {
 
 /**
  * One constraint's evaluation: a degree of violation (0 = satisfied) and/or a mechanism contribution — a
- * floor time (ms) for `FLOOR`, a rank delta for `RANK`; `CANDIDACY`/`FEASIBILITY` use `degree > 0` as veto.
+ * floor time (ms) for `FLOOR`, a signed rank delta for `SELECTION`; `CANDIDACY`/`FEASIBILITY` use `degree > 0` as veto.
  */
 export interface ConstraintEvaluation {
   readonly degree: number

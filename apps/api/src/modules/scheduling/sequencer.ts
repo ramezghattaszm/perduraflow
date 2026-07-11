@@ -327,16 +327,17 @@ export function sequence(
     return k === null || endByLineOp.has(k)
   }
 
-  // S1.1: the placement loop routes through the two-tier constraint pipeline.
-  //  • ORDERING tier (once, before placement) — the global pre-sort seam; identity here (EDD → Commit 4).
-  //  • PLACEMENT tier (per job) — CANDIDACY (Commit 3) / FLOOR (Commit 2) / FEASIBILITY (Commit 5).
-  // Each registered constraint INVOKES the same untouched arithmetic/logic (D-S1-5); only the decision moves.
-  //  CANDIDACY: readiness = isReady(item) [the reused closure]; eligibility = item.eligibleResourceIds.length>0
-  //    (the group→members data path stays in buildBaseContext; only the not-eligible gate moved here).
-  //  FLOOR: material = item.earliestStartMs, release = item.releaseFloorMs, precedence = predecessorEnd(item),
-  //    min-batch = minBatchByResource.get(res); the pipeline folds these with Math.max (the base floor
-  //    prevFree/origin stays inline). The same floor inputs also stay inline for the causal attribution
-  //    (bindMs), a separate mechanism not moved.
+  // S1.1: the placement loop routes through the two-scope constraint registry (all mechanisms extracted
+  // byte-identical; each INVOKES the same untouched arithmetic/logic — D-S1-5, only the decision moves).
+  //  • SELECTION scope (stateful, per step) — the sole ordering mechanism: the composite scorer folds
+  //    `(requiredDate−origin)/hr − changeoverBonus(currentAttr) − expedite + notReady`. EDD is its base term;
+  //    changeover is a SELECTION rank term reading the resource's LIVE currentAttr (not a placement cost).
+  //  • PLACEMENT scope (per job) — CANDIDACY: readiness = isReady(item) [reused closure], eligibility =
+  //    item.eligibleResourceIds.length>0 (group→members data path stays in buildBaseContext); FLOOR: material
+  //    = item.earliestStartMs, release = item.releaseFloorMs, precedence = predecessorEnd(item), min-batch =
+  //    minBatchByResource.get(res) (folded with Math.max, base floor prevFree/origin inline); FEASIBILITY:
+  //    the placeJob null-degrade. The floor inputs also stay inline for the causal attribution (bindMs) — a
+  //    separate diagnostic mechanism, not a constraint. There is no ORDERING scope (input order proven inert).
   const pipeline = new ConstraintPipeline(
     [], // no ORDERING scope — the input order is proven inert (the `order()` seam is an identity no-op)
     {
@@ -350,7 +351,7 @@ export function sequence(
     // `(requiredDate−origin)/hr − bonus − expedite + notReady`. Changeover is a SELECTION rank term ONLY.
     [eddBaseSelectionConstraint(), changeoverSelectionConstraint(policy), expediteSelectionConstraint(policy), notReadySelectionConstraint(policy)],
   )
-  const remaining = [...pipeline.order(items)] // ORDERING tier — global pre-sort (identity; EDD → Commit 4)
+  const remaining = [...pipeline.order(items)] // inert identity seam — no ORDERING scope (input order proven inert)
 
   while (remaining.length > 0) {
     let bestIdx = -1

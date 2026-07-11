@@ -14,7 +14,7 @@ import { CHANGEOVER_BONUS_HOURS, EXPEDITE_BONUS_HOURS, MS_PER_HOUR, READY_DEFER_
  * mutated after each placement) and the not-ready term reads its **live `resourceFreeMs`** — so "who's next"
  * depends on what was just placed. This is the SELECTION-scope evaluation surface `(item, resource-state)`,
  * distinct from PLACEMENT's post-selection `(item, model)`. Changeover is a SELECTION rank term ONLY — never
- * a `placeJob`/duration setup-cost (there is none in the engine; inventing one breaks byte-identical).
+ * a `placeJob`/duration cost (the engine has no per-transition setup; inventing one breaks byte-identical).
  *
  * Registration order is load-bearing (float determinism): `[eddBase, changeover, expedite, notReady]`.
  */
