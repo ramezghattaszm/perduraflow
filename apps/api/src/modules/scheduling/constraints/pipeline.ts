@@ -9,7 +9,21 @@ export interface PlacementConstraints {
   /** FLOOR · quantity — folded into the op's run quantity (`Math.max`); same mechanism, quantity dimension. */
   quantityFloor?: Constraint[]
   candidacy?: Constraint[]
+  /**
+   * PLACEMENT · CANDIDACY (resource-aware, pre-place) — the S1.2 veto point evaluated AFTER resource
+   * assignment (distinct from {@link candidacy}, which runs pre-assignment with `resourceId=''`). A registered
+   * constraint with `degree > 0` = "not this op on this resource this step" (D28-shaped). **Empty in S1.2 →
+   * {@link ConstraintPipeline.preplaceVeto} always returns false → the reselect branch is dead (inert).**
+   */
+  preplaceVeto?: Constraint[]
   feasibility?: Constraint[]
+  /**
+   * PLACEMENT · FEASIBILITY (reject form) — the S1.2 post-place veto. Distinct from {@link feasibility} (the
+   * degrade form, which records the verdict but leaves the placement): a registered constraint with
+   * `degree > 0` = **reject** the placement → reselect (D9-shaped). **Empty in S1.2 →
+   * {@link ConstraintPipeline.feasibilityRejects} always returns false → no placement is ever rejected (inert).**
+   */
+  feasibilityReject?: Constraint[]
 }
 
 /**
@@ -98,8 +112,35 @@ export class ConstraintPipeline {
   }
 
   /**
+   * PLACEMENT · CANDIDACY (resource-aware, pre-place veto — S1.2) — evaluated AFTER resource assignment, over
+   * the resource-aware model (live `currentAttr`, `resourceFreeMs`). `true` = a registered constraint vetoed
+   * this `(op, resource)` (`degree > 0`) → the reselect loop tries the next resource. **No registered
+   * pre-place veto (S1.2) → returns false → never vetoes → the reselect branch is dead (byte-identical).**
+   */
+  preplaceVeto(model?: () => ScheduleModel): boolean {
+    const cs = this.placement.preplaceVeto
+    if (!cs || cs.length === 0) return false
+    const m = model!()
+    return cs.some((c) => c.evaluate(m).degree > 0)
+  }
+
+  /**
+   * PLACEMENT · FEASIBILITY (post-place veto, reject form — S1.2) — evaluated after the degrade-form
+   * {@link feasibility} over the placement outcome. `true` = a registered reject-form constraint rejects the
+   * placement (`degree > 0`) → the reselect loop tries the next resource. This is DISTINCT from the degrade
+   * form (which leaves the placement and lets the contiguous-fallback arithmetic handle it). **No registered
+   * reject-form constraint (S1.2) → returns false → nothing is ever rejected (byte-identical).**
+   */
+  feasibilityRejects(model?: () => ScheduleModel): boolean {
+    const cs = this.placement.feasibilityReject
+    if (!cs || cs.length === 0) return false
+    const m = model!()
+    return cs.some((c) => c.evaluate(m).degree > 0)
+  }
+
+  /**
    * PLACEMENT · FEASIBILITY (degrade form) — the placement result after `placeJob`. Commit 1: no constraint
-   * → returns `placed` unchanged. (The veto-and-reselect form is S1.2, not here.)
+   * → returns `placed` unchanged. (The veto-and-reselect form is S1.2 — see {@link feasibilityRejects}.)
    */
   feasibility<T>(placed: T, model?: () => ScheduleModel): T {
     const cs = this.placement.feasibility
