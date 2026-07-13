@@ -61,3 +61,27 @@ describe('sequencer determinism invariants (over the registry)', () => {
     expect(order(ITEMS)).toEqual(['A', 'B', 'C'])
   })
 })
+
+describe('S1.2 inertness invariants (veto-and-reselect + tool state stay dead with nothing registered)', () => {
+  it('5 — single-pass identity: with no veto, an op places on assignResource’s pick (orderedResources[0])', () => {
+    // The reselect loop iterates orderedResources (least-loaded → pre-sorted id) and takes [0] on its first,
+    // veto-free pass. That [0] MUST equal assignResource’s strict-`<` first-seen pick — the equivalence the
+    // byte-identical demo rests on. Two idle resources tie on freeMs → both resolve to the lowest id, r1.
+    expect(sequence([item({ demandLineId: 'S', eligibleResourceIds: ['r1', 'r2'] })]).placements[0]!.resourceId).toBe('r1')
+  })
+
+  it('6 — inert observables: a normal solve leaves the backstop log and both tool maps EMPTY', () => {
+    const res = sequence(ITEMS)
+    expect(res.allVetoedDispositions).toEqual([]) // no veto → the termination backstop never fires
+    expect(res.toolBusyIntervals.size).toBe(0) // no op carries a toolId → the guarded write never runs
+    expect(res.toolLifeUsage.size).toBe(0)
+  })
+
+  it('7 — the inert extras are deterministic too (identical across reruns)', () => {
+    const a = sequence(ITEMS)
+    const b = sequence(ITEMS)
+    expect(a.allVetoedDispositions).toEqual(b.allVetoedDispositions)
+    expect([...a.toolBusyIntervals]).toEqual([...b.toolBusyIntervals])
+    expect([...a.toolLifeUsage]).toEqual([...b.toolLifeUsage])
+  })
+})

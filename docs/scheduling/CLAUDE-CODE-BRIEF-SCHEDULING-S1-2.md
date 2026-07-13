@@ -60,3 +60,12 @@ The two-point veto (resource-aware pre-place CANDIDACY + reject-form FEASIBILITY
 - A veto constraint, a reject-form feasibility constraint, or a `toolId` on any seed item would be **registered/populated** → **STOP** (that makes S1.2 non-inert — the consumers are S2/S3).
 - The reselect loop lacks a declared termination backstop, or reselection is non-deterministic (resource order not least-loaded-then-id, op order not `tieBreakLess`) → **STOP** (determinism/termination contract break).
 - Any work reaches a hard-soft-slack config mode (S1.3), a D6 audit snapshot (S1.4), or an actual D28/D9/JIS rule (S2/S3) → **STOP** (out of S1.2 scope).
+
+---
+
+## Status — BUILT (inert, byte-identical)
+- **Commit A `ae0dd45`** — veto-and-reselect control-flow: two-point veto (resource-aware pre-place CANDIDACY + post-place FEASIBILITY reject-form), Option-A reselect (resource-retry via `orderedResources` → defer by `tieBreakLess` → `all_vetoed` backstop), test-only `vetoConstraints` seam; synthetic-veto reselect test.
+- **Commit B `2520c7b`** — `toolId`-keyed busy-interval + tool-life state substrate, guarded update-on-placement on `SequencerItem.toolId` (+ `toolUsage`); synthetic-tool state test.
+- **docs `91bbe2a`** — byte-identical gate correction (same-clock old-vs-new, not a stored digest; the S1.1 `0645457f…` value is date-sensitive).
+- **Commit C `1514c54`** — close-out: the inertness **honesty grep-guard** (no veto registered / no tool consumed, asserted over production source), permanent reselect/backstop/tool determinism + inertness invariants, full same-clock old-vs-new sweep (base `2520c7b` == close-out, 1043 ops, `01c50afd…` today).
+- **Inert:** no veto registered, no seed `toolId`, tool maps read by nothing → demo byte-identical. **First consumers: D28/D9/JIS (S2/S3)** — landing them trips the honesty guard by design. **Single-location / tool-life-cap / forbidden-transition / JIS are NOT built.**

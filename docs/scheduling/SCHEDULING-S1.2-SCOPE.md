@@ -60,9 +60,9 @@
 |---|---|---|
 | **D-S1.2-1** | Reselection semantics | **LOCKED — Option A** (resources-first-then-defer): resource-retry in least-loaded/id order, then defer to next-best op by the total-order. |
 | **D-S1.2-2** | Commit granularity | **LOCKED — three inert commits** (A veto-flow / B tool-state / C close-out), each byte-identical before the next. |
-| **D-S1.2-3** | Veto evaluation point | **Proposed — two-point** (resource-aware pre-place CANDIDACY + post-place FEASIBILITY-with-teeth), reusing existing mechanisms. Forced by build-to-completion so D28 (pre-place) and D9 (post-place) both fit without a reshape. |
-| **D-S1.2-4** | Tool-state shape | **Proposed** — busy-interval map + tool-life ledger as top-level `toolId`-keyed structures, orthogonal to `ResourceState`; optional `SequencerItem.toolId`, unset in seed. Structures + threading only; the consuming vetoes are D9/S2. |
-| **D-S1.2-5** | Termination backstop | **Proposed** — all-vetoed → degrade the total-order-best + typed `all_vetoed` disposition. Declared for the primitive's contract; inert in the demo. |
+| **D-S1.2-3** | Veto evaluation point | **LOCKED + BUILT (Commit A `ae0dd45`) — two-point** (resource-aware pre-place CANDIDACY + post-place FEASIBILITY reject-form), reusing existing mechanisms. D28 (pre-place) and D9 (post-place) both fit without a reshape. |
+| **D-S1.2-4** | Tool-state shape | **LOCKED + BUILT (Commit B `2520c7b`)** — busy-interval map + tool-life ledger as top-level `toolId`-keyed structures, orthogonal to `ResourceState`; optional `SequencerItem.toolId` (+ `toolUsage`), unset in seed. Structures + threading only; the consuming vetoes are D9/S2. |
+| **D-S1.2-5** | Termination backstop | **LOCKED + BUILT (Commit A `ae0dd45`)** — all-vetoed → force-place the total-order-best + typed `all_vetoed` disposition (`SequencerResult.allVetoedDispositions`). Inert in the demo (never fires). |
 
 ---
 
@@ -82,4 +82,4 @@
 
 ---
 
-*Confirm D-S1.2-3/4/5 (1–2 locked). Then the S1.2 build brief (Commit A/B/C, byte-identical each) — Commit A first.*
+*BUILT — Commit A `ae0dd45` (veto-and-reselect), Commit B `2520c7b` (tool-state), docs gate correction `91bbe2a`, Commit C close-out (honesty guard + determinism/inertness locks + full same-clock sweep). All inert, demo byte-identical (1043 ops, old-vs-new same clock). First consumers: D28/D9/JIS (S2/S3). Pending: S1.3 (hard/soft/slack config + objective bridge), S1.4 (D6 audit snapshot).*
