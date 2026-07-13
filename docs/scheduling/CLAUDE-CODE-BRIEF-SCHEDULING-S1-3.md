@@ -47,6 +47,9 @@ There is a plan baseline harness (`plan:baseline`); **there is no objective base
 - **Report:** the group + ladder diff; confirmation nothing carries a mode and no line override is seeded; both proofs + the config SHA.
 
 ## Commit 3 — the mode → behavior bridge (inert with default config)
+
+> **D-S1.3-7 (LOCKED) — mode resolution strategy: PRE-RESOLVED MAP, not per-op resolution.** Modes resolve down to `line`, but the sequencer works **per resource** and config is resolved **once per solve** at `(tenant, plant)` (`scheduling.service.ts:926` — which today passes **no `lineId`**). Resolving per-op inside the placement loop would put async I/O in the loop and **break purity/determinism** — non-starter. Instead: **pre-resolve a `lineId → ResolvedConstraintPolicy` map once per solve** (every line in the plant; resources carry a line from S0a/migration 0037), thread it into `sequence()`, and have the sequencer look up a mode by the placed resource's line. Deterministic, cacheable, resolved-once — **and it is exactly the artifact S1.4's D6 audit snapshot must capture** (the resolved set is part of the determinism key). **Inert:** empty `CONSTRAINT_POLICIES` registry → empty map → the lookup never fires.
+
 - **soft** → the constraint's violation **degree** becomes an objective factor (through Commit 1's keyed structure) + an **honest `ConstraintBinding`**.
 - **hard** → the violation routes to **S1.2's veto primitive** (`preplaceVeto` / `feasibilityReject`, `sequencer.ts:266` seam). Hard is finally **enforced**, not just reported: the hardcoded `binding: false` (`whatif.scoring.ts:157`) becomes an **honest verdict**.
 - **hard-with-slack** → veto only past the **resolved threshold**.
