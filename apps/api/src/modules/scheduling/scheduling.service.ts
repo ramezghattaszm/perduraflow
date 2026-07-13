@@ -60,6 +60,7 @@ import { matchesLocation } from './location'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
+import { deriveVetoConstraints, MODE_GOVERNED_CONSTRAINTS, resolveConstraintPolicies } from './constraints/policy-bridge'
 import { eligibilityPreGateConstraint } from './constraints/pregate'
 import { startOfDayUtc, workingCalendarFromCalendarDto, workingMinutesInRange, type WorkingCalendar } from '../../common/utils/working-calendar'
 
@@ -654,7 +655,13 @@ export class SchedulingService {
     // Forecast boundary = today's start: a pre-adopted forecast applies forward only, never to the
     // rolling window's already-executed past (D44). Measured overlays are unaffected by this.
     const resolveEffective = await this.buildLearnedOverlay(tenantId, items, startOfDayUtc(Date.now()))
-    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource, ctx.downtimeByResource)
+    // S1.3 — the mode→behavior bridge (D-S1.3-7): pre-resolve the per-line constraint application policy ONCE
+    // here (never per-op in the loop), then derive the S1.2 veto seam from the resolved HARD modes. INERT:
+    // no constraint is governed (empty registry) → the resolution is empty (no config read issued) and the
+    // derived veto set is empty → the reselect branch stays dead → the plan is byte-identical.
+    const constraintPolicy = await resolveConstraintPolicies(this.config, tenantId, plantId, [...ctx.resourceById.values()])
+    const vetoConstraints = deriveVetoConstraints(MODE_GOVERNED_CONSTRAINTS, constraintPolicy)
+    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource, ctx.downtimeByResource, vetoConstraints)
     const run = await this.repo.createRun({
       tenantId,
       plantId,

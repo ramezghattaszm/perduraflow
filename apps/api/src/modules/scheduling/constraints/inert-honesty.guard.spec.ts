@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { CONSTRAINT_POLICIES } from '@perduraflow/contracts'
 import { describe, expect, it } from 'vitest'
+import { ConstraintPolicyResolution, deriveVetoConstraints, MODE_GOVERNED_CONSTRAINTS } from './policy-bridge'
 
 /**
  * S1.2 inertness honesty guard (Commit C) — a PERMANENT regression test that S1.2 stays what it claims to be:
@@ -61,9 +63,17 @@ describe('S1.2 is genuinely inert (no veto registered, no tool consumed) — pro
     expect(registrations, `a veto constraint is registered in production (S1.2 must stay inert):\n${registrations.join('\n')}`).toEqual([])
   })
 
-  it('NO VETO REGISTERED — the vetoConstraints seam is named only by the sequencer (no production caller passes it)', () => {
-    const foreign = LINES.filter((l) => /\bvetoConstraints\b/.test(l.text) && l.file !== SEQUENCER).map((l) => l.where)
-    expect(foreign, `a non-sequencer production file references vetoConstraints (a production caller is wiring a veto):\n${foreign.join('\n')}`).toEqual([])
+  it('NO VETO ENFORCED (S1.3) — the mode→behavior bridge DERIVES an empty veto set at runtime (nothing carries a mode)', () => {
+    // S1.3's bridge makes scheduling.service a legitimate caller of the vetoConstraints seam, so the old
+    // "named only by the sequencer" static check is REPLACED by the stronger runtime invariant it protected:
+    // with no constraint governed by a mode, the DERIVED registration set is empty → no veto is actually
+    // enforced. (The array-literal static guard above still forbids a hardcoded registration.) A future
+    // D28/D9/JIS consumer populates these registries → this trips by design.
+    expect(CONSTRAINT_POLICIES).toEqual([]) // no constraint carries a config mode
+    expect(MODE_GOVERNED_CONSTRAINTS).toEqual([]) // no constraint predicate is mode-governed
+    const derived = deriveVetoConstraints(MODE_GOVERNED_CONSTRAINTS, new ConstraintPolicyResolution(new Map(), new Map()))
+    expect(derived.preplaceVeto).toEqual([])
+    expect(derived.feasibilityReject).toEqual([])
   })
 
   it('NO TOOL CONSUMED — toolId is named only by the sequencer (no seed sets it, no consumer reads it)', () => {

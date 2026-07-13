@@ -30,6 +30,18 @@ export interface ScoreContext {
   /** The RESOLVED objective weights (config-driven, plant→tenant→global). Omitted → the shipped
    *  `aps-w2` default (the locked-test calibration); production threads the resolved set via context. */
   weights?: ObjectiveWeights
+  /**
+   * S1.3 — objective factors contributed by SOFT-mode registered constraints (via the mode→behavior bridge),
+   * appended AFTER the six built-ins so the built-in fold order is unchanged. **Empty/absent in S1.3** (no
+   * constraint carries a mode) → the factor list + score are byte-identical.
+   */
+  softFactors?: RationaleFactor[]
+  /**
+   * S1.3 — the constraint keys currently HARD-enforced (via the bridge). Makes a hard `ConstraintBinding`'s
+   * `binding` an HONEST verdict instead of the hardcoded `false`. **Empty/absent in S1.3** → every hard
+   * binding stays `false`, byte-identical.
+   */
+  hardBoundKeys?: ReadonlySet<string>
 }
 
 /** The scored output for one plan (option). */
@@ -154,7 +166,9 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
     // discriminator (the levers compare on $) while staying far below lateness (firm-lateness dominance).
     cost: () => factor('cost', '', costPerUnit ?? 0, w.cost, 'whatif.factor.cost', { cost: costPerUnit ?? 0 }),
   }
-  const factors: RationaleFactor[] = OBJECTIVE_WEIGHT_KEYS.map((k) => builtinFactors[k]!())
+  // The six built-ins in registry/fold order, then any SOFT-constraint factors from the bridge (S1.3) —
+  // empty in S1.3, so the fold is byte-identical.
+  const factors: RationaleFactor[] = [...OBJECTIVE_WEIGHT_KEYS.map((k) => builtinFactors[k]!()), ...(ctx.softFactors ?? [])]
   const score = r4(factors.reduce((s, f) => s + f.contribution, 0))
 
   const constraints: ConstraintBinding[] = [
@@ -162,7 +176,8 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
       key: 'feasibility',
       labelKey: 'whatif.constraint.feasibility',
       type: 'hard',
-      binding: false,
+      // S1.3: an HONEST verdict — bound iff feasibility is hard-enforced via the bridge (empty in S1.3 → false).
+      binding: ctx.hardBoundKeys?.has('feasibility') ?? false,
       slack: null,
       detailKey: 'whatif.constraint.feasibility.ok',
       detailParams: { ops: placements.length },
