@@ -3,14 +3,18 @@ import {
   type AutonomyPolicy,
   CONFIG_READ_CONTRACT,
   type ConfigReadContract,
+  constraintModeSchema,
+  CONSTRAINT_POLICIES,
   type KpiPolicy,
   type KpiThreshold,
   type KpiThresholdKey,
   KPI_THRESHOLD_METRICS,
   kpiBandFieldKeys,
   OBJECTIVE_DEFAULT_VERSION,
+  OBJECTIVE_WEIGHT_KEYS,
   type ObjectiveWeights,
   type ReportingPolicy,
+  type ResolvedConstraintPolicy,
 } from '@perduraflow/contracts'
 import { ConfigService } from './config.service'
 
@@ -41,23 +45,38 @@ export class ConfigReadService implements ConfigReadContract {
    * rationale stays interpretable against the exact weights, and a weight change invalidates the
    * what-if cache (the token feeds the determinism key).
    */
-  async resolveObjective(tenantId: string, plantId?: string): Promise<{ weights: ObjectiveWeights; version: string }> {
-    const { values, provenance, revisions } = await this.config.resolve('objective', tenantId, plantId)
-    const weights = {
-      lateness: Number(values['lateness']),
-      changeover: Number(values['changeover']),
-      overtime: Number(values['overtime']),
-      inventory: Number(values['inventory']),
-      displacement: Number(values['displacement']),
-      cost: Number(values['cost']),
-    }
+  async resolveObjective(tenantId: string, plantId?: string, lineId?: string): Promise<{ weights: ObjectiveWeights; version: string }> {
+    const { values, provenance, revisions } = await this.config.resolve('objective', tenantId, plantId, lineId)
+    // Option B: the weight set is registry-keyed (derive from OBJECTIVE_WEIGHT_KEYS), not a hardcoded literal —
+    // so a future registered weight resolves without touching this consumer. Byte-identical for the six.
+    const weights: ObjectiveWeights = Object.fromEntries(OBJECTIVE_WEIGHT_KEYS.map((k) => [k, Number(values[k])]))
     const levels = Object.values(provenance)
-    const version = levels.includes('plant')
-      ? `obj:p${revisions.plant ?? 0}`
-      : levels.includes('tenant')
-        ? `obj:t${revisions.tenant ?? 0}`
-        : OBJECTIVE_DEFAULT_VERSION
+    // Precedence line → plant → tenant → default. `line` never contributes while inert (no line override seeded).
+    const version = levels.includes('line')
+      ? `obj:L${revisions.line ?? 0}`
+      : levels.includes('plant')
+        ? `obj:p${revisions.plant ?? 0}`
+        : levels.includes('tenant')
+          ? `obj:t${revisions.tenant ?? 0}`
+          : OBJECTIVE_DEFAULT_VERSION
     return { weights, version }
+  }
+
+  /**
+   * Resolved per-constraint application policy (line → plant → tenant → global) — the S1.3 mode→behavior
+   * bridge's input. Derives each registered constraint's effective `mode` (+ slack threshold) from the
+   * `constraint_policy` group. **Empty while inert:** {@link CONSTRAINT_POLICIES} is empty (no constraint
+   * carries a mode yet), so this returns no modes and the bridge applies nothing.
+   */
+  async resolveConstraintPolicy(tenantId: string, plantId?: string, lineId?: string): Promise<ResolvedConstraintPolicy> {
+    const { values } = await this.config.resolve('constraint_policy', tenantId, plantId, lineId)
+    const modes: ResolvedConstraintPolicy['modes'] = {}
+    for (const c of CONSTRAINT_POLICIES) {
+      const mode = constraintModeSchema.parse(values[`${c.constraintId}.mode`])
+      const threshold = values[`${c.constraintId}.threshold`]
+      modes[c.constraintId] = { mode, threshold: threshold != null ? Number(threshold) : null }
+    }
+    return { modes }
   }
 
   /** Resolved Autonomy Policy (global → tenant) — the learning gate reads this in place of the

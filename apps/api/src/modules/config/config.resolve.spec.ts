@@ -121,7 +121,7 @@ describe('ConfigService.resolve — scalar cascade (post scopePath/scalarFold ex
  * digest additionally locks the captured values/provenance/token so ANY drift trips this test.
  */
 describe('S0b — walkScopePath line rung is byte-identical (no line data present)', () => {
-  const GROUPS: ConfigGroupKey[] = ['objective', 'reporting', 'autonomy', 'kpi']
+  const GROUPS: ConfigGroupKey[] = ['objective', 'reporting', 'autonomy', 'kpi', 'constraint_policy']
   // Deterministic (recursively key-sorted) serialization so the hash is order-independent.
   const canon = (v: unknown): unknown =>
     v && typeof v === 'object' && !Array.isArray(v)
@@ -167,9 +167,18 @@ describe('S0b — walkScopePath line rung is byte-identical (no line data presen
     })
   }
 
-  it('regression lock: the four-group + reference-set resolution hashes to the pinned pre-S0b digest', async () => {
-    // Pinned digest of the global-only capture — the pre-S0b known-good output (values + provenance +
-    // token + members). If any group's value, provenance, or determinism token EVER shifts, this trips.
-    expect(sha(await capture({}))).toBe('4eb340a5687e2d3af4b9bbf4d74f11d762500d837cf4892e8127a530d182e73d')
+  it('regression lock: the five-group + reference-set resolution hashes to the pinned digest', async () => {
+    // Pinned digest of the global-only capture — the known-good output (values + provenance + token +
+    // members). If any group's value, provenance, or determinism token EVER shifts, this trips. Re-pinned
+    // at S1.3 when the inert `constraint_policy` group joined the capture (it resolves to no fields → the
+    // only delta is an empty group entry; the four prior groups' captures are unchanged).
+    expect(sha(await capture({}))).toBe('07f75aa166b2a3b809019efbf6ad26ec3dbcc000fbf59a72a8674c37713873b4')
+  })
+
+  it('constraint_policy is field-less + inert in S1.3 — resolves to no values (no constraint carries a mode)', async () => {
+    const { config } = svc({})
+    const r = await config.resolve('constraint_policy', T, P)
+    expect(r.values).toEqual({}) // empty registry → no keyed fields → nothing to resolve
+    expect(r.provenance).toEqual({})
   })
 })

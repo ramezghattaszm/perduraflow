@@ -2,6 +2,8 @@ import {
   AUTONOMY_POLICY_DEFAULTS,
   type ConfigGroupKey,
   type ConfigValue,
+  constraintModeSchema,
+  CONSTRAINT_POLICIES,
   firmLatenessDominates,
   kpiBandFieldKeys,
   KPI_POLICY_DEFAULTS,
@@ -128,15 +130,45 @@ const KPI: ConfigGroupDescriptor = {
 }
 
 /**
+ * Group 5 — Constraint Application Policy (S1.3). Per-constraint `mode` (hard / soft / hard-with-slack) +
+ * a slack `threshold`, resolving the full ladder **global → tenant → plant → line** (D-S1.3-3/6). Its keyed
+ * fields DERIVE from the {@link CONSTRAINT_POLICIES} registry — **EMPTY in S1.3**, so the group is field-less
+ * and inert (no constraint carries a mode; D28/D9/JIS are S2/S3). The `validate` guard parses each resolved
+ * `<id>.mode` against {@link constraintModeSchema} — a no-op while the registry is empty.
+ */
+const CONSTRAINT_POLICY: ConfigGroupDescriptor = {
+  key: 'constraint_policy',
+  defaults: Object.fromEntries(
+    CONSTRAINT_POLICIES.flatMap((c) => [
+      [`${c.constraintId}.mode`, c.defaultMode] as [string, ConfigValue],
+      ...(c.defaultThreshold != null ? ([[`${c.constraintId}.threshold`, c.defaultThreshold]] as [string, ConfigValue][]) : []),
+    ]),
+  ),
+  fields: CONSTRAINT_POLICIES.flatMap((c) => [
+    { key: `${c.constraintId}.mode`, kind: 'text' as const },
+    { key: `${c.constraintId}.threshold`, kind: 'number' as const, min: 0 },
+  ]),
+  validate: (values) => {
+    const warnings: string[] = []
+    for (const c of CONSTRAINT_POLICIES) {
+      const parsed = constraintModeSchema.safeParse(values[`${c.constraintId}.mode`])
+      if (!parsed.success) warnings.push(`${c.constraintId}.mode: must be one of hard | soft | hard-with-slack`)
+    }
+    return { ok: warnings.length === 0, warnings }
+  },
+}
+
+/**
  * The group registry. Stage 1: `reporting`; Stage 2: `objective` (weights + dominance guard);
  * Stage 3: `autonomy` (folded from the retired policy module); Stage 4: `kpi` (902 dashboard
- * configurable measures + threshold bands).
+ * configurable measures + threshold bands); S1.3: `constraint_policy` (per-constraint application mode — inert).
  */
 export const CONFIG_GROUPS: Partial<Record<ConfigGroupKey, ConfigGroupDescriptor>> = {
   objective: OBJECTIVE,
   reporting: REPORTING,
   autonomy: AUTONOMY,
   kpi: KPI,
+  constraint_policy: CONSTRAINT_POLICY,
 }
 
 /** Resolve a group descriptor or throw a typed "unknown group" for the controller to 404/400. */

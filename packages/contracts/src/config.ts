@@ -14,8 +14,9 @@ import { z } from 'zod'
  */
 export const CONFIG_READ_CONTRACT = { id: 'config.read', version: '1.0' } as const
 
-/** The setting groups that plug into the framework. */
-export const configGroupKeySchema = z.enum(['objective', 'reporting', 'autonomy', 'kpi'])
+/** The setting groups that plug into the framework. `constraint_policy` (S1.3) carries per-constraint
+ *  application mode; it is field-less/inert until a constraint registers a mode (D28/D9/JIS are S2/S3). */
+export const configGroupKeySchema = z.enum(['objective', 'reporting', 'autonomy', 'kpi', 'constraint_policy'])
 export type ConfigGroupKey = z.infer<typeof configGroupKeySchema>
 
 /**
@@ -327,6 +328,36 @@ export function firmLatenessDominates(
   return { ok: warnings.length === 0, warnings, offending: [...new Set(offending)], maxOtherWeight }
 }
 
+// --- Group: constraint application policy (S1.3) ----------------------------
+/**
+ * How a registered constraint is APPLIED (S1.3 — the resolved-mode bridge): a `soft` violation becomes an
+ * objective factor; a `hard` violation routes to the S1.2 veto (enforced, not just reported); `hard-with-slack`
+ * vetoes only past a resolved threshold. Resolved per constraint id through the config ladder.
+ */
+export const constraintModeSchema = z.enum(['hard', 'soft', 'hard-with-slack'])
+export type ConstraintMode = z.infer<typeof constraintModeSchema>
+
+/** One registered constraint's application-policy default — its id, shipped default mode, and (for
+ *  `hard-with-slack`) a default slack threshold. */
+export interface ConstraintPolicySpec {
+  constraintId: string
+  defaultMode: ConstraintMode
+  defaultThreshold?: number
+}
+
+/**
+ * The per-constraint application-policy registry — **EMPTY in S1.3**. D28/D9/JIS (S2/S3) are the first
+ * constraints to carry a mode; each appends here with its default. The `constraint_policy` config group
+ * derives its keyed fields (`<id>.mode`, `<id>.threshold`) from this — so an empty registry yields a
+ * field-less, inert group that resolves to no modes, and the mode→behavior bridge has nothing to apply.
+ */
+export const CONSTRAINT_POLICIES: ConstraintPolicySpec[] = []
+
+/** The resolved application policy — per constraint id, its effective mode + (slack) threshold. Empty in S1.3. */
+export interface ResolvedConstraintPolicy {
+  modes: Record<string, { mode: ConstraintMode; threshold: number | null }>
+}
+
 /**
  * Published `config.read 1.0` interface — in-process resolution of a group's effective settings
  * for cross-module consumers (e.g. scheduling's continuous-throughput metric reads the resolved
@@ -338,14 +369,18 @@ export interface ConfigReadContract {
   /** The resolved Reporting Policy for a tenant (+ optional plant) — plant → tenant → global. */
   resolveReporting(tenantId: string, plantId?: string): Promise<ReportingPolicy>
   /**
-   * The resolved Objective weights (plant → tenant → global) + the version token to stamp into the
-   * rationale/determinism key (`aps-w2` for the shipped default, `obj:t<rev>`/`obj:p<rev>` for an
-   * override) so a stored artifact stays interpretable against the exact weights that produced it.
+   * The resolved Objective weights (line → plant → tenant → global) + the version token to stamp into the
+   * rationale/determinism key (`aps-w2` for the shipped default, `obj:t<rev>`/`obj:p<rev>`/`obj:L<rev>` for an
+   * override) so a stored artifact stays interpretable against the exact weights that produced it. S1.3
+   * threads `lineId` — the config line rung's first real consumer (inert until a line override is seeded).
    */
-  resolveObjective(tenantId: string, plantId?: string): Promise<{ weights: ObjectiveWeights; version: string }>
+  resolveObjective(tenantId: string, plantId?: string, lineId?: string): Promise<{ weights: ObjectiveWeights; version: string }>
   /** The resolved Autonomy Policy (global → tenant) — the learning gate's threshold + tier + snooze. */
   resolveAutonomy(tenantId: string): Promise<AutonomyPolicy>
   /** The resolved KPI / Metric Policy (plant → tenant → global) — the configurable On-Time measure +
    *  the per-KPI threshold bands the dashboard reads. */
   resolveKpiPolicy(tenantId: string, plantId?: string): Promise<KpiPolicy>
+  /** The resolved per-constraint application policy (line → plant → tenant → global). Empty until a
+   *  constraint registers a mode (S2/S3) — the S1.3 mode→behavior bridge reads this. */
+  resolveConstraintPolicy(tenantId: string, plantId?: string, lineId?: string): Promise<ResolvedConstraintPolicy>
 }
