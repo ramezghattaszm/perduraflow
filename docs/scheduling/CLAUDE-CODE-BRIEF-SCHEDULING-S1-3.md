@@ -11,9 +11,12 @@
 
 > **⚠ THE GATE IS TWO PROOFS — the plan digest ALONE CANNOT gate this layer.** `solve()` does **not** use `scorePlan`. `scorePlan` is the **what-if objective** — it produces every option score, rationale, recommendation, and `ConstraintBinding` the demo narrates. **An Option-B regression can change all of them while the 1043-op plan digest stays perfectly green.** So every commit must prove BOTH:
 > 1. **PLAN** — `solve()` untouched: **1043 ops**, identical digest, **same-clock old-vs-new** (base commit vs new commit, back-to-back, same seeded data). **Never gate against a stored digest** — it is date-sensitive (`0645457f…`/`01c50afd…` are stale artifacts, not targets).
-> 2. **OBJECTIVE** — `scorePlan` reshaped but **numerically identical**: for the demo scenarios, the same **factors (all six, same order), rawValues, weights, contributions, score, rationale, and `ConstraintBinding`s**. **This is the load-bearing proof.** Proof (1) will happily stay green through an objective regression.
+> 2. **OBJECTIVE** — `scorePlan` reshaped but **numerically identical**: for the demo scenarios, the same **factors (all six, same order), rawValues, weights, contributions, score, `CostedKpis`, and `ConstraintBinding`s**. **This is the load-bearing proof.** Proof (1) will happily stay green through an objective regression.
+> 3. **COMPARATIVE / NARRATION** *(the gap found at Commit 0 — proof (2) alone does NOT cover this)*. `ScoredPlan` is `{score, kpis, factors, constraints}` — **`scorePlan` does not return comparatives.** They are built one level up, in `whatif.service.ts:849` (`private comparatives(...)` → `decidingFactors`, `:871`), and `OptionComparative.decidingFactors[].key` is typed on **`RationaleFactorKey`** — the exact type Option B reshapes. That layer **derives** deciding factors by comparing factor contributions **across options**, so a shift in the factor set or fold order changes the deciding factors → changes `whatif.narration.ts:104` (`FACTOR_NAME[d.key]`) → **changes the demo's "why the winner won" narration and recommendation**. A regression here is invisible to BOTH (1) and (2). Pin it: a **multi-option fixture** (≥2 scored plans) run through the comparative builder + narration, digested (`vsOptionId`, `deltaScore`, `verdict`, `decidingFactors[].key/delta`, and the narrated text).
 >
-> **Any divergence in EITHER → STOP.**
+> **Any divergence in ANY of the three → STOP.**
+>
+> *(Note for S2, not S1.3: `FACTOR_NAME` (`whatif.narration.ts:33`) is already `Record<string, string>` with a `?? key` fallback, so Option B won't break it structurally — but a newly registered factor would narrate its **raw key**. Registered constraints must supply a label key when they start carrying weights.)*
 
 ---
 
