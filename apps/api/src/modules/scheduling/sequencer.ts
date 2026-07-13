@@ -66,6 +66,19 @@ export interface SequencerItem {
    * material-bound — release lateness is plain lateness.
    */
   releaseFloorMs?: number
+  /**
+   * S1.2 — the **cross-resource tool** this op uses (a die/fixture that spans resources), keyed into the
+   * busy-interval + tool-life structures. A tool occupied on one resource during `[start,end]` is unavailable
+   * to an overlapping op on another; cumulative usage caps tool life. **Unset in the demo seed → the tool
+   * structures stay empty → never consulted → byte-identical.** The consuming vetoes (D9 single-location +
+   * tool-life cap) are S2/S3; S1.2 builds only the state axis.
+   */
+  toolId?: string
+  /**
+   * S1.2 — optional per-op tool usage (strokes/units) added to the tool-life ledger on placement. Defaults to
+   * the effective run quantity when unset. Inert while `toolId` is unset (the ledger is never touched).
+   */
+  toolUsage?: number
 }
 
 /**
@@ -217,6 +230,17 @@ export interface SequencerResult {
    * that the reselect primitive changed capability, not behavior.
    */
   allVetoedDispositions: { demandLineId: string; opSeq: number }[]
+  /**
+   * S1.2 — the `toolId`-keyed **busy-interval map**: per tool, the placed `[startMs, endMs]` windows (with
+   * the resource) it is occupied. Populated by a guarded update-on-placement (`item.toolId != null`). **Empty
+   * while inert** (no seed op carries a `toolId`); the D9 single-location veto (S2/S3) is its first consumer.
+   */
+  toolBusyIntervals: Map<string, { startMs: number; endMs: number; resourceId: string }[]>
+  /**
+   * S1.2 — the `toolId`-keyed **tool-life usage ledger**: cumulative usage (strokes/units) per tool, summed
+   * across resources. **Empty while inert**; the tool-life-cap veto (S2/S3) is its first consumer.
+   */
+  toolLifeUsage: Map<string, number>
 }
 
 interface ResourceState {
@@ -286,7 +310,7 @@ export function sequence(
   }
   if (items.length === 0) {
     const now0 = 0
-    return { placements: [], horizonStartMs: now0, horizonEndMs: now0, allVetoedDispositions: [] }
+    return { placements: [], horizonStartMs: now0, horizonEndMs: now0, allVetoedDispositions: [], toolBusyIntervals: new Map(), toolLifeUsage: new Map() }
   }
   const origin = startOfDayUtc(Math.min(...items.map((i) => i.requiredDate)))
   const state = new Map<string, ResourceState>()
@@ -327,6 +351,11 @@ export function sequence(
 
   const placements: Placement[] = []
   const allVetoedDispositions: { demandLineId: string; opSeq: number }[] = [] // S1.2 backstop log — empty inert
+  // S1.2 — top-level `toolId`-keyed cross-resource state (a tool spans resources, so NOT on ResourceState).
+  // Populated only by the guarded update-on-placement below; empty while inert (no seed op carries a toolId),
+  // read by no constraint in S1.2 (the D9 single-location + tool-life-cap vetoes are S2/S3).
+  const toolBusyIntervals = new Map<string, { startMs: number; endMs: number; resourceId: string }[]>()
+  const toolLifeUsage = new Map<string, number>()
   let horizonEndMs = origin
 
   // Linear intra-routing precedence (single-level, C3): within a demand line, an op follows
@@ -566,6 +595,16 @@ export function sequence(
         changeoverValue: item.changeoverValue,
       })
       if (endMs > horizonEndMs) horizonEndMs = endMs
+      // S1.2 — guarded tool-state update-on-placement: record this placement against its cross-resource tool
+      // so a future veto (D9 single-location / tool-life cap, S2/S3) can read it. GUARDED on `item.toolId`:
+      // no seed op carries a toolId → this never runs → both maps stay empty → nothing consults them →
+      // byte-identical. No constraint reads these in S1.2.
+      if (item.toolId != null) {
+        const intervals = toolBusyIntervals.get(item.toolId) ?? []
+        intervals.push({ startMs, endMs, resourceId: res })
+        toolBusyIntervals.set(item.toolId, intervals)
+        toolLifeUsage.set(item.toolId, (toolLifeUsage.get(item.toolId) ?? 0) + (item.toolUsage ?? effRunQty))
+      }
       return true
     }
     return false
@@ -631,7 +670,7 @@ export function sequence(
     }
   }
 
-  return { placements, horizonStartMs: origin, horizonEndMs, allVetoedDispositions }
+  return { placements, horizonStartMs: origin, horizonEndMs, allVetoedDispositions, toolBusyIntervals, toolLifeUsage }
 }
 
 /** Total-order tie-break: firm first → earlier due → higher priority → partNo → demandLineId. */
