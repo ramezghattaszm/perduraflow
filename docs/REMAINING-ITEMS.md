@@ -185,7 +185,7 @@ The shift model extended schema/engine but didn't carry new fields to the admin 
 > - Commit A — veto-and-reselect control-flow (inert; test-only `vetoConstraints` seam) + the synthetic-veto reselect test — `ae0dd45`
 > - Commit B — `toolId`-keyed busy-interval + tool-life state substrate (inert; guarded on `SequencerItem.toolId`) + the synthetic-tool state test — `2520c7b`
 > - docs — byte-identical gate correction (same-clock old-vs-new, not a stored digest) — `91bbe2a`
-> - Commit C — close-out: the inertness **honesty grep-guard** (no veto registered / no tool consumed, asserted over production source) + permanent reselect/backstop/tool determinism + inertness invariants, full same-clock sweep — `1514c54`
+> - Commit C — close-out: the inertness **honesty grep-guard** (no veto registered / no tool consumed, asserted over production source) + permanent reselect/backstop/tool determinism + inertness invariants, full same-clock sweep — `5b8bbc0`
 >
 > **Honesty (do not overclaim):** S1.2 built the **primitive and the substrate**, not any rule that uses them. **Single-location, tool-life-cap, forbidden-transition/max-consecutive, and JIS are NOT built** — D28/D9/JIS (S2/S3) are the **first consumers** of this veto + tool-state, and landing them will (by design) register a constraint / read a tool map and trip the honesty guard, which is the signal to update it.
 > - **Pending: S1.3** (hard/soft/slack as resolved config to `line` + the objective bridge), **S1.4** (the D6 resolved-constraint-set audit snapshot). Then **S2** builds the hard-constraint correctness set (below) as registered constraints on this substrate.
