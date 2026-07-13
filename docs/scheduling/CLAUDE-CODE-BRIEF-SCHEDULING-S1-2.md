@@ -11,7 +11,7 @@
 
 > **The load-bearing difference from S1.1:** S1.1 *moved* existing computation (extraction). S1.2 *adds new control-flow (a reselect loop) and a new state axis (tool)* — but they must be **inert**: dead branches + empty maps, so the plan is unchanged. Nothing existing is moved or re-timed. Two mitigations are mandatory: **(1) inertness** — no veto constraint registered, no `toolId` on any seed item, so the new branches never execute and the new maps stay empty; **(2) prove the new path OFF the demo** — a synthetic-veto unit test exercises reselect/backstop determinism, so the primitive is verified without a consumer that doesn't exist yet.
 
-> **The byte-identical lock (the gate at EVERY commit):** `demo:reset` = **1043 ops**, per-`Placement`-field equality, the four determinism invariants (`sequencer.determinism.spec.ts`). **Re-capture the pre-digest same-day** (`plan:baseline --check`; `0645457f…006ef` shifts by weekday — the gate is pre==post today, NOT equality to the stored value). Every commit must reproduce it exactly. **Any divergence → STOP** — an inert step diverging means a branch is not actually dead or a map is being consulted.
+> **The byte-identical lock (the gate at EVERY commit) — SAME-CLOCK OLD-vs-NEW, not a stored digest.** The plan is **date-sensitive**: the demo seed anchors demand to the current date, so the digest shifts across a weekday rollover *with no code change*. **No stored digest is authoritative across days** — `0645457f…006ef` (2026-07-10) and `01c50afd…325b` (the next run-day) are both correct-for-their-day and neither is a target. **The gate is: run the base commit and the new commit back-to-back, same clock, same seeded data — the digests must be identical.** A matching digest across old-vs-new proves inertness regardless of the absolute value. Also hold: **1043 ops**, per-`Placement`-field equality, the four determinism invariants (`sequencer.determinism.spec.ts`). **Any divergence → STOP** — an inert step diverging means a branch is not actually dead or a map is being consulted. *(Do NOT chase a stale stored reference — that is how a false "pass"/"fail" gets manufactured.)*
 
 ---
 
@@ -31,7 +31,7 @@ Build the **two-point veto** + the **Option-A reselect loop**. No veto constrain
   3. **Termination backstop:** all remaining candidates vetoed on all eligible resources → **degrade the total-order-best** (today's at-risk placement) + record a typed `all_vetoed` disposition. Never fires while inert.
 - **Reproduce exactly (the inert path):** with no veto registered, the pre-place veto returns candidate, the post-place veto never rejects, the reselect loop runs its body **once** and places exactly as today; the backstop is unreachable. `assignResource`'s selection and the state mutation points (`:494–539`) are **unchanged** (reproduced, not reordered).
 - **Determinism:** op reselection = `tieBreakLess` total-order; resource reselection = least-loaded then `id`. Both fixed.
-- **Gate:** byte-identical (same-day pre==post, 1043). The reselect indirection changed nothing because it iterates once.
+- **Gate:** byte-identical — **same-clock old-vs-new** (base vs this commit, back-to-back, same seeded data), 1043 ops. The reselect indirection changed nothing because it iterates once.
 - **Report:** the pipeline/loop diff; explicit confirmation the new branches are dead while inert (no veto registered) and `assignResource`/state-mutation are unchanged; the **synthetic-veto unit test** proving Option-A order (resource-retry → defer) + backstop determinism, OFF the demo; byte-identical proof.
 
 ## Commit B — toolId-keyed cross-resource state (inert)
@@ -39,7 +39,7 @@ Build the **two-point veto** + the **Option-A reselect loop**. No veto constrain
 - Add two **top-level** structures in `sequence()` (NOT fields on `ResourceState` — a tool spans resources): a **busy-interval map** `Map<toolId, {startMs, endMs, resourceId}[]>` and a **tool-life usage ledger** `Map<toolId, number>`.
 - Add **guarded update-on-placement**: after a placement, `if (item.toolId != null)` append the placed `[start,end]`/resourceId to the busy-interval map and increment the ledger. Thread both so a future veto (D9) can read them. **No veto reads them in S1.2.**
 - **Reproduce exactly:** no seed item has a `toolId` → the guards never run → both maps stay empty → nothing consults them → byte-identical.
-- **Gate:** byte-identical (same-day pre==post, 1043).
+- **Gate:** byte-identical — **same-clock old-vs-new** (base vs this commit, back-to-back, same seeded data), 1043 ops.
 - **Report:** the `SequencerItem`/state diff; confirmation the guards are dead in the demo (no seed `toolId`) and the maps are populated/read by **nothing** yet; byte-identical proof.
 
 ## Commit C — close-out (only after A + B land byte-identical)
@@ -52,7 +52,7 @@ Build the **two-point veto** + the **Option-A reselect loop**. No veto constrain
 ---
 
 ## Acceptance gate
-The two-point veto (resource-aware pre-place CANDIDACY + reject-form FEASIBILITY) and the Option-A reselect loop (resource-retry → defer → declared backstop) exist and are deterministic; the `toolId`-keyed busy-interval + tool-life structures exist and thread through placement, guarded on `SequencerItem.toolId`; **byte-identical at every commit** (1043, per-field, determinism tokens; same-day pre==post) because nothing is registered/populated; the new path is proven by a synthetic-veto test OFF the demo; **no new behavior** (no constraint consumes veto or tool-state). `demo:reset` green.
+The two-point veto (resource-aware pre-place CANDIDACY + reject-form FEASIBILITY) and the Option-A reselect loop (resource-retry → defer → declared backstop) exist and are deterministic; the `toolId`-keyed busy-interval + tool-life structures exist and thread through placement, guarded on `SequencerItem.toolId`; **byte-identical at every commit** (1043, per-field, determinism tokens; proven **same-clock old-vs-new**, never against a stored digest) because nothing is registered/populated; the new path is proven by a synthetic-veto test OFF the demo; **no new behavior** (no constraint consumes veto or tool-state). `demo:reset` green.
 
 ## Stop conditions (report, don't improvise)
 - Any commit diverges from the same-day baseline (any field, op count, or determinism token) → **STOP** — a branch is not actually dead or a map is being consulted; the break is localized to the piece just added.

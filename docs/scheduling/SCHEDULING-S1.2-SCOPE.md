@@ -5,7 +5,7 @@
 | **Layer** | Scheduling production-completion · S1.2 — the missing control-flow S2 (D28/D9/JIS) is born on |
 | **Written against** | Actual repo state @ `76cb070` (S1.1 closed; the two-scope registry owns the loop) |
 | **Governed by** | `SCHEDULING-S1-SCOPE.md` §3 (S1.2); `SCHEDULING-PRODUCTION-COMPLETION-PLAN.md` §0 |
-| **Gate** | Propose-then-confirm; **byte-identical, inert on the demo** is the load-bearing discipline (same `1043 / 0645457f…006ef`, same-day pre==post) |
+| **Gate** | Propose-then-confirm; **byte-identical, inert on the demo** is the load-bearing discipline — proven **same-clock old-vs-new** (base commit vs new commit, back-to-back, same seeded data), **not** against a stored digest (the plan is date-sensitive: the seed anchors demand to the current date, so the digest shifts across a weekday rollover with no code change). Also hold 1043 ops + per-field equality. |
 | **Locked (this session)** | (1) Reselection = **Option A** (resources-first-then-defer); (2) **three inert commits**; (3) build-to-completion — the full primitive now, no reshape when S2 consumers land |
 
 > **Why S1.2 exists (S1.1's finding):** the greedy loop has **no veto-and-reselect primitive** — every extracted mechanism is a timing floor, a rank term, a candidacy gate, a feasibility-degrade, or a pre-gate; *none* can say "this placement is illegal, pick another." That primitive is exactly what D28 (four hard sequencing-legality rules), D9 (single-location + tool-life cap), and JIS need. S1.2 builds the primitive **and** the `toolId`-keyed cross-resource state axis it will read — **inert** (no constraint consumes them yet), so the demo schedule is unchanged. This isolates the scariest machinery from its first users (S2).
@@ -42,7 +42,7 @@
 - **Linkage:** an optional `toolId` (+ optional per-op usage) on `SequencerItem`. **Unset in the demo seed → both maps stay empty → never consulted → inert.**
 - S1.2 builds the **structures + guarded update-on-placement + threading** so a future veto (D9, S2) can read them. **No veto consumes them in S1.2** — the single-location and tool-life-cap *constraints* are D9/S2.
 
-**Inertness = byte-identical.** With no veto constraint registered and no `toolId` on any item: the reselect branch is never entered, the backstop never fires, the tool maps stay empty. The plan is identical — same `1043 / 0645457f…006ef` (same-day pre==post).
+**Inertness = byte-identical.** With no veto constraint registered and no `toolId` on any item: the reselect branch is never entered, the backstop never fires, the tool maps stay empty. The plan is identical — **1043 ops + an identical digest old-vs-new, same clock, same seeded data**. (The absolute digest is date-sensitive and is NOT a target; see the gate above.)
 
 ---
 
@@ -70,7 +70,7 @@
 
 - Veto-and-reselect primitive exists across the two evaluation points; Option-A reselect (resource-retry → defer → backstop) is deterministic and declared.
 - `toolId`-keyed busy-interval + tool-life structures exist and thread through placement, guarded on `SequencerItem.toolId`.
-- **Inert:** no veto constraint registered, no tool consumed; **demo byte-identical** — `1043 / 0645457f…006ef` (same-day pre==post) at each commit.
+- **Inert:** no veto constraint registered, no tool consumed; **demo byte-identical** — 1043 ops + an identical digest **old-vs-new, same clock** (not against a stored value) at each commit.
 - Determinism preserved and asserted (reselection order, backstop); `demo:reset` green; suite + 5-workspace typecheck green.
 - Honesty marker: S1.2 changed *control-flow capability + state axis*, **not behavior** — new behavior is S2 (the constraints that consume this).
 
