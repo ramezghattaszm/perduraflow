@@ -852,25 +852,8 @@ export class WhatIfService {
     targetDemandLineId: string | null,
   ): OptionComparative[] {
     if (!self.scored) return []
-    const selfFixes = planFixesTarget(self.placements, targetDemandLineId)
-    const out: OptionComparative[] = []
-    for (const other of feasible) {
-      if (other.spec.id === self.spec.id || !other.scored) continue
-      const deltaScore = Number((self.scored.score - other.scored.score).toFixed(4))
-      const otherFixes = planFixesTarget(other.placements, targetDemandLineId)
-      // Target-fix decides when it differs (remediation only); else plant-wide factor dominance.
-      const targetDecides = targetDemandLineId != null && selfFixes !== otherFixes
-      const verdict: OptionComparative['verdict'] = targetDecides
-        ? selfFixes
-          ? 'preferred'
-          : 'dominated'
-        : dominanceVerdict(self.scored.factors, other.scored.factors)
-      const deciding = targetDecides
-        ? [{ key: 'lateness' as const, delta: latenessDelta(self.scored.factors, other.scored.factors) }]
-        : factorDeltas(self.scored.factors, other.scored.factors)
-      out.push({ vsOptionId: other.spec.id, deltaScore, verdict, decidingFactors: deciding })
-    }
-    return out
+    const toInput = (o: ReturnType<WhatIfService['runOption']>): ComparativeInput => ({ id: o.spec.id, score: o.scored!.score, factors: o.scored!.factors, placements: o.placements })
+    return buildComparatives(toInput(self), feasible.filter((o) => o.scored).map(toInput), targetDemandLineId)
   }
 
   // --- helpers ----------------------------------------------------------------
@@ -1201,6 +1184,44 @@ function factorDeltas(a: RationaleFactor[], b: RationaleFactor[]): OptionCompara
     .filter((d) => d.delta !== 0)
     .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta))
     .slice(0, 2)
+}
+
+/** The minimal per-option shape the comparative builder needs (id + score + factors + placements). */
+export interface ComparativeInput {
+  id: string
+  score: number
+  factors: RationaleFactor[]
+  placements: Placement[]
+}
+
+/**
+ * Build the all-pairwise comparatives for one option vs the others — the PURE core of
+ * {@link WhatIfService.comparatives} (the private method delegates here). Extracted so the objective
+ * baseline harness can exercise the REAL deciding-factor + verdict logic off the demo (proof #3 — the
+ * comparative/narration surface the plan + objective digests can't see). `decidingFactors[].key` and the
+ * dominance/lateness deltas read `RationaleFactor.key` — the type Option B (S1.3) reshapes — so this is
+ * on the reshape's blast radius even though it lives above `scorePlan`.
+ */
+export function buildComparatives(self: ComparativeInput, others: ComparativeInput[], targetDemandLineId: string | null): OptionComparative[] {
+  const selfFixes = planFixesTarget(self.placements, targetDemandLineId)
+  const out: OptionComparative[] = []
+  for (const other of others) {
+    if (other.id === self.id) continue
+    const deltaScore = Number((self.score - other.score).toFixed(4))
+    const otherFixes = planFixesTarget(other.placements, targetDemandLineId)
+    // Target-fix decides when it differs (remediation only); else plant-wide factor dominance.
+    const targetDecides = targetDemandLineId != null && selfFixes !== otherFixes
+    const verdict: OptionComparative['verdict'] = targetDecides
+      ? selfFixes
+        ? 'preferred'
+        : 'dominated'
+      : dominanceVerdict(self.factors, other.factors)
+    const deciding = targetDecides
+      ? [{ key: 'lateness' as const, delta: latenessDelta(self.factors, other.factors) }]
+      : factorDeltas(self.factors, other.factors)
+    out.push({ vsOptionId: other.id, deltaScore, verdict, decidingFactors: deciding })
+  }
+  return out
 }
 
 /** Dominance: preferred if ≤ on all factors (some <); dominated if ≥ on all (some >); else tradeoff. */
