@@ -687,13 +687,14 @@ export type ChangeSet = z.infer<typeof changeSetSchema>
 
 // --- structured rationale (the phase-6 substrate — addressable 3 ways) --------
 
-export type RationaleFactorKey =
-  | 'lateness'
-  | 'changeover'
-  | 'overtime'
-  | 'inventory'
-  | 'displacement'
-  | 'cost'
+/**
+ * An objective factor's key. **Option B (D-S1-6):** registry-derived (an open `string`), not a closed union —
+ * so a registered constraint (S2/S3) can contribute a factor under its own key on the same mechanism. The six
+ * built-ins (`lateness`, `changeover`, `overtime`, `inventory`, `displacement`, `cost`) are pre-registered in
+ * `OBJECTIVE_FACTORS` (contracts/config); the config boundary Zod-validates the keyed weight set that pins
+ * these. Narration (`whatif.narration`) maps the key to a label with a `?? key` fallback.
+ */
+export type RationaleFactorKey = string
 export type FactorDirection = 'improves' | 'worsens' | 'neutral'
 
 /**

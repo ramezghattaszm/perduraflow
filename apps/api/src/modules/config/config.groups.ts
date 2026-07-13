@@ -8,7 +8,7 @@ import {
   KPI_THRESHOLD_METRICS,
   OBJECTIVE_DEFAULTS,
   OBJECTIVE_WEIGHT_KEYS,
-  type ObjectiveWeights,
+  objectiveWeightsSchema,
   REPORTING_DEFAULTS,
 } from '@perduraflow/contracts'
 
@@ -59,7 +59,14 @@ const OBJECTIVE: ConfigGroupDescriptor = {
   key: 'objective',
   defaults: { ...OBJECTIVE_DEFAULTS },
   fields: OBJECTIVE_WEIGHT_KEYS.map((key) => ({ key, kind: 'number' as const, min: 0, max: 100 })),
-  validate: (values) => firmLatenessDominates(values as unknown as ObjectiveWeights),
+  // Option B: recover the shape safety the closed union gave — Zod-parse the resolved value set (every value
+  // a non-negative number) BEFORE the dominance guard, instead of an unchecked `as ObjectiveWeights` cast.
+  // Known-key rejection is already enforced by the config write path (fields are registry-derived).
+  validate: (values) => {
+    const parsed = objectiveWeightsSchema.safeParse(values)
+    if (!parsed.success) return { ok: false, warnings: parsed.error.issues.map((i) => `${i.path.join('.') || 'weights'}: ${i.message}`) }
+    return firmLatenessDominates(parsed.data)
+  },
 }
 
 /**

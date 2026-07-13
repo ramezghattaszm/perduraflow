@@ -1,4 +1,4 @@
-import { type ConstraintBinding, type CostedKpis, OBJECTIVE_DEFAULTS, type ObjectiveWeights, type RationaleFactor } from '@perduraflow/contracts'
+import { type ConstraintBinding, type CostedKpis, OBJECTIVE_DEFAULTS, OBJECTIVE_WEIGHT_KEYS, type ObjectiveWeights, type RationaleFactor } from '@perduraflow/contracts'
 import type { Placement } from './sequencer'
 
 const MS_PER_HOUR = 3_600_000
@@ -130,23 +130,31 @@ export function scorePlan(placements: Placement[], ctx: ScoreContext): ScoredPla
   // (never the sentinel); `infeasibleFirmOps` is the legible count. Inert when no infeasible firm op
   // (raw === firmLateHours) → feasible-plan scores are byte-identical to before. detailParams stay honest.
   const latenessRaw = r2(firmLateHours + infeasibleFirmOps * INFEASIBLE_LATENESS_HOURS)
-  const factors: RationaleFactor[] = [
-    factor('lateness', 'h', latenessRaw, w.lateness, 'whatif.factor.lateness', {
-      hours: r2(firmLateHours),
-      orders: lateLines.size,
-      infeasible: infeasibleFirmOps,
-    }),
-    factor('changeover', '', changeovers, w.changeover, 'whatif.factor.changeover', { count: changeovers }),
-    factor('overtime', 'h', r2(otHours), w.overtime, 'whatif.factor.overtime', { hours: r2(otHours) }),
-    factor('inventory', 'h', r2(earlyHours), w.inventory, 'whatif.factor.inventory', { hours: r2(earlyHours) }),
-    factor('displacement', '', displaced, w.displacement, 'whatif.factor.displacement', { count: displaced }),
+  // Option B (D-S1-6): the factor list is DERIVED from the objective registry (`OBJECTIVE_WEIGHT_KEYS`), not a
+  // hardcoded array — so a registered constraint (S2/S3) can contribute a factor under its own key on the same
+  // mechanism. The six built-ins provide their rawValue/detailParams here, keyed; the registry ORDER
+  // (lateness, changeover, overtime, inventory, displacement, cost) is preserved, so the factors array + the
+  // `reduce` fold sum in the EXACT same sequence as the prior hardcoded array → byte-identical score (float
+  // addition is not associative, so the order is load-bearing).
+  const builtinFactors: Record<string, () => RationaleFactor> = {
+    lateness: () =>
+      factor('lateness', 'h', latenessRaw, w.lateness, 'whatif.factor.lateness', {
+        hours: r2(firmLateHours),
+        orders: lateLines.size,
+        infeasible: infeasibleFirmOps,
+      }),
+    changeover: () => factor('changeover', '', changeovers, w.changeover, 'whatif.factor.changeover', { count: changeovers }),
+    overtime: () => factor('overtime', 'h', r2(otHours), w.overtime, 'whatif.factor.overtime', { hours: r2(otHours) }),
+    inventory: () => factor('inventory', 'h', r2(earlyHours), w.inventory, 'whatif.factor.inventory', { hours: r2(earlyHours) }),
+    displacement: () => factor('displacement', '', displaced, w.displacement, 'whatif.factor.displacement', { count: displaced }),
     // Cost (C6): per-unit economics in the objective — resource cost (setup/run/overhead) + OT premium
     // + operator LABOR ($/hr × working hours). rawValue = costPerUnit, with a non-null guard: an uncosted
     // plan (no rated resource AND no operator → costPerUnit null) contributes 0 (cost-neutral), never NaN;
     // the seed rates every resource, so this only fires on misconfigured data. Weight 4 keeps cost a real
     // discriminator (the levers compare on $) while staying far below lateness (firm-lateness dominance).
-    factor('cost', '', costPerUnit ?? 0, w.cost, 'whatif.factor.cost', { cost: costPerUnit ?? 0 }),
-  ]
+    cost: () => factor('cost', '', costPerUnit ?? 0, w.cost, 'whatif.factor.cost', { cost: costPerUnit ?? 0 }),
+  }
+  const factors: RationaleFactor[] = OBJECTIVE_WEIGHT_KEYS.map((k) => builtinFactors[k]!())
   const score = r4(factors.reduce((s, f) => s + f.contribution, 0))
 
   const constraints: ConstraintBinding[] = [

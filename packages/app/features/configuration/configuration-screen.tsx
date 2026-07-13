@@ -337,20 +337,14 @@ function FieldRow({
   )
 }
 
-/** Read the resolved weights (effective values) out of a group view. */
+/** Read the resolved weights (effective values) out of a group view — registry-derived (Option B: keyed). */
 function weightsFromView(view: ConfigGroupView): ObjectiveWeights {
   const byKey = new Map(view.fields.map((f) => [f.key, Number(f.value)]))
-  return {
-    lateness: byKey.get('lateness') ?? 0,
-    changeover: byKey.get('changeover') ?? 0,
-    overtime: byKey.get('overtime') ?? 0,
-    inventory: byKey.get('inventory') ?? 0,
-    displacement: byKey.get('displacement') ?? 0,
-    cost: byKey.get('cost') ?? 0,
-  }
+  return Object.fromEntries(OBJECTIVE_WEIGHT_KEYS.map((k) => [k, byKey.get(k) ?? 0]))
 }
 
-const WEIGHT_SLIDER_MAX: Record<keyof ObjectiveWeights, number> = {
+/** Slider upper bounds per weight key; an unlisted (future registered) key falls back to the default. */
+const WEIGHT_SLIDER_MAX: Record<string, number> = {
   lateness: 40,
   changeover: 20,
   overtime: 20,
@@ -358,6 +352,7 @@ const WEIGHT_SLIDER_MAX: Record<keyof ObjectiveWeights, number> = {
   displacement: 20,
   cost: 20,
 }
+const WEIGHT_SLIDER_MAX_DEFAULT = 20
 
 /**
  * Objective Policy editor — the six weights as **slider + exact-number entry**, edited as one cohesive
@@ -394,7 +389,7 @@ function ObjectiveWeightsEditor({
   const dirty = OBJECTIVE_WEIGHT_KEYS.some((k) => w[k] !== initial[k])
   const scopeId = scope === 'plant' ? plantId : tenantId
 
-  const setWeight = (k: keyof ObjectiveWeights, value: number) => setW((prev) => ({ ...prev, [k]: value }))
+  const setWeight = (k: string, value: number) => setW((prev) => ({ ...prev, [k]: value }))
 
   const onSave = () => {
     if (!verdict.ok || !scopeId || scope === 'global' || scope === 'line') return // S0b: no line-write UI (line depth is S1)
@@ -453,7 +448,7 @@ function ObjectiveWeightsEditor({
                   value={w[k]}
                   onChange={(v) => setWeight(k, round2(v))}
                   min={0}
-                  max={WEIGHT_SLIDER_MAX[k]}
+                  max={WEIGHT_SLIDER_MAX[k] ?? WEIGHT_SLIDER_MAX_DEFAULT}
                   step={0.1}
                   tone={breaches ? 'warning' : 'primary'}
                 />

@@ -214,41 +214,56 @@ export const AUTONOMY_POLICY_DEFAULTS: AutonomyPolicy = {
 }
 
 // --- Group: objective policy (weights) --------------------------------------
-/** The engine objective-function factor weights — `contribution = rawValue · weight`, lower is better. */
-export interface ObjectiveWeights {
-  /** Per firm-late hour — the DOMINANT factor (firm delivery protected). */
-  lateness: number
-  /** Per changeover switch. */
-  changeover: number
-  /** Per overtime hour (labour premium). */
-  overtime: number
-  /** Per early hour finished ahead of need (holding pressure). */
-  inventory: number
-  /** Per operation displaced vs the current plan (nervousness discipline). */
-  displacement: number
-  /** Per unit of cost (economic factor — must sit far below lateness). */
-  cost: number
+/**
+ * The engine objective-function factor weights — `contribution = rawValue · weight`, lower is better.
+ * **Option B (D-S1-6):** a KEYED map (one weight per registered objective factor), not a closed 6-field
+ * struct — so registered constraints (S2/S3) can carry weights on the SAME mechanism, no built-in/registered
+ * split. The six built-ins are pre-registered in {@link OBJECTIVE_FACTORS}; {@link objectiveWeightsSchema}
+ * recovers, at the config boundary, the runtime shape safety the closed interface used to give.
+ */
+export type ObjectiveWeights = Record<string, number>
+
+/**
+ * One registered objective factor — its stable key, shipped default weight, and whether it is THE dominant
+ * factor (firm delivery: must out-weigh every other by {@link FIRM_LATENESS_DOMINANCE_RATIO}).
+ */
+export interface ObjectiveFactorSpec {
+  key: string
+  defaultWeight: number
+  dominant?: boolean
 }
 
-/** The objective weight field keys, in display order. */
-export const OBJECTIVE_WEIGHT_KEYS: (keyof ObjectiveWeights)[] = [
-  'lateness',
-  'changeover',
-  'overtime',
-  'inventory',
-  'displacement',
-  'cost',
+/**
+ * The objective factor registry — the six built-ins, pre-registered **IN FOLD ORDER**. The order is
+ * LOAD-BEARING: the scorer sums factor contributions in this sequence and float addition is not associative,
+ * so a reorder is a silent score drift (it would surface in the objective + comparative baselines). Option B
+ * is the keying mechanism; registered constraints (S2/S3) append here — no factor is added in S1.3.
+ */
+export const OBJECTIVE_FACTORS: ObjectiveFactorSpec[] = [
+  { key: 'lateness', defaultWeight: 10, dominant: true },
+  { key: 'changeover', defaultWeight: 1 },
+  { key: 'overtime', defaultWeight: 4 },
+  { key: 'inventory', defaultWeight: 0.2 },
+  { key: 'displacement', defaultWeight: 2 },
+  { key: 'cost', defaultWeight: 4 },
 ]
 
-/** Shipped default weights (the `aps-w2` calibration — the current hardcoded constants). */
-export const OBJECTIVE_DEFAULTS: ObjectiveWeights = {
-  lateness: 10,
-  changeover: 1,
-  overtime: 4,
-  inventory: 0.2,
-  displacement: 2,
-  cost: 4,
-}
+/** The dominant factor's key (firm-lateness) — the one weight that must out-weigh all others. */
+export const OBJECTIVE_DOMINANT_KEY: string = OBJECTIVE_FACTORS.find((f) => f.dominant)!.key
+
+/** The objective weight field keys, in display + fold order — registry-derived. */
+export const OBJECTIVE_WEIGHT_KEYS: string[] = OBJECTIVE_FACTORS.map((f) => f.key)
+
+/** Shipped default weights (the `aps-w2` calibration) — registry-derived (key → default weight). */
+export const OBJECTIVE_DEFAULTS: ObjectiveWeights = Object.fromEntries(OBJECTIVE_FACTORS.map((f) => [f.key, f.defaultWeight]))
+
+/**
+ * Config-boundary shape guard for a keyed weight set — every value a finite, non-negative number. Recovers
+ * the runtime safety the closed {@link ObjectiveWeights} interface gave (now that it is an open `Record`).
+ * Known-KEY enforcement lives in the config write path (it rejects any field not in the registry); this
+ * guards the VALUE shape before the dominance guard runs.
+ */
+export const objectiveWeightsSchema = z.record(z.string(), z.number().nonnegative())
 
 /** The default weight-set version token, stamped into a rationale produced with the shipped weights. */
 export const OBJECTIVE_DEFAULT_VERSION = 'aps-w2'
@@ -266,8 +281,8 @@ export interface DominanceVerdict {
   ok: boolean
   /** Human-readable reasons (one per problem) for the UI/runtime to surface. */
   warnings: string[]
-  /** Non-lateness weight keys that exceed the allowed ceiling (or `['lateness']` when lateness is too low). */
-  offending: (keyof ObjectiveWeights)[]
+  /** Non-dominant weight keys that exceed the allowed ceiling (or `[dominant]` when it is too low). */
+  offending: string[]
   /** The max any single non-lateness weight may take = `lateness / ratio` (the UI ceiling). */
   maxOtherWeight: number
 }
@@ -285,25 +300,28 @@ export function firmLatenessDominates(
   ratio: number = FIRM_LATENESS_DOMINANCE_RATIO,
 ): DominanceVerdict {
   const warnings: string[] = []
-  const offending: (keyof ObjectiveWeights)[] = []
+  const offending: string[] = []
+  const dominant = OBJECTIVE_DOMINANT_KEY
 
+  // Registry-driven: iterate EVERY registered weight (D-S1.3-2), so a registered soft weight can never
+  // escape the ceiling. The dominant key comes from the registry, not a literal.
   const negatives = OBJECTIVE_WEIGHT_KEYS.filter((k) => !(w[k] >= 0))
   for (const k of negatives) {
     warnings.push(`${k} weight must be ≥ 0`)
     offending.push(k)
   }
 
-  const maxOtherWeight = w.lateness / ratio
-  const others = OBJECTIVE_WEIGHT_KEYS.filter((k) => k !== 'lateness')
+  const maxOtherWeight = w[dominant] / ratio
+  const others = OBJECTIVE_WEIGHT_KEYS.filter((k) => k !== dominant)
   const tooHeavy = others.filter((k) => w[k] > maxOtherWeight)
   if (tooHeavy.length > 0) {
     for (const k of tooHeavy) offending.push(k)
     warnings.push(
-      `firm-lateness dominance: lateness (${w.lateness}) must be ≥ ${ratio}× each other weight; ` +
+      `firm-lateness dominance: ${dominant} (${w[dominant]}) must be ≥ ${ratio}× each other weight; ` +
         `${tooHeavy.map((k) => `${k}=${w[k]}`).join(', ')} exceed the ceiling of ${maxOtherWeight}`,
     )
-    // If lateness is the thing that's too small relative to the rest, name it too (UI hint).
-    if (!offending.includes('lateness')) offending.push('lateness')
+    // If the dominant weight is the thing that's too small relative to the rest, name it too (UI hint).
+    if (!offending.includes(dominant)) offending.push(dominant)
   }
 
   return { ok: warnings.length === 0, warnings, offending: [...new Set(offending)], maxOtherWeight }
