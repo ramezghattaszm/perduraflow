@@ -60,7 +60,7 @@ import { matchesLocation } from './location'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
-import { deriveVetoConstraints, MODE_GOVERNED_CONSTRAINTS, resolveConstraintPolicies } from './constraints/policy-bridge'
+import { buildSolveVetoConstraints } from './constraints/policy-bridge'
 import { eligibilityPreGateConstraint } from './constraints/pregate'
 import { startOfDayUtc, workingCalendarFromCalendarDto, workingMinutesInRange, type WorkingCalendar } from '../../common/utils/working-calendar'
 
@@ -659,8 +659,7 @@ export class SchedulingService {
     // here (never per-op in the loop), then derive the S1.2 veto seam from the resolved HARD modes. INERT:
     // no constraint is governed (empty registry) → the resolution is empty (no config read issued) and the
     // derived veto set is empty → the reselect branch stays dead → the plan is byte-identical.
-    const constraintPolicy = await resolveConstraintPolicies(this.config, tenantId, plantId, [...ctx.resourceById.values()])
-    const vetoConstraints = deriveVetoConstraints(MODE_GOVERNED_CONSTRAINTS, constraintPolicy)
+    const vetoConstraints = await buildSolveVetoConstraints(this.config, tenantId, plantId, [...ctx.resourceById.values()])
     const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource, ctx.downtimeByResource, vetoConstraints)
     const run = await this.repo.createRun({
       tenantId,

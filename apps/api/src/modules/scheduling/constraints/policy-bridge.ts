@@ -113,6 +113,23 @@ export function deriveVetoConstraints(
 }
 
 /**
+ * THE production seam — the exact veto set the solve threads into `sequence()`: pre-resolve the per-line
+ * policy, then derive the S1.2 veto from the {@link MODE_GOVERNED_CONSTRAINTS} registry. `scheduling.service`
+ * calls ONLY this (no ad-hoc veto array), so a test can call the SAME function and assert what production
+ * actually passes is empty — closing the gap that a non-registry veto could be built and threaded past the
+ * static guard. **Empty while inert** (empty registry).
+ */
+export async function buildSolveVetoConstraints(
+  read: { resolveConstraintPolicy(tenantId: string, plantId?: string, lineId?: string): Promise<ResolvedConstraintPolicy> },
+  tenantId: string,
+  plantId: string,
+  resources: readonly { id: string; lineId: string | null }[],
+): Promise<{ preplaceVeto: Constraint[]; feasibilityReject: Constraint[] }> {
+  const resolution = await resolveConstraintPolicies(read, tenantId, plantId, resources)
+  return deriveVetoConstraints(MODE_GOVERNED_CONSTRAINTS, resolution)
+}
+
+/**
  * The constraint ids that are HARD-enforced anywhere in the resolution — the input to the HONEST
  * `ConstraintBinding` (a hard constraint's `binding` is finally derived, not hardcoded `false`). **Empty while
  * inert** → every hard binding stays `false`, byte-identical.

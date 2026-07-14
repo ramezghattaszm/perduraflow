@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { CONSTRAINT_POLICIES } from '@perduraflow/contracts'
 import { describe, expect, it } from 'vitest'
-import { ConstraintPolicyResolution, deriveVetoConstraints, MODE_GOVERNED_CONSTRAINTS } from './policy-bridge'
+import { buildSolveVetoConstraints, ConstraintPolicyResolution, deriveVetoConstraints, MODE_GOVERNED_CONSTRAINTS } from './policy-bridge'
 
 /**
  * S1.2 inertness honesty guard (Commit C) — a PERMANENT regression test that S1.2 stays what it claims to be:
@@ -74,6 +74,21 @@ describe('S1.2 is genuinely inert (no veto registered, no tool consumed) — pro
     const derived = deriveVetoConstraints(MODE_GOVERNED_CONSTRAINTS, new ConstraintPolicyResolution(new Map(), new Map()))
     expect(derived.preplaceVeto).toEqual([])
     expect(derived.feasibilityReject).toEqual([])
+  })
+
+  it('NO VETO ENFORCED (seam) — what the solve ACTUALLY threads into sequence() is empty', async () => {
+    // Stronger than "the registries are empty": exercise the exact production derivation the solve uses
+    // (buildSolveVetoConstraints — the ONLY thing scheduling.service threads as vetoConstraints) with a
+    // realistic pre-resolution, and assert the threaded set is empty. Catches a veto built from a non-registry
+    // source and passed through the seam (which the : [ regex + registry checks alone would miss).
+    const emptyRead = { resolveConstraintPolicy: async () => ({ modes: {} }) }
+    const resources = [
+      { id: 'R1', lineId: 'LINE-1' },
+      { id: 'R2', lineId: null },
+    ]
+    const threaded = await buildSolveVetoConstraints(emptyRead, 'T1', 'P1', resources)
+    expect(threaded.preplaceVeto).toEqual([])
+    expect(threaded.feasibilityReject).toEqual([])
   })
 
   it('NO TOOL CONSUMED — toolId is named only by the sequencer (no seed sets it, no consumer reads it)', () => {

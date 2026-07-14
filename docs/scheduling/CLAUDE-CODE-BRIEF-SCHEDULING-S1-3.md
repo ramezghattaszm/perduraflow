@@ -77,3 +77,13 @@ The objective is registry-driven and keyed, with the six built-ins pre-registere
 - The S1.2 honesty guard would be **weakened, deleted, or routed around** to make the bridge pass → **STOP** (that guard is the thing standing between "inert" and a false byte-identical pass).
 - A constraint gets registered with a mode, or a line-level override is seeded into the demo → **STOP** (that is S2/S3, and it makes S1.3 non-inert).
 - Any work reaches a new constraint, the D6 audit snapshot (S1.4), or a customer-authoring surface → **STOP** (out of scope).
+
+---
+
+## Status — BUILT (inert, three-proof byte-identical)
+- **Commit 0 `d703f7f`** — objective baseline harness (proof 2); **0b `070effc`** — comparative + narration harness (proof 3, the comparative blind spot above `scorePlan`).
+- **Commit 1 `ac57689`** — open the objective (Option B, keyed/registry-driven; six pre-registered in fold order; `RationaleFactorKey`/`ObjectiveWeights` open; dominance guard generalized; Zod at the boundary).
+- **Commit 2 `0523e78`** — `constraint_policy` group (registry-derived keyed fields) + `lineId` threaded (the config line rung's first consumer).
+- **Commit 3 `1f00cdd`** — the mode→behavior bridge (soft→factor + honest binding, hard→S1.2 veto, slack→threshold), reading the mode off the pre-resolved `ConstraintPolicyResolution` map (D-S1.3-7); inert.
+- **Commit 4 `<this commit>`** — close-out: seam-level veto assertion (what the solve actually threads is empty), per-group config digests (D-S1.3-8), the runtime registered-key + exactly-one-dominant invariants (recovering what Option B gave up at the type level), permanent line-resolution + dominance tests, full three-proof sweep.
+- **Inert:** `CONSTRAINT_POLICIES` + `MODE_GOVERNED_CONSTRAINTS` empty, no line override seeded → empty veto, no factor, honest binding stays false. **No constraint carries a mode — hard/soft/slack is a capability, NOT in use.** First consumers: D28/D8 (S2), D9/D11/JIS (S2/S3). Next: **S1.4** (D6 audit snapshot — consumes `ConstraintPolicyResolution`).

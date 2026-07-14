@@ -65,10 +65,10 @@ Plus: config resolution identical (`lineId` threaded-but-no-line-data → identi
 | ID | Decision | Status |
 |---|---|---|
 | **D-S1-6 / D-S1.3-1** | Objective closed-shape | **LOCKED — Option B (fully keyed / registry-driven)**; the six built-ins become pre-registered entries; Zod at the config boundary recovers type safety. |
-| **D-S1.3-2** | Dominance guard scope | **Proposed — applies to EVERY registered weight** (not just the original six). A soft constraint out-weighing firm lateness is a correctness failure. |
-| **D-S1.3-3** | Config group descriptor | **Proposed — gains registry-derived/keyed fields**, so both the open weight set and the per-constraint mode map can be expressed. (The config framework has the same closed-shape problem as the objective.) |
-| **D-S1.3-4** | The gate | **Proposed — TWO proofs** (committed plan + what-if objective outputs). The plan digest alone cannot catch an objective-shape regression. |
-| **D-S1.3-5** | Commit split | **Proposed — four commits** (objective / policy group / bridge / close-out), each proven before the next. |
+| **D-S1.3-2** | Dominance guard scope | **LOCKED + BUILT (`ac57689`) — applies to EVERY registered weight** (the guard iterates the registry with the registry's dominant key). A soft constraint out-weighing firm lateness is rejected. |
+| **D-S1.3-3** | Config group descriptor | **LOCKED + BUILT (`0523e78`) — registry-derived/keyed fields**; the `constraint_policy` group derives `<id>.mode`/`<id>.threshold` per registered constraint (empty → field-less/inert). |
+| **D-S1.3-4** | The gate | **LOCKED + BUILT — THREE proofs** (committed plan + objective scoring surface + comparative/narration surface). Proof (3) added at Commit 0b after the comparative blind spot was found. |
+| **D-S1.3-5** | Commit split | **LOCKED + BUILT — 0/0b/1/2/3/4** (harnesses / objective / policy group / bridge / close-out), each proven before the next. |
 | **D-S1.3-6** | Line rung | **LOCKED — `lineId` threaded** into config resolution (S1.3 is the rung's first consumer); inert **by data** (no line override seeded), guarded by the existing identical-SHA spec. |
 | **D-S1.3-7** | Mode resolution strategy | **LOCKED — pre-resolved `lineId → ResolvedConstraintPolicy` map**, built once per solve and threaded into `sequence()`; the sequencer looks up a mode by the placed resource's line (resources carry a line, S0a). **Not** per-op resolution — async I/O in the placement loop would break purity/determinism. The map is also the object **S1.4's D6 snapshot captures** (the resolved set is part of the determinism key). Inert: empty registry → empty map → the lookup never fires. |
 | **D-S1.3-8** | Config regression lock | **LOCKED — pin PER-GROUP digests, not one aggregate.** The single aggregate SHA forces a re-pin whenever a group is added, and a re-pin is where a change to an *existing* group can hide behind "it's just the new one." Per-group pins make re-pins surgical. (Fold into Commit 4.) |
@@ -90,4 +90,4 @@ Plus: config resolution identical (`lineId` threaded-but-no-line-data → identi
 
 ---
 
-*Confirm D-S1.3-2…6 (D-S1-6 locked). Then the S1.3 build brief — Commit 1 (open the objective) first.*
+*BUILT — Commit 0 `d703f7f` / 0b `070effc` (harnesses), 1 `ac57689` (open the objective), 2 `0523e78` (mode group + line rung), 3 `1f00cdd` (bridge), 4 close-out (this commit: seam assertion, per-group digests, runtime registered-key + one-dominant invariants, permanent line/dominance tests). All INERT — no constraint carries a mode; hard/soft/slack is a capability, not in use. Three proofs byte-identical. First consumers: D28/D8 (S2), D9/D11/JIS (S2/S3). Pending: S1.4 (D6 audit snapshot — consumes `ConstraintPolicyResolution`).*

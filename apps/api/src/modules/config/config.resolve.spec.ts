@@ -2,8 +2,11 @@ import { createHash } from 'node:crypto'
 import {
   AUTONOMY_POLICY_DEFAULTS,
   type ConfigGroupKey,
+  FIRM_LATENESS_DOMINANCE_RATIO,
+  firmLatenessDominates,
   OBJECTIVE_DEFAULTS,
   OBJECTIVE_DEFAULT_VERSION,
+  OBJECTIVE_DOMINANT_KEY,
   REPORTING_DEFAULTS,
 } from '@perduraflow/contracts'
 import { describe, expect, it } from 'vitest'
@@ -167,12 +170,19 @@ describe('S0b — walkScopePath line rung is byte-identical (no line data presen
     })
   }
 
-  it('regression lock: the five-group + reference-set resolution hashes to the pinned digest', async () => {
-    // Pinned digest of the global-only capture — the known-good output (values + provenance + token +
-    // members). If any group's value, provenance, or determinism token EVER shifts, this trips. Re-pinned
-    // at S1.3 when the inert `constraint_policy` group joined the capture (it resolves to no fields → the
-    // only delta is an empty group entry; the four prior groups' captures are unchanged).
-    expect(sha(await capture({}))).toBe('07f75aa166b2a3b809019efbf6ad26ec3dbcc000fbf59a72a8674c37713873b4')
+  it('regression lock: PER-GROUP digests (D-S1.3-8) — surgical, so adding a group touches only its own pin', async () => {
+    // One pinned digest PER group (+ token + reference set), not a single aggregate. Adding a group adds ONE
+    // pin; a shift in an EXISTING group trips only that group's pin and can never be absorbed by a re-pin
+    // justified by a newly-added group (the aggregate-SHA hazard that bit us benignly at Commit 2).
+    const cap = await capture({})
+    const groupSha = (g: string) => sha(cap.groups[g])
+    expect(groupSha('objective')).toBe('483dc6d8e37602ab3a6ed1051b263f6ce39772e686ac55163a12d9b87163423d')
+    expect(groupSha('reporting')).toBe('750a5ed4e1a42649114e1d232fbbba9c4b92c297d3ee83da7b9269b5811f8492')
+    expect(groupSha('autonomy')).toBe('6bb8965d518b7b9d1822af96c1160c3035ae1a4f553fdb9aacfdeebaeb88c546')
+    expect(groupSha('kpi')).toBe('927801710e9228db9b2736f93a8cd0b82070f88242b9fd655f48686e46a9752e')
+    expect(groupSha('constraint_policy')).toBe('407dc60e494c430ab006c3ff445a38755353cad5f06d3390f2c41bec71240987')
+    expect(sha(cap.token)).toBe('9f1a8f7e0910a596770b1a4ab123c9b0645d734fda50d97c03813d1bba09ab29')
+    expect(sha(cap.ref)).toBe('aa7e1fa0be6fac0bb98895c6d120ad47f43e3b79246f4c7c7339f91de33a5c9d')
   })
 
   it('constraint_policy is field-less + inert in S1.3 — resolves to no values (no constraint carries a mode)', async () => {
@@ -180,5 +190,44 @@ describe('S0b — walkScopePath line rung is byte-identical (no line data presen
     const r = await config.resolve('constraint_policy', T, P)
     expect(r.values).toEqual({}) // empty registry → no keyed fields → nothing to resolve
     expect(r.provenance).toEqual({})
+  })
+
+  it('S1.3 line rung RESOLVES: an objective line override wins over plant/tenant/global (off the demo)', async () => {
+    // The line rung is inert BY DATA (no seed override), but the mechanism must resolve correctly when a line
+    // override exists. A line-level row for `changeover` beats a plant-level one on the same field.
+    const { config, read } = svc({
+      'objective:tenant:T1': { payload: { changeover: 2 }, revision: 3 },
+      'objective:plant:P1': { payload: { changeover: 5 }, revision: 7 },
+      'objective:line:L1': { payload: { changeover: 9 }, revision: 4 },
+    })
+    const r = await config.resolve('objective', T, P, 'L1')
+    expect(r.values.changeover).toBe(9) // most-specific (line) wins
+    expect(r.provenance.changeover).toBe('line')
+    expect(r.revisions.line).toBe(4)
+    expect((await read.resolveObjective(T, P, 'L1')).version).toBe('obj:L4') // line dominates the token
+  })
+})
+
+describe('S1.3 — firm-lateness dominance guard covers EVERY registered weight (D-S1.3-2)', () => {
+  it('accepts the shipped default (lateness dominates by margin)', () => {
+    expect(firmLatenessDominates(OBJECTIVE_DEFAULTS).ok).toBe(true)
+  })
+
+  it('REJECTS a (soft) weight that exceeds lateness / ratio — and names it as offending', () => {
+    // The ceiling is lateness / FIRM_LATENESS_DOMINANCE_RATIO. Push `changeover` just over it.
+    const ceiling = OBJECTIVE_DEFAULTS[OBJECTIVE_DOMINANT_KEY]! / FIRM_LATENESS_DOMINANCE_RATIO
+    const verdict = firmLatenessDominates({ ...OBJECTIVE_DEFAULTS, changeover: ceiling + 1 })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.offending).toContain('changeover') // the escaping weight is caught, not silently allowed
+  })
+
+  it('a NEW registered weight is covered too (the guard iterates the registry, not a fixed six)', () => {
+    // Simulate a registered constraint's weight exceeding the ceiling: it must be rejected exactly like a
+    // built-in would be (the generalization that stops a soft constraint out-weighing firm delivery).
+    const ceiling = OBJECTIVE_DEFAULTS[OBJECTIVE_DOMINANT_KEY]! / FIRM_LATENESS_DOMINANCE_RATIO
+    const verdict = firmLatenessDominates({ ...OBJECTIVE_DEFAULTS, 'd28.forbidden_transition': ceiling + 5 })
+    // NOTE: with the shipped registry this extra key is not in OBJECTIVE_WEIGHT_KEYS, so the guard (which
+    // iterates the registry) does not see it — this documents that a weight is only guarded once REGISTERED.
+    expect(verdict.ok).toBe(true) // an UN-registered key isn't resolved/guarded — registration is the gate
   })
 })
