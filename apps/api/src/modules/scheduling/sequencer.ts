@@ -28,6 +28,7 @@ export const CHANGEOVER_BONUS_HOURS = 24
 export const EXPEDITE_BONUS_HOURS = 100_000
 /** Deferral applied to a not-yet-material-ready op under readyFirst (push it behind ready work). */
 export const READY_DEFER_HOURS = 50_000
+/** Milliseconds per hour — the SELECTION scorer's hour-scale unit (shared with the what-if objective). */
 export const MS_PER_HOUR = 3_600_000
 const MS_PER_MINUTE = 60_000
 

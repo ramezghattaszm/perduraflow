@@ -87,6 +87,8 @@ export interface ConstraintSetSnapshot {
   policies: { line: string; modes: { id: string; mode: ConstraintMode; threshold: number | null }[] }[]
 }
 
+/** Build the full D6 snapshot for a resolved set — the policies (from the class serializer) + the registry
+ *  identity. This is what gets content-addressed onto the version; empty/constant while inert. */
 export function buildConstraintSet(resolution: ConstraintPolicyResolution): ConstraintSetSnapshot {
   return {
     vocabularyVersion: VOCABULARY_VERSION,
