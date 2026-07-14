@@ -3,6 +3,7 @@ import type { NarrationMode } from '@perduraflow/contracts'
 import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { SCHEDULING_DB, type SchedulingDatabase } from './scheduling.db'
 import {
+  constraintSet,
   conversation,
   conversationTurn,
   demandInput,
@@ -254,6 +255,24 @@ export class SchedulingRepository {
         .values(ops.map((op) => ({ ...op, tenantId: row!.tenantId, scheduleVersionId: row!.id })))
     }
     return row!
+  }
+
+  /**
+   * S1.4 (D6) — content-addressed insert of the resolved constraint set. Dedup: the `id` IS the content
+   * digest, so an identical set (the common case — most versions share one) is a no-op. `content` is the exact
+   * canonical JSON that was digested (byte-faithful for replay).
+   */
+  async ensureConstraintSet(tenantId: string, id: string, content: string): Promise<void> {
+    await this.db.insert(constraintSet).values({ id, tenantId, content }).onConflictDoNothing({ target: constraintSet.id })
+  }
+
+  /** Read a recorded constraint set by its ref — the replay read (mirrors the `masterDataAsof` contract):
+   *  reconstruction resolves against THIS recorded content, never re-resolves from current config. */
+  getConstraintSet(id: string): Promise<{ id: string; content: string } | undefined> {
+    return this.db.query.constraintSet.findFirst({
+      where: eq(constraintSet.id, id),
+      columns: { id: true, content: true },
+    })
   }
 
   async updateVersionStatus(

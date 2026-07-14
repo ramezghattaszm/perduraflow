@@ -60,7 +60,11 @@ import { matchesLocation } from './location'
 import { buildLatenessChains, type LatenessLookups, type LatenessOp } from './lateness'
 import { buildWorkList, type WorkListOpInput, type WorkListOrderMeta } from './work-list'
 import { sequence, type EffectiveTimes, type ResolveEffective, type ResolveOperator, type SequencerItem } from './sequencer'
-import { buildSolveVetoConstraints } from './constraints/policy-bridge'
+import { buildConstraintSet, buildSolveVetoConstraints, canonicalConstraintSetJson, ConstraintPolicyResolution, type ConstraintSetSnapshot, digestConstraintSet } from './constraints/policy-bridge'
+
+/** The empty resolved-constraint set (S1.4) — the null-ref fallback for a version built before S1.4, mirroring
+ *  `masterDataAsof ?? new Date()`. A constant: the resolved set was empty then (no policy). */
+const EMPTY_CONSTRAINT_SET: ConstraintSetSnapshot = buildConstraintSet(new ConstraintPolicyResolution(new Map(), new Map()))
 import { eligibilityPreGateConstraint } from './constraints/pregate'
 import { startOfDayUtc, workingCalendarFromCalendarDto, workingMinutesInRange, type WorkingCalendar } from '../../common/utils/working-calendar'
 
@@ -659,8 +663,14 @@ export class SchedulingService {
     // here (never per-op in the loop), then derive the S1.2 veto seam from the resolved HARD modes. INERT:
     // no constraint is governed (empty registry) → the resolution is empty (no config read issued) and the
     // derived veto set is empty → the reselect branch stays dead → the plan is byte-identical.
-    const vetoConstraints = await buildSolveVetoConstraints(this.config, tenantId, plantId, [...ctx.resourceById.values()])
-    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource, ctx.downtimeByResource, vetoConstraints)
+    const { resolution: constraintPolicy, veto } = await buildSolveVetoConstraints(this.config, tenantId, plantId, [...ctx.resourceById.values()])
+    const result = sequence(items, resolveEffective, undefined, ctx.resourceCalendars, ctx.resolveOperator, ctx.minBatchByResource, ctx.downtimeByResource, veto)
+    // S1.4 (D6): snapshot the RESOLVED constraint set — the SAME `constraintPolicy` object the veto evaluated
+    // against (never a parallel re-derivation), plus the registry identity — content-addressed onto the
+    // version. Inert: empty registry → empty resolved set → a constant digest on every version.
+    const constraintSet = buildConstraintSet(constraintPolicy)
+    const constraintSetRef = digestConstraintSet(constraintSet)
+    await this.repo.ensureConstraintSet(tenantId, constraintSetRef, canonicalConstraintSetJson(constraintSet))
     const run = await this.repo.createRun({
       tenantId,
       plantId,
@@ -681,6 +691,7 @@ export class SchedulingService {
         horizonEnd: new Date(result.horizonEndMs),
         optimizerRunId: run.id,
         masterDataAsof: startedAt,
+        constraintSetRef, // S1.4: the recorded resolved-set ref — replay reads THIS, never re-resolves
       },
       result.placements.map((p) => ({
         demandLineId: p.demandLineId,
@@ -712,6 +723,19 @@ export class SchedulingService {
     await this.repo.discardDraftsForPlant(tenantId, plantId, version.id)
     await this.events.publish(EVENTS.SCHEDULING_RUN_COMPLETED, { id: run.id, tenantId, name: plantId }, tenantId)
     return toScheduleVersionDto(version)
+  }
+
+  /**
+   * S1.4 (D6) — the REPLAY read: the resolved constraint set a version was built under, read from its recorded
+   * `constraintSetRef`. **Never re-resolves from current config** — the `masterDataAsof` contract applied to
+   * policy (a reconstruction that re-resolved would silently disagree with what was committed). A null ref (a
+   * version built before S1.4) falls back to {@link EMPTY_CONSTRAINT_SET}, exactly like `masterDataAsof ?? now`.
+   */
+  async reconstructConstraintSet(tenantId: string, versionId: string): Promise<ConstraintSetSnapshot> {
+    const version = await this.repo.findVersion(tenantId, versionId)
+    if (!version?.constraintSetRef) return EMPTY_CONSTRAINT_SET
+    const row = await this.repo.getConstraintSet(version.constraintSetRef)
+    return row ? (JSON.parse(row.content) as ConstraintSetSnapshot) : EMPTY_CONSTRAINT_SET
   }
 
   /**

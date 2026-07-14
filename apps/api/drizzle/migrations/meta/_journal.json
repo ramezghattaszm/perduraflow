@@ -267,6 +267,13 @@
       "when": 1783683466748,
       "tag": "0037_hesitant_reptil",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1784029992600,
+      "tag": "0038_yellow_junta",
+      "breakpoints": true
     }
   ]
 }

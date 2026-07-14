@@ -33,6 +33,24 @@ export const optimizerRun = schedulingSchema.table(
 )
 
 /**
+ * Constraint set (S1.4 / D6) — the resolved constraint APPLICATION set (policies per scope + registry
+ * identity) that governed a solve, **content-addressed** by a SHA-256 of its canonical serialization. Immutable
+ * + dedup'd: most versions resolve the same set and share one row, so "did policy drift between versions?" is
+ * an `id` compare. `content` is the EXACT canonical JSON that was digested (byte-faithful round-trip → replay
+ * reads back precisely what was recorded). Inert today: an empty resolved set → one constant-id row.
+ */
+export const constraintSet = schedulingSchema.table(
+  'constraint_set',
+  {
+    id: text('id').primaryKey(), // the content digest (sha256 of the canonical snapshot)
+    tenantId: text('tenant_id').notNull(),
+    content: text('content').notNull(), // canonical JSON of the ConstraintSetSnapshot (as digested)
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ tenantIdx: index('constraint_set_tenant_idx').on(t.tenantId) }),
+)
+
+/**
  * Schedule version (§4.9) — a versioned schedule snapshot; never edited in place
  * (D6). `solve` → `draft`; commit → `committed` + supersede prior (AS11).
  * Intra-schema FKs only (O2).
@@ -54,6 +72,10 @@ export const scheduleVersion = schedulingSchema.table(
     // resolved part/routing at. A deliberate, recorded anchor — reconstruction replays THIS value,
     // never re-defaults to now. Null for versions built before Layer 0.
     masterDataAsof: timestamp('master_data_asof', { withTimezone: true }),
+    // S1.4 (D6): the resolved constraint-set snapshot this version was built under (content-addressed →
+    // constraint_set.id). Nullable, mirroring masterDataAsof's null-tolerance for versions built before S1.4;
+    // reconstruction replays THIS recorded ref, never re-resolves from current config.
+    constraintSetRef: text('constraint_set_ref').references(() => constraintSet.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

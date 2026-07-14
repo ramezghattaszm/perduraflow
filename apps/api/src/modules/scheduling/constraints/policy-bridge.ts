@@ -1,5 +1,15 @@
+import { createHash } from 'node:crypto'
 import { CONSTRAINT_POLICIES, type ConstraintMode, type RationaleFactor, type ResolvedConstraintPolicy } from '@perduraflow/contracts'
 import type { Constraint, ScheduleModel } from './types'
+import { VOCABULARY_VERSION } from './types'
+
+/**
+ * The sentinel line key for the PLANT-level (no-line) resolution when serializing (S1.4). `byLine` is keyed
+ * by `string | null`; JSON has no null key, so the null (plant) scope is emitted under this fixed sentinel.
+ * `_` is outside the ULID alphabet (Crockford base32, uppercase), so it can never collide with a real
+ * `lineId`; the serializer sorts the keys as strings for a deterministic, stable digest.
+ */
+export const PLANT_SCOPE_KEY = '__plant__'
 
 /**
  * S1.3 — the mode → behavior bridge. Turns a per-constraint APPLICATION MODE (resolved from config,
@@ -39,6 +49,69 @@ export class ConstraintPolicyResolution {
     const line = this.resourceLine.get(resourceId) ?? null
     return this.byLine.get(line)?.modes[constraintId] ?? null
   }
+
+  /**
+   * S1.4 — canonical serialization of THIS instance's resolved policies per scope (the D6 snapshot's policy
+   * half). A **method on the class** so the snapshot serializes the SAME object the bridge evaluates against
+   * (`byLine`) — never a parallel re-derivation from config, which is exactly the drift D-S1.3-7 prevents.
+   * Serializes the REAL content ALWAYS (no `isEmpty` short-circuit — that is a registry check, not a check on
+   * this instance): the constant empty digest today is EMERGENT because `byLine` is empty, not special-cased.
+   * The null (plant) line key is emitted under {@link PLANT_SCOPE_KEY}; lines + modes are sorted for a stable
+   * digest. `resourceLine` (resource→line topology) is master-data, reconstructable at replay from the
+   * version's resources — it is NOT policy, so it is not part of the resolved SET.
+   */
+  serialize(): { policies: { line: string; modes: { id: string; mode: ConstraintMode; threshold: number | null }[] }[] } {
+    const policies = [...this.byLine.entries()]
+      .map(([line, policy]) => ({
+        line: line ?? PLANT_SCOPE_KEY,
+        modes: Object.keys(policy.modes)
+          .sort()
+          .map((id) => ({ id, mode: policy.modes[id]!.mode, threshold: policy.modes[id]!.threshold })),
+      }))
+      .sort((a, b) => (a.line < b.line ? -1 : a.line > b.line ? 1 : 0))
+    return { policies }
+  }
+}
+
+/**
+ * The D6 resolved-constraint-set snapshot (S1.4) — content-addressed onto every committed `schedule_version`.
+ * Two halves, both needed to REPLAY: the **resolved policies per scope** (`resolution.serialize()`) AND the
+ * **registry identity** — which constraints existed + their `vocabularyVersion` (from
+ * {@link MODE_GOVERNED_CONSTRAINTS}, the predicates the bridge actually uses) + the framework
+ * {@link VOCABULARY_VERSION}. A set that records modes but not which constraints existed cannot be replayed.
+ * **Empty/constant while inert** (both registries empty) — emergent, not special-cased.
+ */
+export interface ConstraintSetSnapshot {
+  vocabularyVersion: string
+  constraints: { id: string; vocabularyVersion: string }[]
+  policies: { line: string; modes: { id: string; mode: ConstraintMode; threshold: number | null }[] }[]
+}
+
+export function buildConstraintSet(resolution: ConstraintPolicyResolution): ConstraintSetSnapshot {
+  return {
+    vocabularyVersion: VOCABULARY_VERSION,
+    constraints: MODE_GOVERNED_CONSTRAINTS.map((g) => ({ id: g.constraintId, vocabularyVersion: g.constraint.vocabularyVersion })).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+    policies: resolution.serialize().policies,
+  }
+}
+
+/** Recursively key-sorted JSON so the content digest is field-order-independent (matches the harnesses). */
+const canonicalize = (v: unknown): unknown =>
+  v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, canonicalize((v as Record<string, unknown>)[k])]))
+    : Array.isArray(v)
+      ? v.map(canonicalize)
+      : v
+
+/** The EXACT canonical JSON that is digested — stored as `constraint_set.content` so the persisted blob is
+ *  byte-faithful to what the digest addresses (replay reads back precisely what was recorded). */
+export function canonicalConstraintSetJson(set: ConstraintSetSnapshot): string {
+  return JSON.stringify(canonicalize(set))
+}
+
+/** The content address (SHA-256) of a snapshot — the `constraint_set.id` / `schedule_version.constraint_set_ref`. */
+export function digestConstraintSet(set: ConstraintSetSnapshot): string {
+  return createHash('sha256').update(canonicalConstraintSetJson(set)).digest('hex')
 }
 
 /** A constraint whose APPLICATION is config-governed — its predicate paired with the id its mode resolves by. */
@@ -113,20 +186,22 @@ export function deriveVetoConstraints(
 }
 
 /**
- * THE production seam — the exact veto set the solve threads into `sequence()`: pre-resolve the per-line
- * policy, then derive the S1.2 veto from the {@link MODE_GOVERNED_CONSTRAINTS} registry. `scheduling.service`
- * calls ONLY this (no ad-hoc veto array), so a test can call the SAME function and assert what production
- * actually passes is empty — closing the gap that a non-registry veto could be built and threaded past the
- * static guard. **Empty while inert** (empty registry).
+ * THE production seam — the exact constraint application the solve uses: pre-resolve the per-line policy ONCE,
+ * derive the S1.2 veto from the {@link MODE_GOVERNED_CONSTRAINTS} registry, and hand back **both** the derived
+ * `veto` (threaded into `sequence()`) AND the `resolution` (the SAME object the veto evaluates against — S1.4
+ * snapshots it via {@link buildConstraintSet}, never a parallel re-derivation). `scheduling.service` calls
+ * ONLY this (no ad-hoc veto array, no second config resolution), so a test can call the SAME function and
+ * assert what production actually threads is empty. **Empty while inert** (empty registry).
  */
 export async function buildSolveVetoConstraints(
   read: { resolveConstraintPolicy(tenantId: string, plantId?: string, lineId?: string): Promise<ResolvedConstraintPolicy> },
   tenantId: string,
   plantId: string,
   resources: readonly { id: string; lineId: string | null }[],
-): Promise<{ preplaceVeto: Constraint[]; feasibilityReject: Constraint[] }> {
+): Promise<{ resolution: ConstraintPolicyResolution; veto: { preplaceVeto: Constraint[]; feasibilityReject: Constraint[] } }> {
   const resolution = await resolveConstraintPolicies(read, tenantId, plantId, resources)
-  return deriveVetoConstraints(MODE_GOVERNED_CONSTRAINTS, resolution)
+  const veto = deriveVetoConstraints(MODE_GOVERNED_CONSTRAINTS, resolution)
+  return { resolution, veto }
 }
 
 /**

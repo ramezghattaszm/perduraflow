@@ -87,8 +87,8 @@ describe('S1.2 is genuinely inert (no veto registered, no tool consumed) — pro
       { id: 'R2', lineId: null },
     ]
     const threaded = await buildSolveVetoConstraints(emptyRead, 'T1', 'P1', resources)
-    expect(threaded.preplaceVeto).toEqual([])
-    expect(threaded.feasibilityReject).toEqual([])
+    expect(threaded.veto.preplaceVeto).toEqual([])
+    expect(threaded.veto.feasibilityReject).toEqual([])
   })
 
   it('NO TOOL CONSUMED — toolId is named only by the sequencer (no seed sets it, no consumer reads it)', () => {
