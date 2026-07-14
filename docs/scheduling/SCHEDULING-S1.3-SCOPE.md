@@ -90,4 +90,4 @@ Plus: config resolution identical (`lineId` threaded-but-no-line-data → identi
 
 ---
 
-*BUILT — Commit 0 `d703f7f` / 0b `070effc` (harnesses), 1 `ac57689` (open the objective), 2 `0523e78` (mode group + line rung), 3 `1f00cdd` (bridge), 4 close-out (this commit: seam assertion, per-group digests, runtime registered-key + one-dominant invariants, permanent line/dominance tests). All INERT — no constraint carries a mode; hard/soft/slack is a capability, not in use. Three proofs byte-identical. First consumers: D28/D8 (S2), D9/D11/JIS (S2/S3). Pending: S1.4 (D6 audit snapshot — consumes `ConstraintPolicyResolution`).*
+*BUILT — Commit 0 `d703f7f` / 0b `070effc` (harnesses), 1 `ac57689` (open the objective), 2 `0523e78` (mode group + line rung), 3 `1f00cdd` (bridge), 4 `54eab21` close-out ( seam assertion, per-group digests, runtime registered-key + one-dominant invariants, permanent line/dominance tests). All INERT — no constraint carries a mode; hard/soft/slack is a capability, not in use. Three proofs byte-identical. First consumers: D28/D8 (S2), D9/D11/JIS (S2/S3). Pending: S1.4 (D6 audit snapshot — consumes `ConstraintPolicyResolution`).*

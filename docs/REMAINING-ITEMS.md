@@ -195,7 +195,7 @@ The shift model extended schema/engine but didn't carry new fields to the admin 
 > - Commit 1 — open the objective (Option B, keyed/registry-driven; dominance guard generalized) — `ac57689`
 > - Commit 2 — per-constraint mode group + line-rung threading (inert) — `0523e78`
 > - Commit 3 — the mode→behavior bridge (inert) — `1f00cdd`
-> - Commit 4 — close-out: seam-level veto assertion, per-group config digests (D-S1.3-8), the runtime registered-key + exactly-one-dominant invariants, permanent line-resolution + dominance tests, full three-proof sweep — `<this commit>`
+> - Commit 4 — close-out: seam-level veto assertion, per-group config digests (D-S1.3-8), the runtime registered-key + exactly-one-dominant invariants, permanent line-resolution + dominance tests, full three-proof sweep — `54eab21`
 >
 > **Honesty (do not overclaim):** S1.3 changed **how policy is expressed and enforced, not behavior** — **no constraint carries a mode**; hard/soft/slack is a capability, **not in use**. **D28/D8 (S2)** and **D9 single-location / tool-life + D11/JIS (S2/S3)** are the **first consumers** — registering one trips the honesty guard by design.
 > - **Pending: S1.4** (the D6 resolved-constraint-set audit snapshot — it **consumes `ConstraintPolicyResolution`**, the pre-resolved map from D-S1.3-7; that is why the map is a first-class object). Then **S2** builds the hard-constraint correctness set (below) as registered constraints on this substrate.
